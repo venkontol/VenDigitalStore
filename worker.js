@@ -1,3 +1,5 @@
+// VenDigitalStore v2 - trigger deploy
+
 const MENU = {
   reply_markup: {
     inline_keyboard: [
