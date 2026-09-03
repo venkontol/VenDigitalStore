@@ -143,7 +143,7 @@ async function getDefaultGlobalPrice(env) {
 async function getWhatsAppPrice(env, country) {
   const code = countryCode(country);
 
-  if (code === "ID") {
+  if (code === "ID" || isIndonesia(country)) {
     return getDefaultIndonesiaPrice(env);
   }
 
@@ -205,36 +205,21 @@ async function findCatalogProduct(env, catalogProductId) {
 export async function showCountries(env, chatId, messageId = null, page = 0) {
   try {
     const countries = await getCountries(env);
-    const prepared = [];
 
-    for (const country of countries) {
-      const services = await getServices(env, country.id);
-      let cheapest = null;
-
-      for (const service of services) {
-        const products = await getProducts(env, country.id, service.id);
-        if (!products.length) continue;
-
-        const product = products[0];
-        const price = await getSellingPrice(env, country, service, product);
-
-        if (cheapest === null || price < cheapest.price) {
-          cheapest = { price, service, product };
-        }
-      }
-
-      if (cheapest) {
-        prepared.push({ country, price: cheapest.price });
-      }
+    if (!countries.length) {
+      return replaceTrackedBotMessage(
+        env,
+        chatId,
+        "❌ Tidak ada negara tersedia dari SMSCode.",
+        backKeyboard()
+      );
     }
 
-    prepared.sort((a, b) => a.price - b.price);
-
     const perPage = 12;
-    const totalPages = Math.max(1, Math.ceil(prepared.length / perPage));
+    const totalPages = Math.max(1, Math.ceil(countries.length / perPage));
     const safePage = Math.min(Math.max(Number(page) || 0, 0), totalPages - 1);
     const start = safePage * perPage;
-    const items = prepared.slice(start, start + perPage);
+    const items = countries.slice(start, start + perPage);
 
     const rows = [];
 
@@ -242,29 +227,17 @@ export async function showCountries(env, chatId, messageId = null, page = 0) {
       const first = items[i];
       const second = items[i + 1];
 
-      const firstHot = start + i === 0 ? "🔥 HOT " : "";
       const row = [
         {
-          text:
-            firstHot +
-            (first.country.emoji || "🌍") +
-            " " +
-            first.country.name +
-            " • " +
-            money(first.price),
-          callback_data: "n1c:" + countryId(first.country)
+          text: (first.emoji || "🌍") + " " + first.name,
+          callback_data: "n1c:" + countryId(first)
         }
       ];
 
       if (second) {
         row.push({
-          text:
-            (second.country.emoji || "🌍") +
-            " " +
-            second.country.name +
-            " • " +
-            money(second.price),
-          callback_data: "n1c:" + countryId(second.country)
+          text: (second.emoji || "🌍") + " " + second.name,
+          callback_data: "n1c:" + countryId(second)
         });
       }
 
@@ -291,10 +264,7 @@ export async function showCountries(env, chatId, messageId = null, page = 0) {
     return replaceTrackedBotMessage(
       env,
       chatId,
-      "📱 NOKOS 1\n\n" +
-        "Urutan: termurah → termahal\n" +
-        "🔥 HOT = harga termurah\n\n" +
-        "Pilih negara:",
+      "📱 NOKOS 1\n\nPilih negara:",
       inlineKeyboard(rows)
     );
   } catch (error) {
@@ -324,55 +294,33 @@ export async function showServices(env, chatId, countryValue, messageId = null) 
     }
 
     const services = await getServices(env, country.id);
-    const prepared = [];
 
-    for (const service of services) {
-      const products = await getProducts(env, country.id, service.id);
-      if (!products.length) continue;
-
-      const product = products[0];
-      const price = await getSellingPrice(env, country, service, product);
-      prepared.push({ service, price });
-    }
-
-    prepared.sort((a, b) => a.price - b.price);
-
-    if (!prepared.length) {
+    if (!services.length) {
       return replaceTrackedBotMessage(
         env,
         chatId,
-        "❌ Tidak ada layanan berstok untuk " + country.name + ".",
+        "❌ Tidak ada layanan untuk " + country.name + ".",
         inlineKeyboard([[callbackButton("⬅️ Negara", "nokos1")]])
       );
     }
 
     const rows = [];
 
-    for (let i = 0; i < prepared.length; i += 2) {
-      const first = prepared[i];
-      const second = prepared[i + 1];
-
-      const firstText =
-        (i === 0 ? "🔥 HOT " : "") +
-        "📱 " +
-        first.service.name +
-        " • " +
-        money(first.price);
+    for (let i = 0; i < services.length; i += 2) {
+      const first = services[i];
+      const second = services[i + 1];
 
       const row = [
         {
-          text: firstText,
-          callback_data:
-            "n1s:" + country.id + ":" + serviceId(first.service)
+          text: "📱 " + first.name,
+          callback_data: "n1s:" + country.id + ":" + serviceId(first)
         }
       ];
 
       if (second) {
         row.push({
-          text:
-            "📱 " + second.service.name + " • " + money(second.price),
-          callback_data:
-            "n1s:" + country.id + ":" + serviceId(second.service)
+          text: "📱 " + second.name,
+          callback_data: "n1s:" + country.id + ":" + serviceId(second)
         });
       }
 
@@ -388,10 +336,7 @@ export async function showServices(env, chatId, countryValue, messageId = null) 
         (country.emoji || "🌍") +
         " " +
         country.name +
-        "\n\n" +
-        "Urutan: termurah → termahal\n" +
-        "🔥 HOT = harga termurah\n\n" +
-        "Pilih platform:",
+        "\n\nPilih platform:",
       inlineKeyboard(rows)
     );
   } catch (error) {
@@ -441,13 +386,6 @@ export async function showProducts(
     }
 
     const products = await getProducts(env, country.id, service.id);
-    const sellPrice = await getSellingPrice(
-      env,
-      country,
-      service,
-      products[0] || {}
-    );
-
     const filtered = [];
 
     for (const product of products) {
@@ -477,6 +415,8 @@ export async function showProducts(
       );
     }
 
+    filtered.sort((a, b) => a.price - b.price);
+
     const rows = filtered.slice(0, 20).map((item, index) => {
       const hot = index === 0 ? "🔥 HOT " : "";
       return [
@@ -496,6 +436,8 @@ export async function showProducts(
 
     rows.push([callbackButton("⬅️ Layanan", "n1c:" + country.id)]);
 
+    const displayPrice = filtered[0]?.price || 0;
+
     return replaceTrackedBotMessage(
       env,
       chatId,
@@ -507,8 +449,8 @@ export async function showProducts(
         "Platform: " +
         service.name +
         "\n\n" +
-        "Harga jual: " +
-        money(sellPrice) +
+        "Harga mulai: " +
+        money(displayPrice) +
         "\n\n" +
         "Pilih produk/tier:",
       inlineKeyboard(rows)
@@ -576,6 +518,7 @@ async function saveNokos1Order(env, telegramId, smsOrder, sellPrice, meta = {}) 
 export async function buyNokos1(env, chatId, telegramId, catalogProductId) {
   try {
     const found = await findCatalogProduct(env, catalogProductId);
+
     if (!found) {
       return replaceTrackedBotMessage(
         env,
@@ -599,6 +542,7 @@ export async function buyNokos1(env, chatId, telegramId, catalogProductId) {
     }
 
     const u = await user(env, telegramId);
+
     if (number(u?.balance) < sellPrice) {
       return replaceTrackedBotMessage(
         env,
@@ -703,7 +647,7 @@ export async function buyNokos1(env, chatId, telegramId, catalogProductId) {
         money(newBalance) +
         "\n\n" +
         "⏳ Menunggu OTP...\n" +
-        "Nomor sudah dikirim di pesan terpisah (tidak akan dihapus).",
+        "Nomor sudah dikirim di pesan terpisah.",
       inlineKeyboard([
         [callbackButton("🔄 Cek OTP", "otp:" + smsOrder.id)],
         [callbackButton("❌ Batalkan", "cancel:" + smsOrder.id)],
