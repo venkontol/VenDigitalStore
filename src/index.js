@@ -17,13 +17,11 @@ import {
 } from "./telegram.js";
 
 import {
-  handleNokos1Callback,
-  showCountries
+  handleNokos1Callback
 } from "./nokos1.js";
 
 import {
   handleNokos2Callback,
-  showNokos2Menu,
   ownerSendOtp,
   ownerDeleteNokos2,
   ownerAddNokos2
@@ -60,7 +58,7 @@ const MENU = inlineKeyboard([
   [callbackButton("🆘 Bantuan", "help")]
 ]);
 
-async function showMainMenu(env, chatId, messageId = null) {
+async function showMainMenu(env, chatId) {
   return replaceTrackedBotMessage(
     env,
     chatId,
@@ -167,24 +165,51 @@ async function showOrders(env, chatId, telegramId) {
   }
 }
 
-async function showHelp(env, chatId) {
-  return replaceTrackedBotMessage(
+async function showHelpCustomer(env, chatId) {
+  return sendPermanentMessage(
     env,
     chatId,
-    "🆘 BANTUAN\n\n" +
-      "/start — Menu utama\n" +
-      "/cek — Kirim bukti deposit\n" +
-      "/harga — Lihat harga NOKOS 1\n" +
-      "/bantuan — Bantuan\n\n" +
-      "💳 Deposit:\n" +
-      "Pilih Deposit → ketik nominal → transfer QRIS → /cek → kirim bukti.\n\n" +
-      "📱 NOKOS 1:\n" +
-      "Nomor virtual dari SMSCode.\n\n" +
-      "📦 NOKOS 2:\n" +
-      "Stok WhatsApp internal VenDigitalStore.\n\n" +
+    "🆘 DAFTAR COMMAND CUSTOMER\n\n" +
+      "/start — Mulai bot & tampilkan menu utama\n" +
+      "/help — Tampilkan daftar command customer\n" +
+      "/cek — Cek deposit & kirim bukti transfer\n" +
+      "/harga — Lihat harga NOKOS 1\n\n" +
+      "📌 Lewat tombol menu:\n" +
+      "📱 NOKOS 1 — Nomor virtual SMSCode\n" +
+      "📦 NOKOS 2 — Stok WhatsApp internal\n" +
+      "💰 Saldo — Cek saldo\n" +
+      "💳 Deposit — Isi saldo via QRIS\n" +
+      "📋 Pesanan Saya — Riwayat order\n" +
+      "👤 Akun — Info akun kamu\n\n" +
       "📞 Owner:\n" +
-      "https://wa.me/6288707201970",
-    backKeyboard()
+      "https://wa.me/6288707201970"
+  );
+}
+
+async function showOwnerPanel(env, chatId) {
+  if (!(await owner(env, chatId))) {
+    return sendPermanentMessage(
+      env,
+      chatId,
+      "❌ Panel Owner hanya bisa diakses oleh owner."
+    );
+  }
+
+  return sendPermanentMessage(
+    env,
+    chatId,
+    "👑 PANEL OWNER\n\n" +
+      "📌 Command khusus owner:\n\n" +
+      "/setharga Vietnam 5000 — Atur harga negara\n" +
+      "/setharga Indonesia 3000 — Atur harga Indonesia\n" +
+      "/setharga default 4000 — Atur harga global\n" +
+      "/harga — Lihat harga aktif\n\n" +
+      "/setqris — Ganti gambar QRIS deposit\n" +
+      "/konfirmasi ID — Konfirmasi deposit customer\n\n" +
+      "/otp A7K2 123456 — Kirim OTP NOKOS 2\n" +
+      "/addnokos2 Indonesia 628xxxxxxxxxx — Tambah stok NOKOS 2\n" +
+      "/delnokos2 628xxxxxxxxxx — Hapus stok NOKOS 2\n\n" +
+      "/owner — Tampilkan panel ini"
   );
 }
 
@@ -193,7 +218,7 @@ async function handleCallback(env, callbackQuery) {
     const data = context.data;
 
     if (data === "main") {
-      return showMainMenu(env, context.chatId, context.messageId);
+      return showMainMenu(env, context.chatId);
     }
 
     if (data === "balance") {
@@ -209,7 +234,7 @@ async function handleCallback(env, callbackQuery) {
     }
 
     if (data === "help") {
-      return showHelp(env, context.chatId);
+      return showHelpCustomer(env, context.chatId);
     }
 
     if (data === "deposit") {
@@ -254,12 +279,20 @@ async function handleMessage(env, message) {
   if (!message.text) return;
 
   const text = String(message.text || "").trim();
-  const { command, args, raw } = parseCommand(text);
+  const { command } = parseCommand(text);
 
   await register(env, message.from);
 
   if (command === "start") {
     return showMainMenu(env, message.chat.id);
+  }
+
+  if (command === "help" || command === "bantuan") {
+    return showHelpCustomer(env, message.chat.id);
+  }
+
+  if (command === "owner" || command === "admin") {
+    return showOwnerPanel(env, message.chat.id);
   }
 
   if (command === "cek") {
@@ -268,10 +301,6 @@ async function handleMessage(env, message) {
 
   if (command === "harga") {
     return showPriceList(env, message.chat.id);
-  }
-
-  if (command === "bantuan" || command === "help") {
-    return showHelp(env, message.chat.id);
   }
 
   if (command === "setharga") {
@@ -298,29 +327,6 @@ async function handleMessage(env, message) {
     return ownerAddNokos2(env, message);
   }
 
-  if (command === "admin") {
-    if (!(await owner(env, message.chat.id))) {
-      return sendPermanentMessage(
-        env,
-        message.chat.id,
-        "❌ Hanya owner."
-      );
-    }
-
-    return sendPermanentMessage(
-      env,
-      message.chat.id,
-      "👑 PANEL OWNER\n\n" +
-        "/setharga Vietnam 5000\n" +
-        "/harga\n" +
-        "/setqris\n" +
-        "/konfirmasi ID\n" +
-        "/otp A7K2 123456\n" +
-        "/addnokos2 Indonesia 628xxxxxxxxxx\n" +
-        "/delnokos2 628xxxxxxxxxx"
-    );
-  }
-
   if (/^\d+$/.test(text)) {
     const handled = await createDepositRequest(env, message);
     if (handled) return;
@@ -329,7 +335,7 @@ async function handleMessage(env, message) {
   return sendPermanentMessage(
     env,
     message.chat.id,
-    "Gunakan /start untuk membuka menu."
+    "Gunakan /start untuk membuka menu.\nAtau ketik /help untuk daftar command."
   );
 }
 
@@ -342,4 +348,4 @@ export async function handleUpdate(env, update) {
 
 export async function handleScheduled(env) {
   return null;
-}
+    }
