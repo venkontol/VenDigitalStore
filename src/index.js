@@ -175,8 +175,8 @@ async function showHelpCustomer(env, chatId) {
       "/cek — Cek deposit & kirim bukti transfer\n" +
       "/harga — Lihat harga NOKOS 1\n\n" +
       "📌 Lewat tombol menu:\n" +
-      "📱 NOKOS 1 — Nomor virtual SMSCode\n" +
-      "📦 NOKOS 2 — Stok WhatsApp internal\n" +
+      "📱 NOKOS 1 — System Otomatis\n" +
+      "📦 NOKOS 2 — WhatsApp internal\n" +
       "💰 Saldo — Cek saldo\n" +
       "💳 Deposit — Isi saldo via QRIS\n" +
       "📋 Pesanan Saya — Riwayat order\n" +
