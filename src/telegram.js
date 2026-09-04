@@ -1,1289 +1,1247 @@
 import {
-  tg,
-  send,
-  sendPhoto,
-  deleteMessage,
-  answerCallback,
-  editOrSend,
-  inlineKeyboard,
-  callbackButton,
-  copyButton,
-  getMessageId,
-  getChatId,
-  register,
-  owner,
-  now
+  addBalance,
+  dbFirst,
+  dbRun,
+  money,
+  now,
+  saveSetting,
+  setting
 } from "./utils.js";
 
-export const BOT_MESSAGES = new Map();
+const TELEGRAM_API = "https://api.telegram.org";
 
-export async function saveBotMessage(
-  chatId,
-  messageId
-) {
-  if (!chatId || !messageId) {
-    return;
-  }
-
-  const key = String(chatId);
-
-  if (!BOT_MESSAGES.has(key)) {
-    BOT_MESSAGES.set(key, []);
-  }
-
-  const list = BOT_MESSAGES.get(key);
-
-  if (!list.includes(messageId)) {
-    list.push(messageId);
-  }
-
-  if (list.length > 30) {
-    list.splice(0, list.length - 30);
-  }
-}
-
-export async function forgetBotMessage(
-  chatId,
-  messageId
-) {
-  const key = String(chatId);
-  const list = BOT_MESSAGES.get(key);
-
-  if (!list) {
-    return;
-  }
-
-  const index =
-    list.indexOf(messageId);
-
-  if (index !== -1) {
-    list.splice(index, 1);
-  }
-}
-
-export async function deleteBotMessages(
-  env,
-  chatId,
-  keep = []
-) {
-  const key = String(chatId);
-  const list =
-    BOT_MESSAGES.get(key) || [];
-
-  const keepSet =
-    new Set(
-      keep
-        .filter(Boolean)
-        .map(Number)
-    );
-
-  const targets =
-    list.filter(
-      id => !keepSet.has(Number(id))
-    );
-
-  for (const messageId of targets) {
-    await deleteMessage(
-      env,
-      chatId,
-      messageId
-    );
-
-    await forgetBotMessage(
-      chatId,
-      messageId
-    );
-  }
-}
-
-export async function sendBot(
-  env,
-  chatId,
-  text,
-  extra = {},
-  options = {}
-) {
-  const message =
-    await send(
-      env,
-      chatId,
-      text,
-      extra
-    );
-
-  const messageId =
-    getMessageId(message);
-
-  if (
-    messageId &&
-    options.track !== false
-  ) {
-    await saveBotMessage(
-      chatId,
-      messageId
-    );
-  }
-
-  return message;
-}
-
-export async function sendBotPhoto(
-  env,
-  chatId,
-  photo,
-  caption = "",
-  extra = {},
-  options = {}
-) {
-  const message =
-    await sendPhoto(
-      env,
-      chatId,
-      photo,
-      caption,
-      extra
-    );
-
-  const messageId =
-    getMessageId(message);
-
-  if (
-    messageId &&
-    options.track !== false
-  ) {
-    await saveBotMessage(
-      chatId,
-      messageId
-    );
-  }
-
-  return message;
-}
-
-export async function replaceBotMessage(
-  env,
-  chatId,
-  oldMessageId,
-  text,
-  extra = {}
-) {
-  if (oldMessageId) {
-    await deleteMessage(
-      env,
-      chatId,
-      oldMessageId
-    );
-
-    await forgetBotMessage(
-      chatId,
-      oldMessageId
-    );
-  }
-
-  await deleteBotMessages(
-    env,
-    chatId
-  );
-
-  return sendBot(
-    env,
-    chatId,
-    text,
-    extra
-  );
-}
-
-export async function replaceTrackedBotMessage(
-  env,
-  chatId,
-  text,
-  extra = {},
-  keep = []
-) {
-  await deleteBotMessages(
-    env,
-    chatId,
-    keep
-  );
-
-  return sendBot(
-    env,
-    chatId,
-    text,
-    extra
-  );
-}
-
-export async function sendPermanentMessage(
-  env,
-  chatId,
-  text,
-  extra = {}
-) {
-  return sendBot(
-    env,
-    chatId,
-    text,
-    extra,
-    {
-      track: false
-    }
-  );
-}
-
-export async function sendPermanentPhoto(
-  env,
-  chatId,
-  photo,
-  caption = "",
-  extra = {}
-) {
-  return sendBotPhoto(
-    env,
-    chatId,
-    photo,
-    caption,
-    extra,
-    {
-      track: false
-    }
-  );
-}
-
-export async function sendNumberMessage(
-  env,
-  chatId,
-  number,
-  orderId,
-  extra = {}
-) {
-  const value =
-    String(number || "").trim();
-
-  if (!value) {
-    return sendPermanentMessage(
-      env,
-      chatId,
-      "❌ Nomor tidak tersedia.",
-      extra
-    );
-  }
-
-  const rows = [
-    [
-      copyButton(
-        value,
-        "📋 Copy Nomor"
-      )
-    ]
-  ];
-
-  if (orderId) {
-    rows.push([
-      callbackButton(
-        "❌ Batalkan",
-        "cancel:" + orderId
-      ),
-      callbackButton(
-        "🔐 Minta OTP",
-        "requestotp:" + orderId
-      )
-    ]);
-  }
-
-  return sendPermanentMessage(
-    env,
-    chatId,
-    "📱 NOMOR WHATSAPP\n\n" +
-      "Nomor: " +
-      value +
-      "\n\n" +
-      "Silakan gunakan tombol di bawah.",
-    {
-      ...extra,
-      reply_markup: {
-        inline_keyboard: rows
-      }
-    }
-  );
-}
-
-export async function sendOtpMessage(
-  env,
-  chatId,
-  number,
-  otp,
-  orderId,
-  extra = {}
-) {
-  const value =
-    String(number || "").trim();
-
-  const code =
-    String(otp || "").trim();
-
-  const rows = [
-    [
-      copyButton(
-        code,
-        "📋 Copy OTP"
-      )
-    ]
-  ];
-
-  if (orderId) {
-    rows.push([
-      callbackButton(
-        "📱 Lihat Nomor",
-        "shownumber:" + orderId
-      )
-    ]);
-  }
-
-  return sendPermanentMessage(
-    env,
-    chatId,
-    "🔐 KODE OTP\n\n" +
-      "Nomor: " +
-      value +
-      "\n" +
-      "OTP: " +
-      code +
-      "\n\n" +
-      "Gunakan kode tersebut sebelum kedaluwarsa.",
-    {
-      ...extra,
-      reply_markup: {
-        inline_keyboard: rows
-      }
-    }
-  );
-}
-
-export async function sendOwnerOrder(
-  env,
-  data = {}
-) {
-  const text =
-    "📱 ORDER MASUK\n\n" +
-    "ID: " +
-    String(data.id || "-") +
-    "\n" +
-    "Customer: " +
-    String(data.telegramId || "-") +
-    "\n" +
-    "Nama: " +
-    String(data.name || "-") +
-    "\n" +
-    "Username: " +
-    String(
-      data.username
-        ? "@" + data.username
-        : "-"
-    ) +
-    "\n" +
-    "Negara: " +
-    String(data.country || "-") +
-    "\n" +
-    "Service: " +
-    String(data.service || "-") +
-    "\n" +
-    "Operator: " +
-    String(data.operator || "-") +
-    "\n" +
-    "Nomor: " +
-    String(data.phone || "-") +
-    "\n" +
-    "Harga: " +
-    String(data.price || "-") +
-    "\n" +
-    "Status: " +
-    String(data.status || "PENDING");
-
-  const rows = [];
-
-  if (data.id) {
-    rows.push([
-      callbackButton(
-        "🔐 Minta OTP",
-        "owner_requestotp:" +
-          data.id
-      ),
-      callbackButton(
-        "❌ Batalkan",
-        "owner_cancel:" +
-          data.id
-      )
-    ]);
-  }
-
-  return sendPermanentMessage(
-    env,
-    env.OWNER_ID,
-    text,
-    {
-      reply_markup: {
-        inline_keyboard: rows
-      }
-    }
-  );
-}
-
-export async function sendOwnerOtpRequest(
-  env,
-  data = {}
-) {
-  const text =
-    "🔐 PERMINTAAN OTP\n\n" +
-    "ID: " +
-    String(data.id || "-") +
-    "\n" +
-    "Customer: " +
-    String(data.telegramId || "-") +
-    "\n" +
-    "Nama: " +
-    String(data.name || "-") +
-    "\n" +
-    "Username: " +
-    String(
-      data.username
-        ? "@" + data.username
-        : "-"
-    ) +
-    "\n" +
-    "Nomor: " +
-    String(data.phone || "-") +
-    "\n" +
-    "Negara: " +
-    String(data.country || "-") +
-    "\n" +
-    "Service: " +
-    String(data.service || "-") +
-    "\n\n" +
-    "Kirim OTP dengan format:\n" +
-    "/otp " +
-    String(data.id || "XXXX") +
-    " 123456";
-
-  return sendPermanentMessage(
-    env,
-    env.OWNER_ID,
-    text
-  );
-}
-
-export async function notifyOwner(
-  env,
-  text,
-  extra = {}
-) {
-  if (!env?.OWNER_ID) {
-    return null;
-  }
-
-  return sendPermanentMessage(
-    env,
-    env.OWNER_ID,
-    text,
-    extra
-  );
-}
-
-export async function notifyCustomer(
-  env,
-  telegramId,
-  text,
-  extra = {}
-) {
-  if (!telegramId) {
-    return null;
-  }
-
-  return sendPermanentMessage(
-    env,
-    telegramId,
-    text,
-    extra
-  );
-}
-
-export async function answer(
-  env,
-  callbackQuery,
-  text = "",
-  alert = false
-) {
-  return answerCallback(
-    env,
-    callbackQuery?.id,
-    text,
-    alert
-  );
-}
-
-export async function callbackContext(
-  env,
-  callbackQuery
-) {
-  const chatId =
-    getChatId(
-      callbackQuery?.message
-    );
-
-  const messageId =
-    callbackQuery
-      ?.message
-      ?.message_id || null;
-
-  const userData =
-    callbackQuery?.from;
-
-  if (userData) {
-    await register(
-      env,
-      userData
-    );
-  }
-
-  return {
-    chatId,
-    messageId,
-    user: userData,
-    data:
-      String(
-        callbackQuery?.data || ""
-      ),
-    queryId:
-      callbackQuery?.id || null
-  };
-}
-
-export async function parseCallback(
-  data
-) {
-  const value =
-    String(data || "");
-
-  const parts =
-    value.split(":");
-
-  return {
-    action:
-      parts.shift() || "",
-    args: parts
-  };
-}
-
-export async function safeCallback(
-  env,
-  callbackQuery,
-  handler
-) {
-  const context =
-    await callbackContext(
-      env,
-      callbackQuery
-    );
-
-  await answer(
-    env,
-    callbackQuery
-  );
-
-  try {
-    return await handler(
-      context
-    );
-  } catch (error) {
-    const message =
-      error?.message ||
-      "Terjadi kesalahan.";
-
-    if (
-      context.chatId
-    ) {
-      await sendBot(
-        env,
-        context.chatId,
-        "❌ Terjadi kesalahan.\n\n" +
-          message
-      );
-    }
-
-    return null;
-  }
-}
-
-export async function handleTelegramUpdate(
-  env,
-  update,
-  handlers = {}
-) {
-  if (!update) {
-    return {
-      ok: true,
-      ignored: true
-    };
-  }
-
-  if (
-    update.callback_query
-  ) {
-    if (
-      typeof handlers.callback ===
-      "function"
-    ) {
-      await handlers.callback(
-        update.callback_query
-      );
-    }
-
-    return {
-      ok: true,
-      type: "callback"
-    };
-  }
-
-  if (
-    update.message
-  ) {
-    if (
-      typeof handlers.message ===
-      "function"
-    ) {
-      await handlers.message(
-        update.message
-      );
-    }
-
-    return {
-      ok: true,
-      type: "message"
-    };
-  }
-
-  return {
-    ok: true,
-    ignored: true
-  };
-}
-
-export async function setWebhook(
-  env,
-  webhookUrl
-) {
-  return tg(
-    env,
-    "setWebhook",
-    {
-      url: webhookUrl,
-      allowed_updates: [
-        "message",
-        "callback_query"
-      ],
-      drop_pending_updates: false
-    }
-  );
-}
-
-export async function deleteWebhook(
-  env,
-  dropPending = false
-) {
-  return tg(
-    env,
-    "deleteWebhook",
-    {
-      drop_pending_updates:
-        Boolean(dropPending)
-    }
-  );
-}
-
-export async function getWebhookInfo(
-  env
-) {
-  return tg(
-    env,
-    "getWebhookInfo"
-  );
-}
-
-export async function getMe(
-  env
-) {
-  return tg(
-    env,
-    "getMe"
-  );
-}
-
-export async function sendTyping(
-  env,
-  chatId
-) {
-  return tg(
-    env,
-    "sendChatAction",
-    {
-      chat_id: chatId,
-      action: "typing"
-    }
-  );
-}
-
-export async function sendUploadPhotoAction(
-  env,
-  chatId
-) {
-  return tg(
-    env,
-    "sendChatAction",
-    {
-      chat_id: chatId,
-      action: "upload_photo"
-    }
-  );
-}
-
-export async function pinMessage(
-  env,
-  chatId,
-  messageId,
-  disableNotification = true
-) {
-  return tg(
-    env,
-    "pinChatMessage",
-    {
-      chat_id: chatId,
-      message_id: messageId,
-      disable_notification:
-        disableNotification
-    }
-  );
-}
-
-export async function unpinMessage(
-  env,
-  chatId,
-  messageId = null
-) {
-  const data = {
-    chat_id: chatId
-  };
-
-  if (messageId) {
-    data.message_id =
-      messageId;
-  }
-
-  return tg(
-    env,
-    "unpinChatMessage",
-    data
-  );
-}
-
-export function mainKeyboard() {
-  return inlineKeyboard([
-    [
-      callbackButton(
-        "📱 NOKOS 1",
-        "nokos1"
-      ),
-      callbackButton(
-        "📦 NOKOS 2",
-        "nokos2"
-      )
-    ],
-    [
-      callbackButton(
-        "💰 Saldo",
-        "balance"
-      ),
-      callbackButton(
-        "💳 Deposit",
-        "deposit"
-      )
-    ],
-    [
-      callbackButton(
-        "📋 Pesanan Saya",
-        "orders"
-      ),
-      callbackButton(
-        "👤 Akun",
-        "account"
-      )
-    ],
-    [
-      callbackButton(
-        "🆘 Bantuan",
-        "help"
-      )
-    ]
-  ]);
-}
-
-export function backKeyboard() {
-  return inlineKeyboard([
-    [
-      callbackButton(
-        "⬅️ Menu",
-        "main"
-      )
-    ]
-  ]);
-}
-
-export function orderKeyboard(
-  orderId
-) {
-  return inlineKeyboard([
-    [
-      callbackButton(
-        "❌ Batalkan",
-        "cancel:" + orderId
-      ),
-      callbackButton(
-        "🔐 Minta OTP",
-        "requestotp:" + orderId
-      )
-    ]
-  ]);
-}
-
-export function numberKeyboard(
-  orderId,
-  number
-) {
-  const rows = [
-    [
-      copyButton(
-        number,
-        "📋 Copy Nomor"
-      )
-    ]
-  ];
-
-  if (orderId) {
-    rows.push([
-      callbackButton(
-        "❌ Batalkan",
-        "cancel:" + orderId
-      ),
-      callbackButton(
-        "🔐 Minta OTP",
-        "requestotp:" + orderId
-      )
-    ]);
-  }
-
-  return inlineKeyboard(rows);
-}
-
-export function otpKeyboard(
-  orderId,
-  otp
-) {
-  const rows = [
-    [
-      copyButton(
-        otp,
-        "📋 Copy OTP"
-      )
-    ]
-  ];
-
-  if (orderId) {
-    rows.push([
-      callbackButton(
-        "📱 Lihat Nomor",
-        "shownumber:" + orderId
-      )
-    ]);
-  }
-
-  return inlineKeyboard(rows);
-}
-
-export async function ensureOwner(
-  env,
-  chatId
-) {
-  return owner(
-    env,
-    chatId
-  );
-}
-
-export function messageText(
-  message
-) {
+function getBotToken(env) {
   return String(
-    message?.text || ""
+    env?.TELEGRAM_BOT_TOKEN ||
+    env?.BOT_TOKEN ||
+    ""
   ).trim();
 }
 
-export function messagePhoto(
-  message
-) {
-  if (
-    !Array.isArray(
-      message?.photo
-    )
-  ) {
-    return null;
-  }
-
-  if (
-    !message.photo.length
-  ) {
-    return null;
-  }
-
-  return message.photo[
-    message.photo.length - 1
-  ];
+function getOwnerId(env) {
+  return String(
+    env?.TELEGRAM_OWNER_ID ||
+    env?.OWNER_ID ||
+    ""
+  ).trim();
 }
 
-export function messageDocument(
-  message
+function getWebhookSecret(env) {
+  return String(
+    env?.TELEGRAM_WEBHOOK_SECRET ||
+    env?.TELEGRAM_SECRET ||
+    ""
+  ).trim();
+}
+
+function getApiUrl(env, method) {
+  const token = getBotToken(env);
+
+  if (!token) {
+    throw new Error("TELEGRAM_BOT_TOKEN belum dikonfigurasi.");
+  }
+
+  return `${TELEGRAM_API}/bot${token}/${method}`;
+}
+
+async function telegramApi(env, method, payload = {}) {
+  const response = await fetch(
+    getApiUrl(env, method),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    }
+  );
+
+  const text = await response.text();
+
+  let data;
+
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Telegram API mengembalikan respons tidak valid. HTTP ${response.status}.`
+    );
+  }
+
+  if (!response.ok || !data?.ok) {
+    const description =
+      data?.description ||
+      `Telegram API gagal. HTTP ${response.status}.`;
+
+    throw new Error(description);
+  }
+
+  return data;
+}
+
+async function sendMessage(
+  env,
+  chatId,
+  text,
+  extra = {}
 ) {
-  return (
-    message?.document ||
-    null
+  return telegramApi(
+    env,
+    "sendMessage",
+    {
+      chat_id: String(chatId),
+      text: String(text),
+      ...extra
+    }
   );
 }
 
-export function messageVideo(
-  message
+async function getFile(
+  env,
+  fileId
 ) {
-  return (
-    message?.video ||
-    null
+  return telegramApi(
+    env,
+    "getFile",
+    {
+      file_id: String(fileId)
+    }
   );
 }
 
-export function messageFileId(
-  message
+async function answerCallbackQuery(
+  env,
+  callbackQueryId,
+  text = ""
 ) {
-  const photo =
-    messagePhoto(message);
+  return telegramApi(
+    env,
+    "answerCallbackQuery",
+    {
+      callback_query_id: String(callbackQueryId),
+      text: String(text || "")
+    }
+  );
+}
 
-  if (photo?.file_id) {
-    return photo.file_id;
+function normalizeCode(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+function isDepositCode(value) {
+  return /^[A-Z2-9]{4}$/.test(
+    normalizeCode(value)
+  );
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function getMessage(update) {
+  if (update?.message) {
+    return update.message;
   }
 
-  if (
-    message?.document?.file_id
-  ) {
-    return message.document.file_id;
+  if (update?.edited_message) {
+    return update.edited_message;
   }
 
-  if (
-    message?.video?.file_id
-  ) {
-    return message.video.file_id;
+  if (update?.channel_post) {
+    return update.channel_post;
   }
 
   return null;
 }
 
-export function isCommand(
-  message,
-  command
-) {
-  const text =
-    messageText(message);
-
-  const target =
-    String(command || "")
-      .replace(/^\/+/, "")
-      .toLowerCase();
-
-  const first =
-    text
-      .split(/\s+/)[0]
-      .replace(/^\/+/, "")
-      .split("@")[0]
-      .toLowerCase();
-
-  return first === target;
+function getChatIdFromMessage(message) {
+  return String(
+    message?.chat?.id ??
+    ""
+  );
 }
 
-export function commandArgs(
-  message
-) {
-  const text =
-    messageText(message);
+function getSenderId(message) {
+  return String(
+    message?.from?.id ??
+    ""
+  );
+}
 
-  if (!text) {
-    return [];
+function getMessageText(message) {
+  return String(
+    message?.text ||
+    message?.caption ||
+    ""
+  ).trim();
+}
+
+function getCommand(text) {
+  const value = String(text || "").trim();
+
+  if (!value.startsWith("/")) {
+    return {
+      name: "",
+      args: []
+    };
   }
 
-  const parts =
-    text.split(/\s+/);
+  const parts = value
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const rawName = parts.shift() || "";
+
+  const name = rawName
+    .split("@")[0]
+    .toLowerCase();
+
+  return {
+    name,
+    args: parts
+  };
+}
+
+function getPhotoFileId(message) {
+  const photos = Array.isArray(message?.photo)
+    ? message.photo
+    : [];
+
+  if (!photos.length) {
+    return null;
+  }
+
+  const largest = photos[
+    photos.length - 1
+  ];
+
+  return largest?.file_id
+    ? String(largest.file_id)
+    : null;
+}
+
+function isOwner(env, userId) {
+  const ownerId = getOwnerId(env);
+
+  if (!ownerId || !userId) {
+    return false;
+  }
+
+  return String(ownerId) === String(userId);
+}
+
+async function requireOwnerMessage(
+  env,
+  message
+) {
+  const senderId = getSenderId(message);
+
+  if (!isOwner(env, senderId)) {
+    const chatId = getChatIdFromMessage(message);
+
+    if (chatId) {
+      await sendMessage(
+        env,
+        chatId,
+        "Akses ditolak."
+      );
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
+async function getPendingDeposit(
+  env,
+  code
+) {
+  return dbFirst(
+    env,
+    `
+      SELECT
+        d.id,
+        d.user_id,
+        d.reference_id,
+        d.merchant_order_id,
+        d.amount,
+        d.provider,
+        d.payment_method,
+        d.status,
+        d.paid_at,
+        d.expired_at,
+        d.created_at,
+        d.updated_at,
+        u.username,
+        u.first_name,
+        u.balance
+      FROM deposits d
+      INNER JOIN users u
+        ON u.id = d.user_id
+      WHERE d.reference_id = ?
+        AND d.status = 'PENDING'
+      LIMIT 1
+    `,
+    normalizeCode(code)
+  );
+}
+
+async function getDepositByCode(
+  env,
+  code
+) {
+  return dbFirst(
+    env,
+    `
+      SELECT
+        d.id,
+        d.user_id,
+        d.reference_id,
+        d.merchant_order_id,
+        d.amount,
+        d.provider,
+        d.payment_method,
+        d.status,
+        d.paid_at,
+        d.expired_at,
+        d.created_at,
+        d.updated_at,
+        u.username,
+        u.first_name,
+        u.balance
+      FROM deposits d
+      INNER JOIN users u
+        ON u.id = d.user_id
+      WHERE d.reference_id = ?
+      LIMIT 1
+    `,
+    normalizeCode(code)
+  );
+}
+
+async function markDepositPaid(
+  env,
+  deposit
+) {
+  const timestamp = now();
+
+  const result = await dbRun(
+    env,
+    `
+      UPDATE deposits
+      SET
+        status = 'PAID',
+        signature_verified = 1,
+        paid_at = ?,
+        updated_at = ?
+      WHERE id = ?
+        AND status = 'PENDING'
+    `,
+    timestamp,
+    timestamp,
+    Number(deposit.id)
+  );
+
+  if (!result?.success) {
+    throw new Error(
+      "Gagal mengubah status deposit."
+    );
+  }
+
+  const changes = Number(
+    result?.meta?.changes || 0
+  );
+
+  if (changes !== 1) {
+    const current = await getDepositByCode(
+      env,
+      deposit.reference_id
+    );
+
+    if (
+      current &&
+      String(current.status).toUpperCase() === "PAID"
+    ) {
+      return current;
+    }
+
+    throw new Error(
+      "Deposit tidak dapat dikonfirmasi."
+    );
+  }
+
+  return getDepositByCode(
+    env,
+    deposit.reference_id
+  );
+}
+
+async function expireDepositIfNeeded(
+  env,
+  deposit
+) {
+  if (!deposit?.expired_at) {
+    return deposit;
+  }
+
+  const expiredAt = Date.parse(
+    String(deposit.expired_at)
+  );
+
+  if (!Number.isFinite(expiredAt)) {
+    return deposit;
+  }
+
+  if (expiredAt > Date.now()) {
+    return deposit;
+  }
+
+  await dbRun(
+    env,
+    `
+      UPDATE deposits
+      SET
+        status = 'EXPIRED',
+        updated_at = ?
+      WHERE id = ?
+        AND status = 'PENDING'
+    `,
+    now(),
+    Number(deposit.id)
+  );
+
+  return getDepositByCode(
+    env,
+    deposit.reference_id
+  );
+}
+
+async function handlePay(
+  env,
+  message,
+  args
+) {
+  const chatId = getChatIdFromMessage(message);
+
+  const rawCode = args?.[0] || "";
+  const code = normalizeCode(rawCode);
+
+  if (!isDepositCode(code)) {
+    await sendMessage(
+      env,
+      chatId,
+      [
+        "Format salah.",
+        "",
+        "Gunakan:",
+        "/pay XXXX",
+        "",
+        "Contoh:",
+        "/pay A7K3"
+      ].join("\n")
+    );
+
+    return;
+  }
+
+  let deposit = await getPendingDeposit(
+    env,
+    code
+  );
+
+  if (!deposit) {
+    const existing = await getDepositByCode(
+      env,
+      code
+    );
+
+    if (!existing) {
+      await sendMessage(
+        env,
+        chatId,
+        `Deposit dengan ID ${code} tidak ditemukan.`
+      );
+
+      return;
+    }
+
+    if (
+      String(existing.status).toUpperCase() === "PAID"
+    ) {
+      await sendMessage(
+        env,
+        chatId,
+        [
+          `Deposit ${code} sudah PAID.`,
+          "",
+          `Username: @${existing.username}`,
+          `Nominal: ${money(existing.amount)}`,
+          "Saldo tidak ditambahkan lagi."
+        ].join("\n")
+      );
+
+      return;
+    }
+
+    if (
+      String(existing.status).toUpperCase() === "EXPIRED"
+    ) {
+      await sendMessage(
+        env,
+        chatId,
+        `Deposit ${code} sudah expired.`
+      );
+
+      return;
+    }
+
+    await sendMessage(
+      env,
+      chatId,
+      `Deposit ${code} tidak dapat diproses. Status: ${existing.status}.`
+    );
+
+    return;
+  }
+
+  deposit = await expireDepositIfNeeded(
+    env,
+    deposit
+  );
+
+  if (!deposit) {
+    await sendMessage(
+      env,
+      chatId,
+      `Deposit ${code} tidak ditemukan.`
+    );
+
+    return;
+  }
 
   if (
-    parts[0].startsWith("/")
+    String(deposit.status).toUpperCase() !== "PENDING"
   ) {
-    parts.shift();
+    if (
+      String(deposit.status).toUpperCase() === "PAID"
+    ) {
+      await sendMessage(
+        env,
+        chatId,
+        `Deposit ${code} sudah PAID.`
+      );
+    } else {
+      await sendMessage(
+        env,
+        chatId,
+        `Deposit ${code} tidak berstatus PENDING.`
+      );
+    }
+
+    return;
   }
 
-  return parts;
-}
-
-export function commandName(
-  message
-) {
-  const text =
-    messageText(message);
-
-  if (!text.startsWith("/")) {
-    return "";
-  }
-
-  return (
-    text
-      .split(/\s+/)[0]
-      .replace(/^\/+/, "")
-      .split("@")[0]
-      .toLowerCase()
+  const userId = Number(
+    deposit.user_id
   );
+
+  const amount = Math.round(
+    Number(deposit.amount)
+  );
+
+  if (
+    !Number.isInteger(userId) ||
+    userId <= 0
+  ) {
+    await sendMessage(
+      env,
+      chatId,
+      `Deposit ${code} memiliki data customer yang tidak valid.`
+    );
+
+    return;
+  }
+
+  if (
+    !Number.isInteger(amount) ||
+    amount <= 0
+  ) {
+    await sendMessage(
+      env,
+      chatId,
+      `Deposit ${code} memiliki nominal yang tidak valid.`
+    );
+
+    return;
+  }
+
+  const referenceId =
+    `DEPOSIT:${code}`;
+
+  let balanceAfter;
+
+  try {
+    balanceAfter = await addBalance(
+      env,
+      userId,
+      amount,
+      referenceId,
+      `Deposit manual QRIS ${code}`,
+      "DEPOSIT"
+    );
+  } catch (error) {
+    console.error(
+      "TELEGRAM_PAY_BALANCE_ERROR",
+      error
+    );
+
+    await sendMessage(
+      env,
+      chatId,
+      [
+        `Gagal menambahkan saldo untuk ${code}.`,
+        "",
+        String(error?.message || "Kesalahan database.")
+      ].join("\n")
+    );
+
+    return;
+  }
+
+  try {
+    const paidDeposit =
+      await markDepositPaid(
+        env,
+        deposit
+      );
+
+    await sendMessage(
+      env,
+      chatId,
+      [
+        "Deposit berhasil dikonfirmasi.",
+        "",
+        `ID: ${code}`,
+        `Username: @${deposit.username}`,
+        `Nama: ${deposit.first_name || "-"}`,
+        `Nominal: ${money(amount)}`,
+        `Saldo sekarang: ${money(balanceAfter)}`,
+        `Status: ${paidDeposit?.status || "PAID"}`
+      ].join("\n")
+    );
+  } catch (error) {
+    console.error(
+      "TELEGRAM_PAY_STATUS_ERROR",
+      error
+    );
+
+    await sendMessage(
+      env,
+      chatId,
+      [
+        `Saldo untuk deposit ${code} sudah diproses.`,
+        "",
+        `Username: @${deposit.username}`,
+        `Nominal: ${money(amount)}`,
+        `Saldo sekarang: ${money(balanceAfter)}`,
+        "",
+        "Status deposit sedang disinkronkan."
+      ].join("\n")
+    );
+  }
 }
 
-export async function clearChatBotMessages(
+async function setQrFile(
   env,
-  chatId
+  fileId
 ) {
-  await deleteBotMessages(
+  if (!fileId) {
+    throw new Error(
+      "File ID QRIS tidak tersedia."
+    );
+  }
+
+  await saveSetting(
     env,
-    chatId
+    "qris_file_id",
+    fileId
   );
 
-  BOT_MESSAGES.delete(
-    String(chatId)
+  await saveSetting(
+    env,
+    "qris_updated_at",
+    now()
   );
 
   return true;
 }
 
-export function trackedMessages(
-  chatId
-) {
-  return [
-    ...(BOT_MESSAGES.get(
-      String(chatId)
-    ) || [])
-  ];
-}
-
-export async function removeTrackedMessage(
+async function handleSetQr(
   env,
-  chatId,
-  messageId
+  message
 ) {
-  if (!messageId) {
+  const chatId =
+    getChatIdFromMessage(message);
+
+  const photoFileId =
+    getPhotoFileId(message);
+
+  if (photoFileId) {
+    try {
+      await setQrFile(
+        env,
+        photoFileId
+      );
+
+      await saveSetting(
+        env,
+        `telegram_qr_waiting:${getSenderId(message)}`,
+        ""
+      );
+
+      await sendMessage(
+        env,
+        chatId,
+        [
+          "QRIS berhasil diperbarui.",
+          "",
+          "QRIS terbaru sekarang tersimpan dan siap digunakan website."
+        ].join("\n")
+      );
+    } catch (error) {
+      console.error(
+        "TELEGRAM_SETQR_ERROR",
+        error
+      );
+
+      await sendMessage(
+        env,
+        chatId,
+        "Gagal menyimpan QRIS."
+      );
+    }
+
     return;
   }
 
-  await deleteMessage(
+  await saveSetting(
     env,
-    chatId,
-    messageId
+    `telegram_qr_waiting:${getSenderId(message)}`,
+    "1"
   );
 
-  await forgetBotMessage(
-    chatId,
-    messageId
-  );
-}
-
-export async function replaceWithKeyboard(
-  env,
-  chatId,
-  oldMessageId,
-  text,
-  rows = []
-) {
-  return replaceBotMessage(
+  await sendMessage(
     env,
     chatId,
-    oldMessageId,
-    text,
-    inlineKeyboard(rows)
+    [
+      "Silakan kirim foto QRIS sekarang.",
+      "",
+      "Foto berikutnya akan dijadikan QRIS aktif website."
+    ].join("\n")
   );
 }
 
-export async function sendMainMenu(
+async function handleQrPhoto(
   env,
-  chatId,
-  oldMessageId = null
+  message
 ) {
-  return replaceBotMessage(
-    env,
-    chatId,
-    oldMessageId,
-    "🏪 VenDigitalStore\n\n" +
-      "Selamat datang di VenDigitalStore!\n\n" +
-      "Silakan pilih menu yang ingin kamu gunakan.",
-    mainKeyboard()
-  );
-}
+  const chatId =
+    getChatIdFromMessage(message);
 
-export async function sendBackMenu(
-  env,
-  chatId,
-  text
-) {
-  return replaceTrackedBotMessage(
-    env,
-    chatId,
-    text,
-    backKeyboard()
-  );
-}
+  const senderId =
+    getSenderId(message);
 
-export async function sendBalance(
-  env,
-  chatId,
-  balance
-) {
-  return replaceTrackedBotMessage(
+  const waiting = await setting(
     env,
-    chatId,
-    "💰 SALDO\n\n" +
-      "Saldo kamu:\n" +
-      String(balance),
-    inlineKeyboard([
+    `telegram_qr_waiting:${senderId}`
+  );
+
+  if (waiting !== "1") {
+    return false;
+  }
+
+  const fileId =
+    getPhotoFileId(message);
+
+  if (!fileId) {
+    await sendMessage(
+      env,
+      chatId,
+      "Foto QRIS tidak ditemukan."
+    );
+
+    return true;
+  }
+
+  try {
+    await setQrFile(
+      env,
+      fileId
+    );
+
+    await saveSetting(
+      env,
+      `telegram_qr_waiting:${senderId}`,
+      ""
+    );
+
+    await sendMessage(
+      env,
+      chatId,
       [
-        callbackButton(
-          "💳 Deposit",
-          "deposit"
-        )
-      ],
-      [
-        callbackButton(
-          "⬅️ Menu",
-          "main"
-        )
-      ]
-    ])
+        "QRIS berhasil diperbarui.",
+        "",
+        "Website akan menggunakan QRIS terbaru."
+      ].join("\n")
+    );
+  } catch (error) {
+    console.error(
+      "TELEGRAM_QR_PHOTO_ERROR",
+      error
+    );
+
+    await sendMessage(
+      env,
+      chatId,
+      "Gagal menyimpan QRIS."
+    );
+  }
+
+  return true;
+}
+
+async function handleStart(
+  env,
+  message
+) {
+  const chatId =
+    getChatIdFromMessage(message);
+
+  await sendMessage(
+    env,
+    chatId,
+    [
+      "VenDigitalStore Bot",
+      "",
+      "Bot ini hanya digunakan untuk konfirmasi deposit dan pengaturan QRIS.",
+      "",
+      "/pay XXXX",
+      "Konfirmasi deposit.",
+      "",
+      "/setqr",
+      "Ganti QRIS."
+    ].join("\n")
   );
 }
 
-export async function sendAccount(
+async function handleHelp(
   env,
-  chatId,
-  data = {}
+  message
+) {
+  return handleStart(
+    env,
+    message
+  );
+}
+
+async function handleUnknownCommand(
+  env,
+  message
+) {
+  const chatId =
+    getChatIdFromMessage(message);
+
+  await sendMessage(
+    env,
+    chatId,
+    [
+      "Perintah tidak dikenal.",
+      "",
+      "/pay XXXX",
+      "/setqr"
+    ].join("\n")
+  );
+}
+
+async function handleTextMessage(
+  env,
+  message
 ) {
   const text =
-    "👤 AKUN\n\n" +
-    "Nama: " +
-    String(data.firstName || "-") +
-    "\n" +
-    "Username: " +
-    String(
-      data.username
-        ? "@" + data.username
-        : "-"
-    ) +
-    "\n" +
-    "Telegram ID: " +
-    String(data.telegramId || "-") +
-    "\n" +
-    "Saldo: " +
-    String(data.balance || "Rp0");
+    getMessageText(message);
 
-  return replaceTrackedBotMessage(
-    env,
-    chatId,
-    text,
-    backKeyboard()
-  );
-}
+  const command =
+    getCommand(text);
 
-export async function sendHelp(
-  env,
-  chatId
-) {
-  return replaceTrackedBotMessage(
-    env,
-    chatId,
-    "🆘 BANTUAN\n\n" +
-      "📱 NOKOS 1: nomor dari katalog SMSCode.\n" +
-      "📦 NOKOS 2: stok nomor WhatsApp VenDigitalStore.\n" +
-      "💳 Deposit: transfer QRIS lalu kirim bukti pembayaran.\n\n" +
-      "Gunakan tombol menu untuk melanjutkan.",
-    backKeyboard()
-  );
-}
+  if (!command.name) {
+    return;
+  }
 
-export async function sendError(
-  env,
-  chatId,
-  error
-) {
-  const message =
-    error?.message ||
-    String(error || "Terjadi kesalahan.");
-
-  return sendBot(
-    env,
-    chatId,
-    "❌ Terjadi kesalahan.\n\n" +
+  if (
+    command.name === "/start" ||
+    command.name === "/help"
+  ) {
+    await handleStart(
+      env,
       message
+    );
+
+    return;
+  }
+
+  const ownerCommands = [
+    "/pay",
+    "/setqr"
+  ];
+
+  if (
+    ownerCommands.includes(
+      command.name
+    )
+  ) {
+    const allowed =
+      await requireOwnerMessage(
+        env,
+        message
+      );
+
+    if (!allowed) {
+      return;
+    }
+  }
+
+  switch (command.name) {
+    case "/pay":
+      await handlePay(
+        env,
+        message,
+        command.args
+      );
+      break;
+
+    case "/setqr":
+      await handleSetQr(
+        env,
+        message
+      );
+      break;
+
+    default:
+      await handleUnknownCommand(
+        env,
+        message
+      );
+      break;
+  }
+}
+
+async function processUpdate(
+  env,
+  update
+) {
+  if (!update || typeof update !== "object") {
+    return;
+  }
+
+  if (update.callback_query) {
+    const callbackId =
+      update.callback_query.id;
+
+    if (callbackId) {
+      try {
+        await answerCallbackQuery(
+          env,
+          callbackId
+        );
+      } catch (error) {
+        console.error(
+          "TELEGRAM_CALLBACK_ERROR",
+          error
+        );
+      }
+    }
+
+    return;
+  }
+
+  const message =
+    getMessage(update);
+
+  if (!message) {
+    return;
+  }
+
+  const senderId =
+    getSenderId(message);
+
+  if (
+    isOwner(env, senderId) &&
+    getPhotoFileId(message)
+  ) {
+    const handled =
+      await handleQrPhoto(
+        env,
+        message
+      );
+
+    if (handled) {
+      return;
+    }
+  }
+
+  await handleTextMessage(
+    env,
+    message
   );
 }
 
-export async function sendSuccess(
+export async function handleTelegramWebhook(
+  request,
+  env
+) {
+  if (
+    request.method !== "POST"
+  ) {
+    return new Response(
+      "Method Not Allowed",
+      {
+        status: 405,
+        headers: {
+          Allow: "POST"
+        }
+      }
+    );
+  }
+
+  const configuredSecret =
+    getWebhookSecret(env);
+
+  if (configuredSecret) {
+    const receivedSecret =
+      request.headers.get(
+        "X-Telegram-Bot-Api-Secret-Token"
+      ) || "";
+
+    if (
+      receivedSecret !==
+      configuredSecret
+    ) {
+      return new Response(
+        "Forbidden",
+        {
+          status: 403
+        }
+      );
+    }
+  }
+
+  let update;
+
+  try {
+    update =
+      await request.json();
+  } catch {
+    return new Response(
+      "Invalid JSON",
+      {
+        status: 400
+      }
+    );
+  }
+
+  try {
+    await processUpdate(
+      env,
+      update
+    );
+  } catch (error) {
+    console.error(
+      "TELEGRAM_WEBHOOK_ERROR",
+      error
+    );
+  }
+
+  return new Response(
+    "OK",
+    {
+      status: 200
+    }
+  );
+}
+
+export async function sendDepositNotification(
+  env,
+  deposit,
+  user = null
+) {
+  const ownerId =
+    getOwnerId(env);
+
+  if (!ownerId) {
+    throw new Error(
+      "TELEGRAM_OWNER_ID belum dikonfigurasi."
+    );
+  }
+
+  if (!deposit) {
+    throw new Error(
+      "Data deposit tidak tersedia."
+    );
+  }
+
+  const code =
+    normalizeCode(
+      deposit.reference_id
+    );
+
+  const amount =
+    Math.round(
+      Number(deposit.amount)
+    );
+
+  const username =
+    user?.username ||
+    deposit.username ||
+    "-";
+
+  const firstName =
+    user?.first_name ||
+    deposit.first_name ||
+    "-";
+
+  const status =
+    deposit.status ||
+    "PENDING";
+
+  const text = [
+    "DEPOSIT BARU",
+    "",
+    `ID: ${escapeHtml(code)}`,
+    `Username: @${escapeHtml(username)}`,
+    `Nama: ${escapeHtml(firstName)}`,
+    `Nominal: ${money(amount)}`,
+    `Status: ${escapeHtml(status)}`,
+    "",
+    `Konfirmasi: /pay ${code}`
+  ].join("\n");
+
+  return sendMessage(
+    env,
+    ownerId,
+    text
+  );
+}
+
+export async function getQrFileId(
+  env
+) {
+  return setting(
+    env,
+    "qris_file_id"
+  );
+}
+
+export async function getQrFileUrl(
+  env
+) {
+  const fileId =
+    await getQrFileId(env);
+
+  if (!fileId) {
+    return null;
+  }
+
+  const result =
+    await getFile(
+      env,
+      fileId
+    );
+
+  const filePath =
+    result?.result?.file_path;
+
+  if (!filePath) {
+    throw new Error(
+      "Telegram tidak mengembalikan file_path QRIS."
+    );
+  }
+
+  const token =
+    getBotToken(env);
+
+  if (!token) {
+    throw new Error(
+      "TELEGRAM_BOT_TOKEN belum dikonfigurasi."
+    );
+  }
+
+  return `${TELEGRAM_API}/file/bot${token}/${filePath}`;
+}
+
+export async function sendTelegramMessage(
   env,
   chatId,
   text,
   extra = {}
 ) {
-  return sendBot(
+  return sendMessage(
     env,
     chatId,
-    "✅ " + String(text),
+    text,
     extra
   );
 }
 
-export async function sendWaiting(
+export async function telegramSetWebhook(
   env,
-  chatId,
-  text = "⏳ Sedang diproses..."
+  webhookUrl
 ) {
-  return sendBot(
+  const payload = {
+    url: String(webhookUrl)
+  };
+
+  const secret =
+    getWebhookSecret(env);
+
+  if (secret) {
+    payload.secret_token =
+      secret;
+  }
+
+  return telegramApi(
     env,
-    chatId,
-    text
+    "setWebhook",
+    payload
   );
 }
 
-export async function sendCancelled(
-  env,
-  chatId,
-  text = "Pesanan berhasil dibatalkan."
+export async function telegramDeleteWebhook(
+  env
 ) {
-  return sendPermanentMessage(
+  return telegramApi(
     env,
-    chatId,
-    "❌ " + text
+    "deleteWebhook",
+    {
+      drop_pending_updates: false
+    }
   );
 }
 
-export async function sendExpired(
-  env,
-  chatId,
-  text = "Pesanan telah kedaluwarsa."
+export async function telegramGetWebhookInfo(
+  env
 ) {
-  return sendPermanentMessage(
+  return telegramApi(
     env,
-    chatId,
-    "⏰ " + text
+    "getWebhookInfo"
   );
-        }
+}
+
+export default handleTelegramWebhook;
