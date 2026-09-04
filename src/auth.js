@@ -17,14 +17,21 @@ import {
   revokeAllUserSessions
 } from "./utils.js";
 
+const SESSION_DAYS = 30;
+const SESSION_COOKIE = "vds_session";
+
 function cookieHeader(token, expiresAt) {
-  const maxAge = Math.max(
-    0,
-    Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)
-  );
+  const expiresTime = new Date(expiresAt).getTime();
+
+  const maxAge = Number.isFinite(expiresTime)
+    ? Math.max(
+        0,
+        Math.floor((expiresTime - Date.now()) / 1000)
+      )
+    : 0;
 
   return [
-    `vds_session=${encodeURIComponent(token)}`,
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
     "Path=/",
     "HttpOnly",
     "Secure",
@@ -35,7 +42,7 @@ function cookieHeader(token, expiresAt) {
 
 function clearCookieHeader() {
   return [
-    "vds_session=",
+    `${SESSION_COOKIE}=`,
     "Path=/",
     "HttpOnly",
     "Secure",
@@ -60,10 +67,26 @@ function publicUser(user) {
 }
 
 async function readJson(request) {
+  const contentType =
+    request.headers.get("Content-Type") || "";
+
+  if (
+    contentType &&
+    !contentType
+      .toLowerCase()
+      .startsWith("application/json")
+  ) {
+    return null;
+  }
+
   try {
     const data = await request.json();
 
-    if (!data || typeof data !== "object" || Array.isArray(data)) {
+    if (
+      !data ||
+      typeof data !== "object" ||
+      Array.isArray(data)
+    ) {
       return null;
     }
 
@@ -73,18 +96,31 @@ async function readJson(request) {
   }
 }
 
-function responseWithCookie(body, status, token, expiresAt, extraHeaders = {}) {
+function responseWithCookie(
+  body,
+  status,
+  token,
+  expiresAt,
+  extraHeaders = {}
+) {
   return json(
     body,
     status,
     {
       ...extraHeaders,
-      "Set-Cookie": cookieHeader(token, expiresAt)
+      "Set-Cookie": cookieHeader(
+        token,
+        expiresAt
+      )
     }
   );
 }
 
-function responseClearingCookie(body, status, extraHeaders = {}) {
+function responseClearingCookie(
+  body,
+  status,
+  extraHeaders = {}
+) {
   return json(
     body,
     status,
@@ -95,33 +131,53 @@ function responseClearingCookie(body, status, extraHeaders = {}) {
   );
 }
 
+function invalidJsonResponse() {
+  return json(
+    {
+      success: false,
+      error: "Body JSON tidak valid."
+    },
+    400
+  );
+}
+
+function invalidCredentialsResponse() {
+  return json(
+    {
+      success: false,
+      error: "Username atau password salah."
+    },
+    401
+  );
+}
+
 export async function register(request, env) {
   const data = await readJson(request);
 
   if (!data) {
-    return json(
-      {
-        success: false,
-        error: "Body JSON tidak valid."
-      },
-      400
-    );
+    return invalidJsonResponse();
   }
 
-  const username = normalizeUsername(data.username);
-  const firstName = normalizeName(
-    data.first_name ??
-    data.firstName ??
-    data.name ??
-    ""
-  );
-  const password = String(data.password ?? "");
+  const username =
+    normalizeUsername(data.username);
+
+  const firstName =
+    normalizeName(
+      data.first_name ??
+      data.firstName ??
+      data.name ??
+      ""
+    );
+
+  const password =
+    String(data.password ?? "");
 
   if (!validUsername(username)) {
     return json(
       {
         success: false,
-        error: "Username tidak valid. Gunakan 3-32 karakter: huruf, angka, titik, garis bawah, atau tanda minus."
+        error:
+          "Username tidak valid. Gunakan 3-32 karakter: huruf, angka, titik, garis bawah, atau tanda minus."
       },
       400
     );
@@ -147,26 +203,32 @@ export async function register(request, env) {
     );
   }
 
-  const existing = await getUserByUsername(env, username);
-
-  if (existing) {
-    return json(
-      {
-        success: false,
-        error: "Username sudah digunakan."
-      },
-      409
-    );
-  }
-
   try {
-    const passwordHash = await hashPassword(password);
+    const existing =
+      await getUserByUsername(
+        env,
+        username
+      );
 
-    const user = await createUser(env, {
-      username,
-      passwordHash,
-      firstName
-    });
+    if (existing) {
+      return json(
+        {
+          success: false,
+          error: "Username sudah digunakan."
+        },
+        409
+      );
+    }
+
+    const passwordHash =
+      await hashPassword(password);
+
+    const user =
+      await createUser(env, {
+        username,
+        passwordHash,
+        firstName
+      });
 
     if (!user) {
       return json(
@@ -178,7 +240,12 @@ export async function register(request, env) {
       );
     }
 
-    const session = await createSession(env, user.id, 30);
+    const session =
+      await createSession(
+        env,
+        user.id,
+        SESSION_DAYS
+      );
 
     return responseWithCookie(
       {
@@ -191,11 +258,13 @@ export async function register(request, env) {
       session.expiresAt
     );
   } catch (error) {
-    const message = String(error?.message || error);
+    const message =
+      String(error?.message || error)
+        .toLowerCase();
 
     if (
-      message.toLowerCase().includes("unique") ||
-      message.toLowerCase().includes("username")
+      message.includes("unique") ||
+      message.includes("username")
     ) {
       return json(
         {
@@ -206,7 +275,10 @@ export async function register(request, env) {
       );
     }
 
-    console.error("REGISTER_ERROR", error);
+    console.error(
+      "REGISTER_ERROR",
+      error
+    );
 
     return json(
       {
@@ -222,85 +294,109 @@ export async function login(request, env) {
   const data = await readJson(request);
 
   if (!data) {
+    return invalidJsonResponse();
+  }
+
+  const username =
+    normalizeUsername(data.username);
+
+  const password =
+    String(data.password ?? "");
+
+  if (
+    !validUsername(username) ||
+    !password
+  ) {
+    return invalidCredentialsResponse();
+  }
+
+  let user;
+
+  try {
+    user =
+      await getUserByUsername(
+        env,
+        username
+      );
+  } catch (error) {
+    console.error(
+      "LOGIN_USER_LOOKUP_ERROR",
+      error
+    );
+
     return json(
       {
         success: false,
-        error: "Body JSON tidak valid."
+        error: "Login gagal."
       },
-      400
+      500
     );
   }
 
-  const username = normalizeUsername(data.username);
-  const password = String(data.password ?? "");
-
-  if (!validUsername(username)) {
-    return json(
-      {
-        success: false,
-        error: "Username atau password salah."
-      },
-      401
-    );
+  if (
+    !user ||
+    user.status !== "ACTIVE"
+  ) {
+    return invalidCredentialsResponse();
   }
 
-  if (!password) {
-    return json(
-      {
-        success: false,
-        error: "Username atau password salah."
-      },
-      401
+  let passwordValid = false;
+
+  try {
+    passwordValid =
+      await verifyPassword(
+        password,
+        user.password_hash
+      );
+  } catch (error) {
+    console.error(
+      "PASSWORD_VERIFY_ERROR",
+      error
     );
+
+    return invalidCredentialsResponse();
   }
-
-  const user = await getUserByUsername(env, username);
-
-  if (!user || user.status !== "ACTIVE") {
-    return json(
-      {
-        success: false,
-        error: "Username atau password salah."
-      },
-      401
-    );
-  }
-
-  const passwordValid = await verifyPassword(
-    password,
-    user.password_hash
-  );
 
   if (!passwordValid) {
-    return json(
-      {
-        success: false,
-        error: "Username atau password salah."
-      },
-      401
-    );
+    return invalidCredentialsResponse();
   }
 
   try {
-    await updateLastLogin(env, user.id);
+    await updateLastLogin(
+      env,
+      user.id
+    );
 
-    const session = await createSession(env, user.id, 30);
+    const session =
+      await createSession(
+        env,
+        user.id,
+        SESSION_DAYS
+      );
 
     const freshUser =
-      await getActiveUserById(env, user.id);
+      await getActiveUserById(
+        env,
+        user.id
+      );
 
     return responseWithCookie(
       {
         success: true,
         message: "Login berhasil.",
-        user: publicUser(freshUser || user)
+        user: publicUser(
+          freshUser || user
+        )
       },
       200,
       session.token,
       session.expiresAt
     );
   } catch (error) {
-    console.error("LOGIN_ERROR", error);
+    console.error(
+      "LOGIN_ERROR",
+      error
+    );
 
     return json(
       {
@@ -313,9 +409,45 @@ export async function login(request, env) {
 }
 
 export async function me(request, env) {
-  const session = await getSessionFromRequest(env, request);
+  try {
+    const session =
+      await getSessionFromRequest(
+        env,
+        request
+      );
 
-  if (!session) {
+    if (!session) {
+      return json(
+        {
+          success: false,
+          authenticated: false,
+          user: null
+        },
+        401
+      );
+    }
+
+    return json({
+      success: true,
+      authenticated: true,
+      user: {
+        id: Number(session.user_id),
+        username: session.username,
+        first_name:
+          session.first_name || "",
+        balance:
+          Number(session.balance || 0),
+        status: session.status,
+        session_expires_at:
+          session.expires_at
+      }
+    });
+  } catch (error) {
+    console.error(
+      "AUTH_ME_ERROR",
+      error
+    );
+
     return json(
       {
         success: false,
@@ -325,29 +457,23 @@ export async function me(request, env) {
       401
     );
   }
-
-  return json({
-    success: true,
-    authenticated: true,
-    user: {
-      id: Number(session.user_id),
-      username: session.username,
-      first_name: session.first_name || "",
-      balance: Number(session.balance || 0),
-      status: session.status,
-      session_expires_at: session.expires_at
-    }
-  });
 }
 
 export async function logout(request, env) {
-  const token = getSessionToken(request);
+  const token =
+    getSessionToken(request);
 
   if (token) {
     try {
-      await revokeSession(env, token);
+      await revokeSession(
+        env,
+        token
+      );
     } catch (error) {
-      console.error("LOGOUT_ERROR", error);
+      console.error(
+        "LOGOUT_ERROR",
+        error
+      );
     }
   }
 
@@ -360,8 +486,32 @@ export async function logout(request, env) {
   );
 }
 
-export async function logoutAll(request, env) {
-  const session = await getSessionFromRequest(env, request);
+export async function logoutAll(
+  request,
+  env
+) {
+  let session;
+
+  try {
+    session =
+      await getSessionFromRequest(
+        env,
+        request
+      );
+  } catch (error) {
+    console.error(
+      "LOGOUT_ALL_SESSION_ERROR",
+      error
+    );
+
+    return responseClearingCookie(
+      {
+        success: false,
+        error: "Session tidak valid."
+      },
+      401
+    );
+  }
 
   if (!session) {
     return responseClearingCookie(
@@ -374,59 +524,109 @@ export async function logoutAll(request, env) {
   }
 
   try {
-    await revokeAllUserSessions(env, session.user_id);
+    await revokeAllUserSessions(
+      env,
+      session.user_id
+    );
+
+    return responseClearingCookie(
+      {
+        success: true,
+        message:
+          "Semua session berhasil diakhiri."
+      },
+      200
+    );
   } catch (error) {
-    console.error("LOGOUT_ALL_ERROR", error);
+    console.error(
+      "LOGOUT_ALL_ERROR",
+      error
+    );
 
     return json(
       {
         success: false,
-        error: "Gagal mengakhiri semua session."
+        error:
+          "Gagal mengakhiri semua session."
       },
       500
     );
   }
-
-  return responseClearingCookie(
-    {
-      success: true,
-      message: "Semua session berhasil diakhiri."
-    },
-    200
-  );
 }
 
-export async function authHandler(request, env) {
-  const url = new URL(request.url);
-  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+export async function authHandler(
+  request,
+  env
+) {
+  const url =
+    new URL(request.url);
 
-  if (request.method === "POST" && pathname === "/api/auth/register") {
-    return register(request, env);
-  }
+  const pathname =
+    url.pathname.replace(
+      /\/+$/,
+      ""
+    ) || "/";
 
-  if (request.method === "POST" && pathname === "/api/auth/login") {
-    return login(request, env);
-  }
-
-  if (request.method === "GET" && pathname === "/api/auth/me") {
-    return me(request, env);
-  }
-
-  if (request.method === "POST" && pathname === "/api/auth/logout") {
-    return logout(request, env);
+  if (
+    request.method === "POST" &&
+    pathname ===
+      "/api/auth/register"
+  ) {
+    return register(
+      request,
+      env
+    );
   }
 
   if (
     request.method === "POST" &&
-    pathname === "/api/auth/logout-all"
+    pathname ===
+      "/api/auth/login"
   ) {
-    return logoutAll(request, env);
+    return login(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method === "GET" &&
+    pathname ===
+      "/api/auth/me"
+  ) {
+    return me(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method === "POST" &&
+    pathname ===
+      "/api/auth/logout"
+  ) {
+    return logout(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method === "POST" &&
+    pathname ===
+      "/api/auth/logout-all"
+  ) {
+    return logoutAll(
+      request,
+      env
+    );
   }
 
   return json(
     {
       success: false,
-      error: "Auth endpoint tidak ditemukan."
+      error:
+        "Auth endpoint tidak ditemukan."
     },
     404
   );
