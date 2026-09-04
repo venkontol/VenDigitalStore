@@ -123,6 +123,17 @@ async function handleApi(request, env, ctx) {
     );
   }
 
+  if (
+  pathname === "/api/wallet" ||
+  pathname.startsWith("/api/wallet/")
+) {
+  return await walletHandler(
+    request,
+    env,
+    pathname
+  );
+    }
+
   switch (pathname) {
     case "/api/health":
       return json({
