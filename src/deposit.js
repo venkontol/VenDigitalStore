@@ -3,6 +3,7 @@ import {
   now,
   money,
   number,
+  randomId,
   randomReference,
   getSessionFromRequest,
   getUserById,
@@ -10,8 +11,14 @@ import {
   dbRun
 } from "./utils.js";
 
+import {
+  sendDepositNotification
+} from "./telegram.js";
+
 const MIN_DEPOSIT = 1000;
 const MAX_DEPOSIT = 10000000;
+const DEPOSIT_EXPIRE_MINUTES = 60;
+const CHECK_COOLDOWN_SECONDS = 30;
 
 function validAmount(value) {
   const amount = Math.round(number(value));
@@ -20,77 +27,218 @@ function validAmount(value) {
     return false;
   }
 
-  return amount >= MIN_DEPOSIT && amount <= MAX_DEPOSIT;
+  return (
+    amount >= MIN_DEPOSIT &&
+    amount <= MAX_DEPOSIT
+  );
+}
+
+function normalizeCode(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+function validDepositCode(value) {
+  return /^[A-Z2-9]{4}$/.test(
+    normalizeCode(value)
+  );
+}
+
+function generateDepositCode() {
+  return randomId(4);
 }
 
 function generateMerchantOrderId() {
-  return randomReference("VDS", 16);
+  return randomReference("MANUAL", 16);
 }
 
-export async function createDeposit(request, env) {
-  const session = await getSessionFromRequest(env, request);
+function publicDeposit(deposit) {
+  return {
+    id: Number(deposit.id),
+    reference_id: deposit.reference_id,
+    code: deposit.reference_id,
+    merchant_order_id: deposit.merchant_order_id,
+    amount: Number(deposit.amount),
+    amount_formatted: money(deposit.amount),
+    provider: deposit.provider,
+    payment_method: deposit.payment_method,
+    status: deposit.status,
+    provider_reference: deposit.provider_reference,
+    signature_verified:
+      Number(deposit.signature_verified) === 1,
+    paid_at: deposit.paid_at,
+    expired_at: deposit.expired_at,
+    created_at: deposit.created_at,
+    updated_at: deposit.updated_at
+  };
+}
+
+async function getCurrentUser(
+  request,
+  env
+) {
+  const session =
+    await getSessionFromRequest(
+      env,
+      request
+    );
 
   if (!session) {
-    return json(
-      {
-        success: false,
-        error: "Unauthorized."
-      },
-      401
-    );
+    return {
+      session: null,
+      user: null,
+      response: json(
+        {
+          success: false,
+          error: "Unauthorized."
+        },
+        401
+      )
+    };
   }
 
-  const user = await getUserById(env, session.user_id);
-
-  if (!user || user.status !== "ACTIVE") {
-    return json(
-      {
-        success: false,
-        error: "Akun tidak aktif."
-      },
-      403
+  const user =
+    await getUserById(
+      env,
+      session.user_id
     );
+
+  if (
+    !user ||
+    String(user.status).toUpperCase() !== "ACTIVE"
+  ) {
+    return {
+      session,
+      user: null,
+      response: json(
+        {
+          success: false,
+          error: "Akun tidak aktif."
+        },
+        403
+      )
+    };
   }
 
-  let data;
+  return {
+    session,
+    user,
+    response: null
+  };
+}
 
-  try {
-    data = await request.json();
-  } catch {
-    return json(
-      {
-        success: false,
-        error: "Body JSON tidak valid."
-      },
-      400
-    );
+async function findAvailableDepositCode(
+  env
+) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const code =
+      generateDepositCode();
+
+    const existing =
+      await dbFirst(
+        env,
+        `
+          SELECT id
+          FROM deposits
+          WHERE reference_id = ?
+          LIMIT 1
+        `,
+        code
+      );
+
+    if (!existing) {
+      return code;
+    }
   }
 
-  const amount = Math.round(number(data?.amount));
+  throw new Error(
+    "Gagal membuat ID deposit unik."
+  );
+}
 
-  if (!validAmount(amount)) {
-    return json(
-      {
-        success: false,
-        error: `Nominal deposit minimal ${money(MIN_DEPOSIT)} dan maksimal ${money(MAX_DEPOSIT)}.`
-      },
-      400
-    );
-  }
+async function findDepositForUser(
+  env,
+  userId,
+  {
+    referenceId = "",
+    merchantOrderId = ""
+  } = {}
+) {
+  const uid = Number(userId);
 
-  const referenceId = randomReference("DEP", 16);
-  const merchantOrderId = generateMerchantOrderId();
-  const createdAt = now();
-
-  const expiredAt = new Date(
-    Date.now() + 60 * 60 * 1000
-  ).toISOString();
-
-  try {
-    await dbRun(
+  if (referenceId) {
+    return dbFirst(
       env,
       `
-      INSERT INTO deposits (
+        SELECT
+          id,
+          user_id,
+          reference_id,
+          merchant_order_id,
+          amount,
+          provider,
+          payment_method,
+          status,
+          provider_reference,
+          signature_verified,
+          paid_at,
+          expired_at,
+          callback_data,
+          created_at,
+          updated_at
+        FROM deposits
+        WHERE user_id = ?
+          AND reference_id = ?
+        LIMIT 1
+      `,
+      uid,
+      normalizeCode(referenceId)
+    );
+  }
+
+  if (merchantOrderId) {
+    return dbFirst(
+      env,
+      `
+        SELECT
+          id,
+          user_id,
+          reference_id,
+          merchant_order_id,
+          amount,
+          provider,
+          payment_method,
+          status,
+          provider_reference,
+          signature_verified,
+          paid_at,
+          expired_at,
+          callback_data,
+          created_at,
+          updated_at
+        FROM deposits
+        WHERE user_id = ?
+          AND merchant_order_id = ?
+        LIMIT 1
+      `,
+      uid,
+      String(merchantOrderId).trim()
+    );
+  }
+
+  return null;
+}
+
+async function getDepositById(
+  env,
+  depositId
+) {
+  return dbFirst(
+    env,
+    `
+      SELECT
+        id,
         user_id,
         reference_id,
         merchant_order_id,
@@ -105,77 +253,241 @@ export async function createDeposit(request, env) {
         callback_data,
         created_at,
         updated_at
-      )
-      VALUES (?, ?, ?, ?, 'DUITKU', ?, 'PENDING', NULL, 0, NULL, ?, '{}', ?, ?)
-      `,
-      Number(user.id),
-      referenceId,
-      merchantOrderId,
-      amount,
-      data?.payment_method
-        ? String(data.payment_method).trim()
-        : null,
-      expiredAt,
-      createdAt,
-      createdAt
-    );
-
-    const deposit = await dbFirst(
-      env,
-      `
-      SELECT
-        id,
-        user_id,
-        reference_id,
-        merchant_order_id,
-        amount,
-        provider,
-        payment_method,
-        status,
-        provider_reference,
-        signature_verified,
-        paid_at,
-        expired_at,
-        created_at,
-        updated_at
       FROM deposits
-      WHERE reference_id = ?
+      WHERE id = ?
       LIMIT 1
-      `,
-      referenceId
+    `,
+    Number(depositId)
+  );
+}
+
+function isExpired(deposit) {
+  if (!deposit?.expired_at) {
+    return false;
+  }
+
+  const timestamp =
+    Date.parse(
+      String(deposit.expired_at)
     );
 
-    if (!deposit) {
-      return json(
-        {
-          success: false,
-          error: "Deposit gagal dibuat."
-        },
-        500
-      );
-    }
+  return (
+    Number.isFinite(timestamp) &&
+    timestamp <= Date.now()
+  );
+}
 
+async function expireDeposit(
+  env,
+  deposit
+) {
+  if (
+    !deposit ||
+    String(deposit.status).toUpperCase() !== "PENDING"
+  ) {
+    return deposit;
+  }
+
+  if (!isExpired(deposit)) {
+    return deposit;
+  }
+
+  const updatedAt = now();
+
+  await dbRun(
+    env,
+    `
+      UPDATE deposits
+      SET
+        status = 'EXPIRED',
+        updated_at = ?
+      WHERE id = ?
+        AND status = 'PENDING'
+    `,
+    updatedAt,
+    Number(deposit.id)
+  );
+
+  return getDepositById(
+    env,
+    deposit.id
+  );
+}
+
+async function parseRequestJson(
+  request
+) {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
+}
+
+async function createDeposit(
+  request,
+  env
+) {
+  const auth =
+    await getCurrentUser(
+      request,
+      env
+    );
+
+  if (auth.response) {
+    return auth.response;
+  }
+
+  const data =
+    await parseRequestJson(
+      request
+    );
+
+  if (!data) {
     return json(
       {
-        success: true,
-        message: "Deposit berhasil dibuat.",
-        deposit: {
-          id: Number(deposit.id),
-          reference_id: deposit.reference_id,
-          merchant_order_id: deposit.merchant_order_id,
-          amount: Number(deposit.amount),
-          amount_formatted: money(deposit.amount),
-          provider: deposit.provider,
-          payment_method: deposit.payment_method,
-          status: deposit.status,
-          expired_at: deposit.expired_at,
-          created_at: deposit.created_at
-        }
+        success: false,
+        error: "Body JSON tidak valid."
       },
-      201
+      400
     );
+  }
+
+  const amount =
+    Math.round(
+      number(data.amount)
+    );
+
+  if (!validAmount(amount)) {
+    return json(
+      {
+        success: false,
+        error:
+          `Nominal deposit minimal ${money(MIN_DEPOSIT)} dan maksimal ${money(MAX_DEPOSIT)}.`
+      },
+      400
+    );
+  }
+
+  const paymentMethod =
+    String(
+      data.payment_method ||
+      "QRIS"
+    )
+      .trim()
+      .toUpperCase();
+
+  if (paymentMethod !== "QRIS") {
+    return json(
+      {
+        success: false,
+        error: "Metode pembayaran yang tersedia adalah QRIS."
+      },
+      400
+    );
+  }
+
+  const qrisFileId =
+    String(
+      await import("./utils.js")
+        .then(module =>
+          module.setting(
+            env,
+            "qris_file_id"
+          )
+        )
+    ).trim();
+
+  if (!qrisFileId) {
+    return json(
+      {
+        success: false,
+        error: "QRIS belum tersedia. Silakan hubungi admin."
+      },
+      503
+    );
+  }
+
+  let depositCode;
+  let merchantOrderId;
+  let createdAt;
+  let expiredAt;
+
+  try {
+    depositCode =
+      await findAvailableDepositCode(
+        env
+      );
+
+    merchantOrderId =
+      generateMerchantOrderId();
+
+    createdAt = now();
+
+    expiredAt =
+      new Date(
+        Date.now() +
+        DEPOSIT_EXPIRE_MINUTES *
+          60 *
+          1000
+      ).toISOString();
+
+    const result =
+      await dbRun(
+        env,
+        `
+          INSERT INTO deposits (
+            user_id,
+            reference_id,
+            merchant_order_id,
+            amount,
+            provider,
+            payment_method,
+            status,
+            provider_reference,
+            signature_verified,
+            paid_at,
+            expired_at,
+            callback_data,
+            created_at,
+            updated_at
+          )
+          VALUES (
+            ?,
+            ?,
+            ?,
+            ?,
+            'MANUAL',
+            'QRIS',
+            'PENDING',
+            NULL,
+            0,
+            NULL,
+            ?,
+            '{}',
+            ?,
+            ?
+          )
+        `,
+        Number(auth.user.id),
+        depositCode,
+        merchantOrderId,
+        amount,
+        expiredAt,
+        createdAt,
+        createdAt
+      );
+
+    if (!result?.success) {
+      throw new Error(
+        "Database gagal membuat deposit."
+      );
+    }
   } catch (error) {
-    console.error("CREATE_DEPOSIT_ERROR", error);
+    console.error(
+      "CREATE_DEPOSIT_ERROR",
+      error
+    );
 
     return json(
       {
@@ -185,100 +497,122 @@ export async function createDeposit(request, env) {
       500
     );
   }
-}
 
-export async function getDeposit(request, env) {
-  const session = await getSessionFromRequest(env, request);
+  const deposit =
+    await dbFirst(
+      env,
+      `
+        SELECT
+          id,
+          user_id,
+          reference_id,
+          merchant_order_id,
+          amount,
+          provider,
+          payment_method,
+          status,
+          provider_reference,
+          signature_verified,
+          paid_at,
+          expired_at,
+          callback_data,
+          created_at,
+          updated_at
+        FROM deposits
+        WHERE reference_id = ?
+        LIMIT 1
+      `,
+      depositCode
+    );
 
-  if (!session) {
+  if (!deposit) {
     return json(
       {
         success: false,
-        error: "Unauthorized."
+        error: "Deposit gagal dibuat."
       },
-      401
+      500
     );
   }
 
-  const url = new URL(request.url);
+  return json(
+    {
+      success: true,
+      message: "Deposit berhasil dibuat.",
+      deposit: {
+        ...publicDeposit(deposit),
+        qr_url: "/api/deposit/qr"
+      }
+    },
+    201
+  );
+}
+
+async function getDeposit(
+  request,
+  env
+) {
+  const auth =
+    await getCurrentUser(
+      request,
+      env
+    );
+
+  if (auth.response) {
+    return auth.response;
+  }
+
+  const url =
+    new URL(
+      request.url
+    );
+
+  const code =
+    normalizeCode(
+      url.searchParams.get("code")
+    );
 
   const referenceId =
-    String(
-      url.searchParams.get("reference_id") || ""
-    ).trim();
+    normalizeCode(
+      url.searchParams.get(
+        "reference_id"
+      )
+    );
 
   const merchantOrderId =
     String(
-      url.searchParams.get("merchant_order_id") || ""
+      url.searchParams.get(
+        "merchant_order_id"
+      ) || ""
     ).trim();
 
-  if (!referenceId && !merchantOrderId) {
+  const identifier =
+    code ||
+    referenceId;
+
+  if (
+    !identifier &&
+    !merchantOrderId
+  ) {
     return json(
       {
         success: false,
-        error: "Reference deposit wajib."
+        error: "ID deposit wajib."
       },
       400
     );
   }
 
-  let deposit;
-
-  if (referenceId) {
-    deposit = await dbFirst(
+  let deposit =
+    await findDepositForUser(
       env,
-      `
-      SELECT
-        id,
-        user_id,
-        reference_id,
-        merchant_order_id,
-        amount,
-        provider,
-        payment_method,
-        status,
-        provider_reference,
-        signature_verified,
-        paid_at,
-        expired_at,
-        created_at,
-        updated_at
-      FROM deposits
-      WHERE user_id = ?
-        AND reference_id = ?
-      LIMIT 1
-      `,
-      Number(session.user_id),
-      referenceId
+      auth.user.id,
+      {
+        referenceId:
+          identifier,
+        merchantOrderId
+      }
     );
-  } else {
-    deposit = await dbFirst(
-      env,
-      `
-      SELECT
-        id,
-        user_id,
-        reference_id,
-        merchant_order_id,
-        amount,
-        provider,
-        payment_method,
-        status,
-        provider_reference,
-        signature_verified,
-        paid_at,
-        expired_at,
-        created_at,
-        updated_at
-      FROM deposits
-      WHERE user_id = ?
-        AND merchant_order_id = ?
-      LIMIT 1
-      `,
-      Number(session.user_id),
-      merchantOrderId
-    );
-  }
 
   if (!deposit) {
     return json(
@@ -290,101 +624,111 @@ export async function getDeposit(request, env) {
     );
   }
 
+  deposit =
+    await expireDeposit(
+      env,
+      deposit
+    );
+
   return json({
     success: true,
     deposit: {
-      id: Number(deposit.id),
-      reference_id: deposit.reference_id,
-      merchant_order_id: deposit.merchant_order_id,
-      amount: Number(deposit.amount),
-      amount_formatted: money(deposit.amount),
-      provider: deposit.provider,
-      payment_method: deposit.payment_method,
-      status: deposit.status,
-      provider_reference: deposit.provider_reference,
-      signature_verified:
-        Number(deposit.signature_verified) === 1,
-      paid_at: deposit.paid_at,
-      expired_at: deposit.expired_at,
-      created_at: deposit.created_at,
-      updated_at: deposit.updated_at
+      ...publicDeposit(deposit),
+      qr_url:
+        String(deposit.status).toUpperCase() ===
+        "PENDING"
+          ? "/api/deposit/qr"
+          : null
     }
   });
 }
 
-export async function listDeposits(request, env) {
-  const session = await getSessionFromRequest(env, request);
-
-  if (!session) {
-    return json(
-      {
-        success: false,
-        error: "Unauthorized."
-      },
-      401
+async function listDeposits(
+  request,
+  env
+) {
+  const auth =
+    await getCurrentUser(
+      request,
+      env
     );
+
+  if (auth.response) {
+    return auth.response;
   }
 
-  const url = new URL(request.url);
+  const url =
+    new URL(
+      request.url
+    );
 
   const limitRaw =
-    Number(url.searchParams.get("limit") || 20);
+    Number(
+      url.searchParams.get(
+        "limit"
+      ) || 20
+    );
 
-  const limit = Math.min(
-    50,
-    Math.max(
-      1,
-      Number.isSafeInteger(limitRaw)
-        ? limitRaw
-        : 20
-    )
-  );
+  const limit =
+    Math.min(
+      50,
+      Math.max(
+        1,
+        Number.isSafeInteger(
+          limitRaw
+        )
+          ? limitRaw
+          : 20
+      )
+    );
 
-  const rows = await env.DB.prepare(
-    `
-    SELECT
-      id,
-      reference_id,
-      merchant_order_id,
-      amount,
-      provider,
-      payment_method,
-      status,
-      provider_reference,
-      signature_verified,
-      paid_at,
-      expired_at,
-      created_at,
-      updated_at
-    FROM deposits
-    WHERE user_id = ?
-    ORDER BY id DESC
-    LIMIT ?
-    `
-  )
-    .bind(Number(session.user_id), limit)
-    .all();
+  const rows =
+    await env.DB
+      .prepare(
+        `
+          SELECT
+            id,
+            reference_id,
+            merchant_order_id,
+            amount,
+            provider,
+            payment_method,
+            status,
+            provider_reference,
+            signature_verified,
+            paid_at,
+            expired_at,
+            created_at,
+            updated_at
+          FROM deposits
+          WHERE user_id = ?
+          ORDER BY id DESC
+          LIMIT ?
+        `
+      )
+      .bind(
+        Number(auth.user.id),
+        limit
+      )
+      .all();
 
-  const deposits = (rows.results || []).map(
-    (deposit) => ({
-      id: Number(deposit.id),
-      reference_id: deposit.reference_id,
-      merchant_order_id: deposit.merchant_order_id,
-      amount: Number(deposit.amount),
-      amount_formatted: money(deposit.amount),
-      provider: deposit.provider,
-      payment_method: deposit.payment_method,
-      status: deposit.status,
-      provider_reference:
-        deposit.provider_reference,
-      signature_verified:
-        Number(deposit.signature_verified) === 1,
-      paid_at: deposit.paid_at,
-      expired_at: deposit.expired_at,
-      created_at: deposit.created_at,
-      updated_at: deposit.updated_at
-    })
-  );
+  const deposits =
+    (
+      rows?.results || []
+    ).map(
+      deposit => ({
+        ...publicDeposit(
+          deposit
+        ),
+        qr_url:
+          String(
+            deposit.status
+          ).toUpperCase() ===
+          "PENDING"
+            ? "/api/deposit/qr"
+            : null
+      })
+    );
 
   return json({
     success: true,
@@ -392,37 +736,546 @@ export async function listDeposits(request, env) {
   });
 }
 
-export async function depositHandler(request, env) {
-  const url = new URL(request.url);
+async function requestPaymentCheck(
+  request,
+  env
+) {
+  const auth =
+    await getCurrentUser(
+      request,
+      env
+    );
+
+  if (auth.response) {
+    return auth.response;
+  }
+
+  const data =
+    await parseRequestJson(
+      request
+    );
+
+  if (!data) {
+    return json(
+      {
+        success: false,
+        error: "Body JSON tidak valid."
+      },
+      400
+    );
+  }
+
+  const code =
+    normalizeCode(
+      data.code ||
+      data.reference_id ||
+      data.id
+    );
+
+  if (!validDepositCode(code)) {
+    return json(
+      {
+        success: false,
+        error: "ID deposit harus 4 karakter."
+      },
+      400
+    );
+  }
+
+  let deposit =
+    await findDepositForUser(
+      env,
+      auth.user.id,
+      {
+        referenceId: code
+      }
+    );
+
+  if (!deposit) {
+    return json(
+      {
+        success: false,
+        error: "Deposit tidak ditemukan."
+      },
+      404
+    );
+  }
+
+  deposit =
+    await expireDeposit(
+      env,
+      deposit
+    );
+
+  if (
+    String(deposit.status).toUpperCase() !==
+    "PENDING"
+  ) {
+    return json(
+      {
+        success: true,
+        message:
+          "Deposit sudah tidak berstatus PENDING.",
+        deposit:
+          publicDeposit(
+            deposit
+          )
+      }
+    );
+  }
+
+  let callbackData = {};
+
+  try {
+    callbackData =
+      JSON.parse(
+        String(
+          deposit.callback_data ||
+          "{}"
+        )
+      );
+
+    if (
+      !callbackData ||
+      typeof callbackData !==
+        "object"
+    ) {
+      callbackData = {};
+    }
+  } catch {
+    callbackData = {};
+  }
+
+  const lastCheck =
+    Date.parse(
+      String(
+        callbackData.check_requested_at ||
+        ""
+      )
+    );
+
+  if (
+    Number.isFinite(lastCheck) &&
+    Date.now() - lastCheck <
+      CHECK_COOLDOWN_SECONDS *
+        1000
+  ) {
+    const remaining =
+      Math.ceil(
+        (
+          CHECK_COOLDOWN_SECONDS *
+            1000 -
+          (
+            Date.now() -
+            lastCheck
+          )
+        ) /
+          1000
+      );
+
+    return json(
+      {
+        success: false,
+        error:
+          `Tunggu ${remaining} detik sebelum melakukan pengecekan lagi.`
+      },
+      429
+    );
+  }
+
+  callbackData.check_requested_at =
+    now();
+
+  callbackData.check_requested_by =
+    Number(auth.user.id);
+
+  await dbRun(
+    env,
+    `
+      UPDATE deposits
+      SET
+        callback_data = ?,
+        updated_at = ?
+      WHERE id = ?
+        AND user_id = ?
+        AND status = 'PENDING'
+    `,
+    JSON.stringify(
+      callbackData
+    ),
+    now(),
+    Number(deposit.id),
+    Number(auth.user.id)
+  );
+
+  deposit =
+    await getDepositById(
+      env,
+      deposit.id
+    );
+
+  try {
+    await sendDepositNotification(
+      env,
+      deposit,
+      auth.user
+    );
+  } catch (error) {
+    console.error(
+      "DEPOSIT_TELEGRAM_NOTIFICATION_ERROR",
+      error
+    );
+
+    return json(
+      {
+        success: false,
+        error:
+          "Notifikasi ke admin gagal dikirim. Silakan coba lagi."
+      },
+      503
+    );
+  }
+
+  return json({
+    success: true,
+    message:
+      "Permintaan pengecekan pembayaran telah dikirim ke admin.",
+    deposit: {
+      ...publicDeposit(
+        deposit
+      ),
+      qr_url:
+        "/api/deposit/qr"
+    }
+  });
+}
+
+async function getQris(
+  request,
+  env
+) {
+  const auth =
+    await getCurrentUser(
+      request,
+      env
+    );
+
+  if (auth.response) {
+    return auth.response;
+  }
+
+  const module =
+    await import(
+      "./utils.js"
+    );
+
+  const qrisFileId =
+    String(
+      await module.setting(
+        env,
+        "qris_file_id"
+      ) || ""
+    ).trim();
+
+  if (!qrisFileId) {
+    return json(
+      {
+        success: false,
+        error:
+          "QRIS belum tersedia."
+      },
+      404
+    );
+  }
+
+  const token =
+    String(
+      env?.TELEGRAM_BOT_TOKEN ||
+      env?.BOT_TOKEN ||
+      ""
+    ).trim();
+
+  if (!token) {
+    return json(
+      {
+        success: false,
+        error:
+          "Telegram bot belum dikonfigurasi."
+      },
+      503
+    );
+  }
+
+  let telegramResult;
+
+  try {
+    const response =
+      await fetch(
+        `https://api.telegram.org/bot${token}/getFile`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+          body: JSON.stringify({
+            file_id:
+              qrisFileId
+          })
+        }
+      );
+
+    telegramResult =
+      await response.json();
+  } catch (error) {
+    console.error(
+      "QRIS_GET_FILE_ERROR",
+      error
+    );
+
+    return json(
+      {
+        success: false,
+        error:
+          "Gagal mengambil QRIS."
+      },
+      502
+    );
+  }
+
+  if (
+    !telegramResult?.ok ||
+    !telegramResult?.result?.file_path
+  ) {
+    return json(
+      {
+        success: false,
+        error:
+          "File QRIS tidak dapat ditemukan di Telegram."
+      },
+      404
+    );
+  }
+
+  const filePath =
+    String(
+      telegramResult.result.file_path
+    );
+
+  let imageResponse;
+
+  try {
+    imageResponse =
+      await fetch(
+        `https://api.telegram.org/file/bot${token}/${filePath}`,
+        {
+          method: "GET"
+        }
+      );
+  } catch (error) {
+    console.error(
+      "QRIS_DOWNLOAD_ERROR",
+      error
+    );
+
+    return json(
+      {
+        success: false,
+        error:
+          "Gagal mengambil gambar QRIS."
+      },
+      502
+    );
+  }
+
+  if (!imageResponse.ok) {
+    return json(
+      {
+        success: false,
+        error:
+          "Gambar QRIS tidak dapat diakses."
+      },
+      404
+    );
+  }
+
+  const headers =
+    new Headers();
+
+  const contentType =
+    imageResponse.headers.get(
+      "Content-Type"
+    ) ||
+    "image/jpeg";
+
+  headers.set(
+    "Content-Type",
+    contentType
+  );
+
+  headers.set(
+    "Cache-Control",
+    "private, no-store, max-age=0"
+  );
+
+  headers.set(
+    "Content-Disposition",
+    'inline; filename="qris.jpg"'
+  );
+
+  return new Response(
+    imageResponse.body,
+    {
+      status: 200,
+      headers
+    }
+  );
+}
+
+export async function createDepositHandler(
+  request,
+  env
+) {
+  return createDeposit(
+    request,
+    env
+  );
+}
+
+export async function getDepositHandler(
+  request,
+  env
+) {
+  return getDeposit(
+    request,
+    env
+  );
+}
+
+export async function listDepositHandler(
+  request,
+  env
+) {
+  return listDeposits(
+    request,
+    env
+  );
+}
+
+export async function checkDepositPayment(
+  request,
+  env
+) {
+  return requestPaymentCheck(
+    request,
+    env
+  );
+}
+
+export async function qrisHandler(
+  request,
+  env
+) {
+  return getQris(
+    request,
+    env
+  );
+}
+
+export async function depositHandler(
+  request,
+  env
+) {
+  const url =
+    new URL(
+      request.url
+    );
 
   const pathname =
-    url.pathname.replace(/\/+$/, "") || "/";
+    url.pathname.replace(
+      /\/+$/,
+      ""
+    ) || "/";
 
   if (
     request.method === "POST" &&
-    pathname === "/api/deposit"
+    pathname ===
+      "/api/deposit"
   ) {
-    return createDeposit(request, env);
+    return createDeposit(
+      request,
+      env
+    );
   }
 
   if (
     request.method === "GET" &&
-    pathname === "/api/deposit"
+    pathname ===
+      "/api/deposit"
   ) {
-    return getDeposit(request, env);
+    return getDeposit(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method === "POST" &&
+    (
+      pathname ===
+        "/api/deposit/check" ||
+      pathname ===
+        "/api/deposit/check-payment"
+    )
+  ) {
+    return requestPaymentCheck(
+      request,
+      env
+    );
   }
 
   if (
     request.method === "GET" &&
-    pathname === "/api/deposits"
+    (
+      pathname ===
+        "/api/deposit/qr" ||
+      pathname ===
+        "/api/deposit/qris"
+    )
   ) {
-    return listDeposits(request, env);
+    return getQris(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method === "GET" &&
+    pathname ===
+      "/api/deposit/status"
+  ) {
+    return getDeposit(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method === "GET" &&
+    pathname ===
+      "/api/deposits"
+  ) {
+    return listDeposits(
+      request,
+      env
+    );
   }
 
   return json(
     {
       success: false,
-      error: "Deposit endpoint tidak ditemukan."
+      error:
+        "Deposit endpoint tidak ditemukan."
     },
     404
   );
