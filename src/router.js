@@ -1,5 +1,6 @@
 import { authHandler } from "./auth.js";
 import { walletHandler } from "./wallet.js";
+import { depositHandler } from "./deposit.js";
 
 const ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
 
@@ -133,6 +134,17 @@ async function handleApi(request, env, ctx) {
     pathname
   );
     }
+
+  if (
+  pathname === "/api/deposit" ||
+  pathname.startsWith("/api/deposit/")
+) {
+  return await depositHandler(
+    request,
+    env,
+    pathname
+  );
+  }
 
   switch (pathname) {
     case "/api/health":
