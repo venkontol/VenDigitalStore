@@ -1,27 +1,30 @@
 import {
   json,
-  now,
   normalizeUsername,
-  normalizeFirstName,
-  validateUsername,
-  validatePassword,
-  createUser,
+  normalizeName,
+  validUsername,
+  validPassword,
   getUserByUsername,
-  getUserById,
-  markUserLogin,
+  getActiveUserById,
+  createUser,
+  updateLastLogin,
+  hashPassword,
   verifyPassword,
   createSession,
-  getSessionUser,
+  getSessionFromRequest,
+  getSessionToken,
   revokeSession,
-  getCookie,
-  getBearerToken
+  revokeAllUserSessions
 } from "./utils.js";
 
-const SESSION_COOKIE = "vds_session";
+function cookieHeader(token, expiresAt) {
+  const maxAge = Math.max(
+    0,
+    Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)
+  );
 
-function cookie(value, maxAge = 60 * 60 * 24 * 30) {
   return [
-    `${SESSION_COOKIE}=${value}`,
+    `vds_session=${encodeURIComponent(token)}`,
     "Path=/",
     "HttpOnly",
     "Secure",
@@ -30,9 +33,9 @@ function cookie(value, maxAge = 60 * 60 * 24 * 30) {
   ].join("; ");
 }
 
-function clearCookie() {
+function clearCookieHeader() {
   return [
-    `${SESSION_COOKIE}=`,
+    "vds_session=",
     "Path=/",
     "HttpOnly",
     "Secure",
@@ -41,347 +44,392 @@ function clearCookie() {
   ].join("; ");
 }
 
-function getToken(request) {
-  return (
-    getCookie(request, SESSION_COOKIE) ||
-    getBearerToken(request) ||
-    null
-  );
-}
-
-async function currentUser(env, request) {
-  const token = getToken(request);
-
-  if (!token) {
-    return null;
-  }
-
-  return await getSessionUser(env, token);
-}
-
 function publicUser(user) {
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
   return {
-    id: user.id,
+    id: Number(user.id),
     username: user.username,
     first_name: user.first_name || "",
     balance: Number(user.balance || 0),
     status: user.status,
     created_at: user.created_at,
-    last_login_at: user.last_login_at
+    updated_at: user.updated_at,
+    last_login_at: user.last_login_at || null
   };
 }
 
-async function readBody(request) {
+async function readJson(request) {
   try {
-    const contentType = request.headers.get("content-type") || "";
+    const data = await request.json();
 
-    if (contentType.includes("application/json")) {
-      return await request.json();
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      return null;
     }
 
-    const form = await request.formData();
-
-    return Object.fromEntries(form.entries());
+    return data;
   } catch {
-    return {};
+    return null;
   }
 }
 
-function error(message, status = 400) {
+function responseWithCookie(body, status, token, expiresAt, extraHeaders = {}) {
   return json(
-    {
-      success: false,
-      error: message
-    },
-    status
-  );
-}
-
-function success(data = {}, status = 200, headers = {}) {
-  return json(
-    {
-      success: true,
-      ...data
-    },
+    body,
     status,
-    headers
+    {
+      ...extraHeaders,
+      "Set-Cookie": cookieHeader(token, expiresAt)
+    }
   );
 }
 
-function methodNotAllowed() {
-  return error("Method tidak diizinkan.", 405);
+function responseClearingCookie(body, status, extraHeaders = {}) {
+  return json(
+    body,
+    status,
+    {
+      ...extraHeaders,
+      "Set-Cookie": clearCookieHeader()
+    }
+  );
 }
 
-async function handleRegister(request, env) {
-  if (request.method !== "POST") {
-    return methodNotAllowed();
-  }
+export async function register(request, env) {
+  const data = await readJson(request);
 
-  const body = await readBody(request);
-
-  const username = normalizeUsername(body.username);
-  const password = String(body.password || "");
-  const firstName = normalizeFirstName(
-    body.first_name || body.firstName || ""
-  );
-
-  if (!username) {
-    return error("Username wajib diisi.");
-  }
-
-  if (!validateUsername(username)) {
-    return error(
-      "Username harus 4-24 karakter dan hanya boleh menggunakan huruf kecil, angka, titik, underscore, atau tanda minus."
+  if (!data) {
+    return json(
+      {
+        success: false,
+        error: "Body JSON tidak valid."
+      },
+      400
     );
   }
 
-  if (!validatePassword(password)) {
-    return error(
-      "Password minimal 8 karakter."
+  const username = normalizeUsername(data.username);
+  const firstName = normalizeName(
+    data.first_name ??
+    data.firstName ??
+    data.name ??
+    ""
+  );
+  const password = String(data.password ?? "");
+
+  if (!validUsername(username)) {
+    return json(
+      {
+        success: false,
+        error: "Username tidak valid. Gunakan 3-32 karakter: huruf, angka, titik, garis bawah, atau tanda minus."
+      },
+      400
+    );
+  }
+
+  if (!validPassword(password)) {
+    return json(
+      {
+        success: false,
+        error: "Password tidak valid."
+      },
+      400
+    );
+  }
+
+  if (!firstName) {
+    return json(
+      {
+        success: false,
+        error: "Nama depan wajib diisi."
+      },
+      400
     );
   }
 
   const existing = await getUserByUsername(env, username);
 
   if (existing) {
-    return error(
-      "Username sudah digunakan.",
+    return json(
+      {
+        success: false,
+        error: "Username sudah digunakan."
+      },
       409
     );
   }
 
-  const created = await createUser(
-    env,
-    username,
-    password,
-    firstName
-  );
+  try {
+    const passwordHash = await hashPassword(password);
 
-  if (!created) {
-    return error(
-      "Gagal membuat akun.",
+    const user = await createUser(env, {
+      username,
+      passwordHash,
+      firstName
+    });
+
+    if (!user) {
+      return json(
+        {
+          success: false,
+          error: "Gagal membuat akun."
+        },
+        500
+      );
+    }
+
+    const session = await createSession(env, user.id, 30);
+
+    return responseWithCookie(
+      {
+        success: true,
+        message: "Akun berhasil dibuat.",
+        user: publicUser(user)
+      },
+      201,
+      session.token,
+      session.expiresAt
+    );
+  } catch (error) {
+    const message = String(error?.message || error);
+
+    if (
+      message.toLowerCase().includes("unique") ||
+      message.toLowerCase().includes("username")
+    ) {
+      return json(
+        {
+          success: false,
+          error: "Username sudah digunakan."
+        },
+        409
+      );
+    }
+
+    console.error("REGISTER_ERROR", error);
+
+    return json(
+      {
+        success: false,
+        error: "Gagal membuat akun."
+      },
       500
     );
   }
-
-  const token = await createSession(
-    env,
-    created.id,
-    request
-  );
-
-  return success(
-    {
-      message: "Registrasi berhasil.",
-      user: publicUser(created)
-    },
-    201,
-    {
-      "Set-Cookie": cookie(token)
-    }
-  );
 }
 
-async function handleLogin(request, env) {
-  if (request.method !== "POST") {
-    return methodNotAllowed();
-  }
+export async function login(request, env) {
+  const data = await readJson(request);
 
-  const body = await readBody(request);
-
-  const username = normalizeUsername(body.username);
-  const password = String(body.password || "");
-
-  if (!username || !password) {
-    return error(
-      "Username dan password wajib diisi."
+  if (!data) {
+    return json(
+      {
+        success: false,
+        error: "Body JSON tidak valid."
+      },
+      400
     );
   }
 
-  const user = await getUserByUsername(
-    env,
-    username
-  );
+  const username = normalizeUsername(data.username);
+  const password = String(data.password ?? "");
 
-  if (!user) {
-    return error(
-      "Username atau password salah.",
+  if (!validUsername(username)) {
+    return json(
+      {
+        success: false,
+        error: "Username atau password salah."
+      },
       401
     );
   }
 
-  if (
-    String(user.status || "").toUpperCase() !==
-    "ACTIVE"
-  ) {
-    return error(
-      "Akun tidak aktif.",
-      403
+  if (!password) {
+    return json(
+      {
+        success: false,
+        error: "Username atau password salah."
+      },
+      401
     );
   }
 
-  const valid = await verifyPassword(
+  const user = await getUserByUsername(env, username);
+
+  if (!user || user.status !== "ACTIVE") {
+    return json(
+      {
+        success: false,
+        error: "Username atau password salah."
+      },
+      401
+    );
+  }
+
+  const passwordValid = await verifyPassword(
     password,
     user.password_hash
   );
 
-  if (!valid) {
-    return error(
-      "Username atau password salah.",
+  if (!passwordValid) {
+    return json(
+      {
+        success: false,
+        error: "Username atau password salah."
+      },
       401
     );
   }
 
-  await markUserLogin(env, user.id);
-
-  const token = await createSession(
-    env,
-    user.id,
-    request
-  );
-
-  const updatedUser = await getUserById(
-    env,
-    user.id
-  );
-
-  return success(
-    {
-      message: "Login berhasil.",
-      user: publicUser(updatedUser || user)
-    },
-    200,
-    {
-      "Set-Cookie": cookie(token)
-    }
-  );
-}
-
-async function handleMe(request, env) {
-  if (request.method !== "GET") {
-    return methodNotAllowed();
-  }
-
-  const user = await currentUser(
-    env,
-    request
-  );
-
-  if (!user) {
-    return error(
-      "Belum login.",
-      401
-    );
-  }
-
-  return success({
-    authenticated: true,
-    user: publicUser(user)
-  });
-}
-
-async function handleLogout(request, env) {
-  if (request.method !== "POST") {
-    return methodNotAllowed();
-  }
-
-  const token = getToken(request);
-
-  if (token) {
-    await revokeSession(
-      env,
-      token
-    );
-  }
-
-  return success(
-    {
-      message: "Logout berhasil."
-    },
-    200,
-    {
-      "Set-Cookie": clearCookie()
-    }
-  );
-}
-
-async function handleSession(request, env) {
-  const user = await currentUser(
-    env,
-    request
-  );
-
-  if (!user) {
-    return success({
-      authenticated: false,
-      user: null
-    });
-  }
-
-  return success({
-    authenticated: true,
-    user: publicUser(user)
-  });
-}
-
-export async function authHandler(
-  request,
-  env,
-  pathname
-) {
   try {
-    switch (pathname) {
-      case "/api/auth/register":
-        return await handleRegister(
-          request,
-          env
-        );
+    await updateLastLogin(env, user.id);
 
-      case "/api/auth/login":
-        return await handleLogin(
-          request,
-          env
-        );
+    const session = await createSession(env, user.id, 30);
 
-      case "/api/auth/me":
-        return await handleMe(
-          request,
-          env
-        );
+    const freshUser =
+      await getActiveUserById(env, user.id);
 
-      case "/api/auth/logout":
-        return await handleLogout(
-          request,
-          env
-        );
-
-      case "/api/auth/session":
-        return await handleSession(
-          request,
-          env
-        );
-
-      default:
-        return error(
-          "Endpoint auth tidak ditemukan.",
-          404
-        );
-    }
-  } catch (err) {
-    console.error(
-      "AUTH_ERROR",
-      err
+    return responseWithCookie(
+      {
+        success: true,
+        message: "Login berhasil.",
+        user: publicUser(freshUser || user)
+      },
+      200,
+      session.token,
+      session.expiresAt
     );
+  } catch (error) {
+    console.error("LOGIN_ERROR", error);
 
-    return error(
-      "Terjadi kesalahan pada sistem autentikasi.",
+    return json(
+      {
+        success: false,
+        error: "Login gagal."
+      },
       500
     );
   }
+}
+
+export async function me(request, env) {
+  const session = await getSessionFromRequest(env, request);
+
+  if (!session) {
+    return json(
+      {
+        success: false,
+        authenticated: false,
+        user: null
+      },
+      401
+    );
+  }
+
+  return json({
+    success: true,
+    authenticated: true,
+    user: {
+      id: Number(session.user_id),
+      username: session.username,
+      first_name: session.first_name || "",
+      balance: Number(session.balance || 0),
+      status: session.status,
+      session_expires_at: session.expires_at
+    }
+  });
+}
+
+export async function logout(request, env) {
+  const token = getSessionToken(request);
+
+  if (token) {
+    try {
+      await revokeSession(env, token);
+    } catch (error) {
+      console.error("LOGOUT_ERROR", error);
+    }
+  }
+
+  return responseClearingCookie(
+    {
+      success: true,
+      message: "Logout berhasil."
+    },
+    200
+  );
+}
+
+export async function logoutAll(request, env) {
+  const session = await getSessionFromRequest(env, request);
+
+  if (!session) {
+    return responseClearingCookie(
+      {
+        success: false,
+        error: "Session tidak valid."
+      },
+      401
+    );
+  }
+
+  try {
+    await revokeAllUserSessions(env, session.user_id);
+  } catch (error) {
+    console.error("LOGOUT_ALL_ERROR", error);
+
+    return json(
+      {
+        success: false,
+        error: "Gagal mengakhiri semua session."
+      },
+      500
+    );
+  }
+
+  return responseClearingCookie(
+    {
+      success: true,
+      message: "Semua session berhasil diakhiri."
+    },
+    200
+  );
+}
+
+export async function authHandler(request, env) {
+  const url = new URL(request.url);
+  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+
+  if (request.method === "POST" && pathname === "/api/auth/register") {
+    return register(request, env);
+  }
+
+  if (request.method === "POST" && pathname === "/api/auth/login") {
+    return login(request, env);
+  }
+
+  if (request.method === "GET" && pathname === "/api/auth/me") {
+    return me(request, env);
+  }
+
+  if (request.method === "POST" && pathname === "/api/auth/logout") {
+    return logout(request, env);
+  }
+
+  if (
+    request.method === "POST" &&
+    pathname === "/api/auth/logout-all"
+  ) {
+    return logoutAll(request, env);
+  }
+
+  return json(
+    {
+      success: false,
+      error: "Auth endpoint tidak ditemukan."
+    },
+    404
+  );
 }
 
 export default authHandler;
