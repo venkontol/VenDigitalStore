@@ -8,7 +8,8 @@ import {
   getSessionFromRequest,
   getUserById,
   dbFirst,
-  dbRun
+  dbRun,
+  setting
 } from "./utils.js";
 
 import {
@@ -23,11 +24,8 @@ const CHECK_COOLDOWN_SECONDS = 30;
 function validAmount(value) {
   const amount = Math.round(number(value));
 
-  if (!Number.isSafeInteger(amount)) {
-    return false;
-  }
-
   return (
+    Number.isSafeInteger(amount) &&
     amount >= MIN_DEPOSIT &&
     amount <= MAX_DEPOSIT
   );
@@ -43,10 +41,6 @@ function validDepositCode(value) {
   return /^[A-Z2-9]{4}$/.test(
     normalizeCode(value)
   );
-}
-
-function generateDepositCode() {
-  return randomId(4);
 }
 
 function generateMerchantOrderId() {
@@ -128,12 +122,9 @@ async function getCurrentUser(
   };
 }
 
-async function findAvailableDepositCode(
-  env
-) {
+async function findAvailableDepositCode(env) {
   for (let attempt = 0; attempt < 20; attempt++) {
-    const code =
-      generateDepositCode();
+    const code = randomId(4);
 
     const existing =
       await dbFirst(
@@ -157,77 +148,72 @@ async function findAvailableDepositCode(
   );
 }
 
-async function findDepositForUser(
+async function getDepositByCode(
   env,
   userId,
-  {
-    referenceId = "",
-    merchantOrderId = ""
-  } = {}
+  code
 ) {
-  const uid = Number(userId);
+  return dbFirst(
+    env,
+    `
+      SELECT
+        id,
+        user_id,
+        reference_id,
+        merchant_order_id,
+        amount,
+        provider,
+        payment_method,
+        status,
+        provider_reference,
+        signature_verified,
+        paid_at,
+        expired_at,
+        callback_data,
+        created_at,
+        updated_at
+      FROM deposits
+      WHERE user_id = ?
+        AND reference_id = ?
+      LIMIT 1
+    `,
+    Number(userId),
+    normalizeCode(code)
+  );
+}
 
-  if (referenceId) {
-    return dbFirst(
-      env,
-      `
-        SELECT
-          id,
-          user_id,
-          reference_id,
-          merchant_order_id,
-          amount,
-          provider,
-          payment_method,
-          status,
-          provider_reference,
-          signature_verified,
-          paid_at,
-          expired_at,
-          callback_data,
-          created_at,
-          updated_at
-        FROM deposits
-        WHERE user_id = ?
-          AND reference_id = ?
-        LIMIT 1
-      `,
-      uid,
-      normalizeCode(referenceId)
-    );
-  }
-
-  if (merchantOrderId) {
-    return dbFirst(
-      env,
-      `
-        SELECT
-          id,
-          user_id,
-          reference_id,
-          merchant_order_id,
-          amount,
-          provider,
-          payment_method,
-          status,
-          provider_reference,
-          signature_verified,
-          paid_at,
-          expired_at,
-          callback_data,
-          created_at,
-          updated_at
-        FROM deposits
-        WHERE user_id = ?
-          AND merchant_order_id = ?
-        LIMIT 1
-      `,
-      uid,
-      String(merchantOrderId).trim()
-    );
-  }
-
-  return null;
+async function getDepositByMerchantOrderId(
+  env,
+  userId,
+  merchantOrderId
+) {
+  return dbFirst(
+    env,
+    `
+      SELECT
+        id,
+        user_id,
+        reference_id,
+        merchant_order_id,
+        amount,
+        provider,
+        payment_method,
+        status,
+        provider_reference,
+        signature_verified,
+        paid_at,
+        expired_at,
+        callback_data,
+        created_at,
+        updated_at
+      FROM deposits
+      WHERE user_id = ?
+        AND merchant_order_id = ?
+      LIMIT 1
+    `,
+    Number(userId),
+    String(merchantOrderId || "").trim()
+  );
 }
 
 async function getDepositById(
@@ -261,7 +247,7 @@ async function getDepositById(
   );
 }
 
-function isExpired(deposit) {
+function depositExpired(deposit) {
   if (!deposit?.expired_at) {
     return false;
   }
@@ -288,11 +274,9 @@ async function expireDeposit(
     return deposit;
   }
 
-  if (!isExpired(deposit)) {
+  if (!depositExpired(deposit)) {
     return deposit;
   }
-
-  const updatedAt = now();
 
   await dbRun(
     env,
@@ -304,7 +288,7 @@ async function expireDeposit(
       WHERE id = ?
         AND status = 'PENDING'
     `,
-    updatedAt,
+    now(),
     Number(deposit.id)
   );
 
@@ -314,9 +298,7 @@ async function expireDeposit(
   );
 }
 
-async function parseRequestJson(
-  request
-) {
+async function parseJson(request) {
   try {
     return await request.json();
   } catch {
@@ -339,9 +321,7 @@ async function createDeposit(
   }
 
   const data =
-    await parseRequestJson(
-      request
-    );
+    await parseJson(request);
 
   if (!data) {
     return json(
@@ -371,8 +351,7 @@ async function createDeposit(
 
   const paymentMethod =
     String(
-      data.payment_method ||
-      "QRIS"
+      data.payment_method || "QRIS"
     )
       .trim()
       .toUpperCase();
@@ -381,7 +360,8 @@ async function createDeposit(
     return json(
       {
         success: false,
-        error: "Metode pembayaran yang tersedia adalah QRIS."
+        error:
+          "Metode pembayaran yang tersedia adalah QRIS."
       },
       400
     );
@@ -389,49 +369,43 @@ async function createDeposit(
 
   const qrisFileId =
     String(
-      await import("./utils.js")
-        .then(module =>
-          module.setting(
-            env,
-            "qris_file_id"
-          )
-        )
+      await setting(
+        env,
+        "qris_file_id"
+      ) || ""
     ).trim();
 
   if (!qrisFileId) {
     return json(
       {
         success: false,
-        error: "QRIS belum tersedia. Silakan hubungi admin."
+        error:
+          "QRIS belum tersedia. Silakan hubungi admin."
       },
       503
     );
   }
 
-  let depositCode;
-  let merchantOrderId;
-  let createdAt;
-  let expiredAt;
+  const depositCode =
+    await findAvailableDepositCode(
+      env
+    );
+
+  const merchantOrderId =
+    generateMerchantOrderId();
+
+  const createdAt =
+    now();
+
+  const expiredAt =
+    new Date(
+      Date.now() +
+      DEPOSIT_EXPIRE_MINUTES *
+        60 *
+        1000
+    ).toISOString();
 
   try {
-    depositCode =
-      await findAvailableDepositCode(
-        env
-      );
-
-    merchantOrderId =
-      generateMerchantOrderId();
-
-    createdAt = now();
-
-    expiredAt =
-      new Date(
-        Date.now() +
-        DEPOSIT_EXPIRE_MINUTES *
-          60 *
-          1000
-      ).toISOString();
-
     const result =
       await dbRun(
         env,
@@ -492,44 +466,36 @@ async function createDeposit(
     return json(
       {
         success: false,
-        error: "Gagal membuat deposit."
+        error:
+          "Gagal membuat deposit."
       },
       500
     );
   }
 
   const deposit =
-    await dbFirst(
+    await getDepositById(
       env,
-      `
-        SELECT
-          id,
-          user_id,
-          reference_id,
-          merchant_order_id,
-          amount,
-          provider,
-          payment_method,
-          status,
-          provider_reference,
-          signature_verified,
-          paid_at,
-          expired_at,
-          callback_data,
-          created_at,
-          updated_at
-        FROM deposits
-        WHERE reference_id = ?
-        LIMIT 1
-      `,
-      depositCode
+      (
+        await dbFirst(
+          env,
+          `
+            SELECT id
+            FROM deposits
+            WHERE reference_id = ?
+            LIMIT 1
+          `,
+          depositCode
+        )
+      )?.id
     );
 
   if (!deposit) {
     return json(
       {
         success: false,
-        error: "Deposit gagal dibuat."
+        error:
+          "Deposit gagal dibuat."
       },
       500
     );
@@ -538,10 +504,16 @@ async function createDeposit(
   return json(
     {
       success: true,
-      message: "Deposit berhasil dibuat.",
+      message:
+        "Deposit berhasil dibuat.",
       deposit: {
-        ...publicDeposit(deposit),
-        qr_url: "/api/deposit/qr"
+        ...publicDeposit(
+          deposit
+        ),
+        qr_url:
+          "/api/deposit/qr",
+        check_url:
+          "/api/deposit/check"
       }
     },
     201
@@ -563,13 +535,13 @@ async function getDeposit(
   }
 
   const url =
-    new URL(
-      request.url
-    );
+    new URL(request.url);
 
   const code =
     normalizeCode(
-      url.searchParams.get("code")
+      url.searchParams.get(
+        "code"
+      )
     );
 
   const referenceId =
@@ -587,8 +559,7 @@ async function getDeposit(
     ).trim();
 
   const identifier =
-    code ||
-    referenceId;
+    code || referenceId;
 
   if (
     !identifier &&
@@ -597,28 +568,37 @@ async function getDeposit(
     return json(
       {
         success: false,
-        error: "ID deposit wajib."
+        error:
+          "ID deposit wajib."
       },
       400
     );
   }
 
-  let deposit =
-    await findDepositForUser(
-      env,
-      auth.user.id,
-      {
-        referenceId:
-          identifier,
+  let deposit;
+
+  if (identifier) {
+    deposit =
+      await getDepositByCode(
+        env,
+        auth.user.id,
+        identifier
+      );
+  } else {
+    deposit =
+      await getDepositByMerchantOrderId(
+        env,
+        auth.user.id,
         merchantOrderId
-      }
-    );
+      );
+  }
 
   if (!deposit) {
     return json(
       {
         success: false,
-        error: "Deposit tidak ditemukan."
+        error:
+          "Deposit tidak ditemukan."
       },
       404
     );
@@ -633,10 +613,13 @@ async function getDeposit(
   return json({
     success: true,
     deposit: {
-      ...publicDeposit(deposit),
+      ...publicDeposit(
+        deposit
+      ),
       qr_url:
-        String(deposit.status).toUpperCase() ===
-        "PENDING"
+        String(
+          deposit.status
+        ).toUpperCase() === "PENDING"
           ? "/api/deposit/qr"
           : null
     }
@@ -658,9 +641,7 @@ async function listDeposits(
   }
 
   const url =
-    new URL(
-      request.url
-    );
+    new URL(request.url);
 
   const limitRaw =
     Number(
@@ -736,7 +717,7 @@ async function listDeposits(
   });
 }
 
-async function requestPaymentCheck(
+async function checkPayment(
   request,
   env
 ) {
@@ -751,15 +732,14 @@ async function requestPaymentCheck(
   }
 
   const data =
-    await parseRequestJson(
-      request
-    );
+    await parseJson(request);
 
   if (!data) {
     return json(
       {
         success: false,
-        error: "Body JSON tidak valid."
+        error:
+          "Body JSON tidak valid."
       },
       400
     );
@@ -776,26 +756,26 @@ async function requestPaymentCheck(
     return json(
       {
         success: false,
-        error: "ID deposit harus 4 karakter."
+        error:
+          "ID deposit harus 4 karakter."
       },
       400
     );
   }
 
   let deposit =
-    await findDepositForUser(
+    await getDepositByCode(
       env,
       auth.user.id,
-      {
-        referenceId: code
-      }
+      code
     );
 
   if (!deposit) {
     return json(
       {
         success: false,
-        error: "Deposit tidak ditemukan."
+        error:
+          "Deposit tidak ditemukan."
       },
       404
     );
@@ -808,20 +788,20 @@ async function requestPaymentCheck(
     );
 
   if (
-    String(deposit.status).toUpperCase() !==
+    String(
+      deposit.status
+    ).toUpperCase() !==
     "PENDING"
   ) {
-    return json(
-      {
-        success: true,
-        message:
-          "Deposit sudah tidak berstatus PENDING.",
-        deposit:
-          publicDeposit(
-            deposit
-          )
-      }
-    );
+    return json({
+      success: true,
+      message:
+        "Deposit sudah tidak berstatus PENDING.",
+      deposit:
+        publicDeposit(
+          deposit
+        )
+    });
   }
 
   let callbackData = {};
@@ -870,7 +850,7 @@ async function requestPaymentCheck(
             lastCheck
           )
         ) /
-          1000
+        1000
       );
 
     return json(
@@ -964,14 +944,9 @@ async function getQris(
     return auth.response;
   }
 
-  const module =
-    await import(
-      "./utils.js"
-    );
-
   const qrisFileId =
     String(
-      await module.setting(
+      await setting(
         env,
         "qris_file_id"
       ) || ""
@@ -1051,7 +1026,7 @@ async function getQris(
       {
         success: false,
         error:
-          "File QRIS tidak dapat ditemukan di Telegram."
+          "File QRIS tidak ditemukan di Telegram."
       },
       404
     );
@@ -1102,15 +1077,11 @@ async function getQris(
   const headers =
     new Headers();
 
-  const contentType =
-    imageResponse.headers.get(
-      "Content-Type"
-    ) ||
-    "image/jpeg";
-
   headers.set(
     "Content-Type",
-    contentType
+    imageResponse.headers.get(
+      "Content-Type"
+    ) || "image/jpeg"
   );
 
   headers.set(
@@ -1166,7 +1137,7 @@ export async function checkDepositPayment(
   request,
   env
 ) {
-  return requestPaymentCheck(
+  return checkPayment(
     request,
     env
   );
@@ -1187,9 +1158,7 @@ export async function depositHandler(
   env
 ) {
   const url =
-    new URL(
-      request.url
-    );
+    new URL(request.url);
 
   const pathname =
     url.pathname.replace(
@@ -1220,6 +1189,17 @@ export async function depositHandler(
   }
 
   if (
+    request.method === "GET" &&
+    pathname ===
+      "/api/deposits"
+  ) {
+    return listDeposits(
+      request,
+      env
+    );
+  }
+
+  if (
     request.method === "POST" &&
     (
       pathname ===
@@ -1228,7 +1208,7 @@ export async function depositHandler(
         "/api/deposit/check-payment"
     )
   ) {
-    return requestPaymentCheck(
+    return checkPayment(
       request,
       env
     );
@@ -1255,17 +1235,6 @@ export async function depositHandler(
       "/api/deposit/status"
   ) {
     return getDeposit(
-      request,
-      env
-    );
-  }
-
-  if (
-    request.method === "GET" &&
-    pathname ===
-      "/api/deposits"
-  ) {
-    return listDeposits(
       request,
       env
     );
