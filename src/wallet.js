@@ -2,293 +2,181 @@ import {
   json,
   getSessionFromRequest,
   getBalance,
-  addBalance,
-  chargeCustomer,
-  refundCustomer
+  dbAll
 } from "./utils.js";
 
-function authenticatedSession(request, env) {
-  return getSessionFromRequest(env, request);
+async function authenticatedSession(request, env) {
+  return await getSessionFromRequest(env, request);
+}
+
+function unauthorized() {
+  return json(
+    {
+      success: false,
+      error: "Unauthorized."
+    },
+    401
+  );
+}
+
+function notFound() {
+  return json(
+    {
+      success: false,
+      error: "Wallet endpoint tidak ditemukan."
+    },
+    404
+  );
 }
 
 export async function balance(request, env) {
   const session = await authenticatedSession(request, env);
 
   if (!session) {
-    return json(
-      {
-        success: false,
-        error: "Unauthorized."
-      },
-      401
-    );
+    return unauthorized();
   }
-
-  const currentBalance = await getBalance(env, session.user_id);
-
-  return json({
-    success: true,
-    balance: Number(currentBalance || 0)
-  });
-}
-
-export async function credit(request, env) {
-  const session = await authenticatedSession(request, env);
-
-  if (!session) {
-    return json(
-      {
-        success: false,
-        error: "Unauthorized."
-      },
-      401
-    );
-  }
-
-  let data;
 
   try {
-    data = await request.json();
-  } catch {
-    return json(
-      {
-        success: false,
-        error: "Body JSON tidak valid."
-      },
-      400
-    );
-  }
-
-  const amount = Number(data.amount);
-
-  if (!Number.isSafeInteger(amount) || amount <= 0) {
-    return json(
-      {
-        success: false,
-        error: "Jumlah saldo tidak valid."
-      },
-      400
-    );
-  }
-
-  /*
-   * Endpoint ini hanya untuk internal/admin.
-   * Deposit user tidak boleh menggunakan endpoint ini secara langsung.
-   */
-  const referenceId =
-    typeof data.reference_id === "string" &&
-    data.reference_id.trim()
-      ? data.reference_id.trim()
-      : `MANUAL-${crypto.randomUUID()}`;
-
-  const description =
-    typeof data.description === "string"
-      ? data.description.trim()
-      : "Saldo ditambahkan";
-
-  try {
-    const newBalance = await addBalance(
+    const currentBalance = await getBalance(
       env,
-      session.user_id,
-      amount,
-      referenceId,
-      description
+      session.user_id
     );
 
     return json({
       success: true,
-      balance: Number(newBalance),
-      amount
+      balance: Number(currentBalance || 0)
     });
   } catch (error) {
-    console.error("WALLET_CREDIT_ERROR", error);
+    console.error("WALLET_BALANCE_ERROR", error);
 
     return json(
       {
         success: false,
-        error: "Gagal menambahkan saldo."
+        error: "Gagal mengambil saldo."
       },
       500
     );
   }
 }
 
-export async function charge(request, env) {
+export async function transactions(request, env) {
   const session = await authenticatedSession(request, env);
 
   if (!session) {
-    return json(
-      {
-        success: false,
-        error: "Unauthorized."
-      },
-      401
-    );
+    return unauthorized();
   }
 
-  let data;
+  const url = new URL(request.url);
+
+  let limit = Number(url.searchParams.get("limit") || 50);
+
+  if (!Number.isSafeInteger(limit)) {
+    limit = 50;
+  }
+
+  limit = Math.max(1, Math.min(limit, 100));
 
   try {
-    data = await request.json();
-  } catch {
-    return json(
-      {
-        success: false,
-        error: "Body JSON tidak valid."
-      },
-      400
-    );
-  }
-
-  const amount = Number(data.amount);
-
-  if (!Number.isSafeInteger(amount) || amount <= 0) {
-    return json(
-      {
-        success: false,
-        error: "Jumlah pembayaran tidak valid."
-      },
-      400
-    );
-  }
-
-  const referenceId =
-    typeof data.reference_id === "string" &&
-    data.reference_id.trim()
-      ? data.reference_id.trim()
-      : `CHARGE-${crypto.randomUUID()}`;
-
-  const description =
-    typeof data.description === "string"
-      ? data.description.trim()
-      : "Pembayaran";
-
-  try {
-    const newBalance = await chargeCustomer(
+    const rows = await dbAll(
       env,
-      session.user_id,
-      amount,
-      referenceId,
-      description
+      `
+        SELECT
+          id,
+          type,
+          amount,
+          reference_id,
+          description,
+          balance_before,
+          balance_after,
+          created_at
+        FROM balance_transactions
+        WHERE user_id = ?
+        ORDER BY id DESC
+        LIMIT ?
+      `,
+      [session.user_id, limit]
     );
 
     return json({
       success: true,
-      balance: Number(newBalance),
-      charged: amount
+      transactions: rows.map((row) => ({
+        id: Number(row.id),
+        type: row.type,
+        amount: Number(row.amount || 0),
+        reference_id: row.reference_id || null,
+        description: row.description || "",
+        balance_before: Number(row.balance_before || 0),
+        balance_after: Number(row.balance_after || 0),
+        created_at: row.created_at
+      }))
     });
   } catch (error) {
-    const message = String(error?.message || error);
-
-    if (
-      message.includes("INSUFFICIENT_BALANCE") ||
-      message.toLowerCase().includes("insufficient")
-    ) {
-      return json(
-        {
-          success: false,
-          error: "Saldo tidak mencukupi."
-        },
-        400
-      );
-    }
-
-    if (
-      message.includes("DUPLICATE") ||
-      message.toLowerCase().includes("already")
-    ) {
-      return json(
-        {
-          success: false,
-          error: "Transaksi dengan reference tersebut sudah diproses."
-        },
-        409
-      );
-    }
-
-    console.error("WALLET_CHARGE_ERROR", error);
+    console.error("WALLET_TRANSACTIONS_ERROR", error);
 
     return json(
       {
         success: false,
-        error: "Gagal melakukan pembayaran."
+        error: "Gagal mengambil riwayat transaksi."
       },
       500
     );
   }
 }
 
-export async function refund(request, env) {
+export async function overview(request, env) {
   const session = await authenticatedSession(request, env);
 
   if (!session) {
-    return json(
-      {
-        success: false,
-        error: "Unauthorized."
-      },
-      401
-    );
+    return unauthorized();
   }
-
-  let data;
 
   try {
-    data = await request.json();
-  } catch {
-    return json(
-      {
-        success: false,
-        error: "Body JSON tidak valid."
-      },
-      400
-    );
-  }
-
-  const amount = Number(data.amount);
-
-  if (!Number.isSafeInteger(amount) || amount <= 0) {
-    return json(
-      {
-        success: false,
-        error: "Jumlah refund tidak valid."
-      },
-      400
-    );
-  }
-
-  const referenceId =
-    typeof data.reference_id === "string" &&
-    data.reference_id.trim()
-      ? data.reference_id.trim()
-      : `REFUND-${crypto.randomUUID()}`;
-
-  const description =
-    typeof data.description === "string"
-      ? data.description.trim()
-      : "Refund";
-
-  try {
-    const newBalance = await refundCustomer(
+    const currentBalance = await getBalance(
       env,
-      session.user_id,
-      amount,
-      referenceId,
-      description
+      session.user_id
+    );
+
+    const rows = await dbAll(
+      env,
+      `
+        SELECT
+          id,
+          type,
+          amount,
+          reference_id,
+          description,
+          balance_before,
+          balance_after,
+          created_at
+        FROM balance_transactions
+        WHERE user_id = ?
+        ORDER BY id DESC
+        LIMIT 10
+      `,
+      [session.user_id]
     );
 
     return json({
       success: true,
-      balance: Number(newBalance),
-      refunded: amount
+      balance: Number(currentBalance || 0),
+      transactions: rows.map((row) => ({
+        id: Number(row.id),
+        type: row.type,
+        amount: Number(row.amount || 0),
+        reference_id: row.reference_id || null,
+        description: row.description || "",
+        balance_before: Number(row.balance_before || 0),
+        balance_after: Number(row.balance_after || 0),
+        created_at: row.created_at
+      }))
     });
   } catch (error) {
-    console.error("WALLET_REFUND_ERROR", error);
+    console.error("WALLET_OVERVIEW_ERROR", error);
 
     return json(
       {
         success: false,
-        error: "Gagal melakukan refund."
+        error: "Gagal mengambil informasi wallet."
       },
       500
     );
@@ -297,31 +185,31 @@ export async function refund(request, env) {
 
 export async function walletHandler(request, env) {
   const url = new URL(request.url);
-  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+  const pathname =
+    url.pathname.replace(/\/+$/, "") || "/";
 
-  if (request.method === "GET" && pathname === "/api/wallet/balance") {
-    return balance(request, env);
+  if (
+    request.method === "GET" &&
+    pathname === "/api/wallet/balance"
+  ) {
+    return await balance(request, env);
   }
 
-  if (request.method === "POST" && pathname === "/api/wallet/credit") {
-    return credit(request, env);
+  if (
+    request.method === "GET" &&
+    pathname === "/api/wallet/transactions"
+  ) {
+    return await transactions(request, env);
   }
 
-  if (request.method === "POST" && pathname === "/api/wallet/charge") {
-    return charge(request, env);
+  if (
+    request.method === "GET" &&
+    pathname === "/api/wallet/overview"
+  ) {
+    return await overview(request, env);
   }
 
-  if (request.method === "POST" && pathname === "/api/wallet/refund") {
-    return refund(request, env);
-  }
-
-  return json(
-    {
-      success: false,
-      error: "Wallet endpoint tidak ditemukan."
-    },
-    404
-  );
+  return notFound();
 }
 
 export default walletHandler;
