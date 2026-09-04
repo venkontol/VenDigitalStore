@@ -1,15 +1,18 @@
 import { authHandler } from "./auth.js";
 import { walletHandler } from "./wallet.js";
 import { depositHandler } from "./deposit.js";
+import { handleTelegramWebhook } from "./telegram.js";
 
-const ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
+const ALLOWED_METHODS =
+  "GET, POST, PUT, PATCH, DELETE, OPTIONS";
 
 function corsHeaders(request, env) {
-  const origin = request.headers.get("Origin") || "";
+  const origin =
+    request.headers.get("Origin") || "";
 
   const configuredOrigin =
-    env.ALLOWED_ORIGIN ||
-    env.FRONTEND_URL ||
+    env?.ALLOWED_ORIGIN ||
+    env?.FRONTEND_URL ||
     "";
 
   let allowOrigin = "*";
@@ -21,24 +24,44 @@ function corsHeaders(request, env) {
   }
 
   return {
-    "Access-Control-Allow-Origin": allowOrigin,
-    "Access-Control-Allow-Methods": ALLOWED_METHODS,
+    "Access-Control-Allow-Origin":
+      allowOrigin,
+
+    "Access-Control-Allow-Methods":
+      ALLOWED_METHODS,
+
     "Access-Control-Allow-Headers":
       "Content-Type, Authorization, X-Requested-With, X-Idempotency-Key",
+
     "Access-Control-Allow-Credentials":
-      allowOrigin === "*" ? "false" : "true",
-    "Access-Control-Max-Age": "86400",
-    "Vary": "Origin"
+      allowOrigin === "*"
+        ? "false"
+        : "true",
+
+    "Access-Control-Max-Age":
+      "86400",
+
+    "Vary":
+      "Origin"
   };
 }
 
-function json(data, status = 200, headers = {}) {
+function json(
+  data,
+  status = 200,
+  headers = {}
+) {
   return new Response(
     JSON.stringify(data),
     {
       status,
       headers: {
-        "Content-Type": "application/json; charset=utf-8",
+        "Content-Type":
+          "application/json; charset=utf-8",
+
+        "Cache-Control":
+          "no-store",
+
         ...headers
       }
     }
@@ -49,7 +72,8 @@ function notFound() {
   return json(
     {
       success: false,
-      error: "Endpoint tidak ditemukan."
+      error:
+        "Endpoint tidak ditemukan."
     },
     404
   );
@@ -59,11 +83,13 @@ function methodNotAllowed() {
   return json(
     {
       success: false,
-      error: "Method tidak diizinkan."
+      error:
+        "Method tidak diizinkan."
     },
     405,
     {
-      Allow: ALLOWED_METHODS
+      Allow:
+        ALLOWED_METHODS
     }
   );
 }
@@ -72,50 +98,125 @@ function serverError() {
   return json(
     {
       success: false,
-      error: "Terjadi kesalahan pada server."
+      error:
+        "Terjadi kesalahan pada server."
     },
     500
   );
 }
 
-function normalizePath(pathname) {
+function normalizePath(
+  pathname
+) {
   if (!pathname) {
     return "/";
   }
 
   if (pathname.length > 1) {
-    return pathname.replace(/\/+$/, "");
+    return pathname.replace(
+      /\/+$/,
+      ""
+    );
   }
 
   return pathname;
 }
 
-async function handleApi(request, env, ctx) {
-  const url = new URL(request.url);
-  const pathname = normalizePath(url.pathname);
+async function handleApi(
+  request,
+  env,
+  ctx
+) {
+  const url =
+    new URL(request.url);
 
-  if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204
-    });
+  const pathname =
+    normalizePath(
+      url.pathname
+    );
+
+  if (
+    request.method ===
+    "OPTIONS"
+  ) {
+    return new Response(
+      null,
+      {
+        status: 204
+      }
+    );
   }
 
-  if (!pathname.startsWith("/api")) {
+  if (
+    !pathname.startsWith(
+      "/api"
+    )
+  ) {
     return notFound();
   }
 
-  if (pathname === "/api") {
+  if (
+    pathname === "/api"
+  ) {
     return json({
       success: true,
-      name: "VenDigitalStore API",
-      version: "1.0.0",
-      status: "online"
+      name:
+        "VenDigitalStore API",
+      version:
+        "1.0.0",
+      status:
+        "online"
     });
   }
 
   if (
-    pathname === "/api/auth" ||
-    pathname.startsWith("/api/auth/")
+    pathname ===
+      "/api/health"
+  ) {
+    return json({
+      success: true,
+      status:
+        "ok",
+      service:
+        "VenDigitalStore API"
+    });
+  }
+
+  /*
+   * TELEGRAM WEBHOOK
+   *
+   * Route ini sengaja diproses
+   * sebelum route lain karena
+   * Telegram tidak menggunakan
+   * session customer.
+   */
+  if (
+    pathname ===
+      "/api/telegram/webhook"
+  ) {
+    if (
+      request.method !==
+      "POST"
+    ) {
+      return methodNotAllowed();
+    }
+
+    return await handleTelegramWebhook(
+      request,
+      env,
+      ctx
+    );
+  }
+
+  /*
+   * AUTH
+   */
+  if (
+    pathname ===
+      "/api/auth" ||
+    pathname.startsWith(
+      "/api/auth/"
+    )
   ) {
     return await authHandler(
       request,
@@ -124,68 +225,92 @@ async function handleApi(request, env, ctx) {
     );
   }
 
+  /*
+   * WALLET
+   */
   if (
-  pathname === "/api/wallet" ||
-  pathname.startsWith("/api/wallet/")
-) {
-  return await walletHandler(
-    request,
-    env,
-    pathname
-  );
-    }
-
-  if (
-  pathname === "/api/deposit" ||
-  pathname.startsWith("/api/deposit/")
-) {
-  return await depositHandler(
-    request,
-    env,
-    pathname
-  );
-  }
-
-  switch (pathname) {
-    case "/api/health":
-      return json({
-        success: true,
-        status: "ok",
-        service: "VenDigitalStore API"
-      });
-
-    default:
-      return notFound();
-  }
-}
-
-export async function router(request, env, ctx) {
-  try {
-    const response = await handleApi(
+    pathname ===
+      "/api/wallet" ||
+    pathname.startsWith(
+      "/api/wallet/"
+    )
+  ) {
+    return await walletHandler(
       request,
       env,
-      ctx
+      pathname
     );
+  }
 
-    const headers = corsHeaders(
+  /*
+   * DEPOSIT
+   */
+  if (
+    pathname ===
+      "/api/deposit" ||
+    pathname.startsWith(
+      "/api/deposit/"
+    ) ||
+    pathname ===
+      "/api/deposits"
+  ) {
+    return await depositHandler(
       request,
-      env
+      env,
+      pathname
     );
+  }
 
-    const newHeaders = new Headers(
-      response.headers
-    );
+  return notFound();
+}
 
-    for (const [key, value] of Object.entries(headers)) {
-      newHeaders.set(key, value);
+export async function router(
+  request,
+  env,
+  ctx
+) {
+  try {
+    const response =
+      await handleApi(
+        request,
+        env,
+        ctx
+      );
+
+    const headers =
+      corsHeaders(
+        request,
+        env
+      );
+
+    const newHeaders =
+      new Headers(
+        response.headers
+      );
+
+    for (
+      const [key, value]
+      of Object.entries(
+        headers
+      )
+    ) {
+      newHeaders.set(
+        key,
+        value
+      );
     }
 
     return new Response(
       response.body,
       {
-        status: response.status,
-        statusText: response.statusText,
-        headers: newHeaders
+        status:
+          response.status,
+
+        statusText:
+          response.statusText,
+
+        headers:
+          newHeaders
       }
     );
   } catch (error) {
@@ -194,26 +319,38 @@ export async function router(request, env, ctx) {
       error
     );
 
-    const response = serverError();
+    const response =
+      serverError();
 
-    const headers = corsHeaders(
-      request,
-      env
-    );
+    const headers =
+      corsHeaders(
+        request,
+        env
+      );
 
-    const newHeaders = new Headers(
-      response.headers
-    );
+    const newHeaders =
+      new Headers(
+        response.headers
+      );
 
-    for (const [key, value] of Object.entries(headers)) {
-      newHeaders.set(key, value);
+    for (
+      const [key, value]
+      of Object.entries(
+        headers
+      )
+    ) {
+      newHeaders.set(
+        key,
+        value
+      );
     }
 
     return new Response(
       response.body,
       {
         status: 500,
-        headers: newHeaders
+        headers:
+          newHeaders
       }
     );
   }
