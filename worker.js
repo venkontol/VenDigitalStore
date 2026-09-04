@@ -1,179 +1,150 @@
 import { router } from "./src/router.js";
+import { renderPage } from "./web/pages.js";
 
-const HTML = `<!doctype html>
-<html lang="id">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#08050f">
-  <title>VenDigitalStore</title>
-  <meta name="description" content="VenDigitalStore">
-</head>
-<body>
-  <div id="app"></div>
-  <script>
-    location.replace("/login");
-  </script>
-</body>
-</html>`;
+function securityHeaders(response) {
+const headers = new Headers(response.headers);
 
-const SECURITY_HEADERS = {
-  "Content-Type": "text/html; charset=UTF-8",
-  "Cache-Control": "no-store",
-  "X-Content-Type-Options": "nosniff",
-  "X-Frame-Options": "DENY",
-  "Referrer-Policy": "strict-origin-when-cross-origin",
-  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-  "Content-Security-Policy":
-    "default-src 'self'; " +
-    "img-src 'self' data: blob: https://raw.githubusercontent.com; " +
-    "style-src 'self' 'unsafe-inline'; " +
-    "script-src 'self' 'unsafe-inline'; " +
-    "connect-src 'self'; " +
-    "font-src 'self' data:; " +
-    "media-src 'self' blob:; " +
-    "frame-ancestors 'none'; " +
-    "base-uri 'self'; " +
-    "form-action 'self'"
-};
+headers.set("X-Content-Type-Options", "nosniff");
+headers.set("X-Frame-Options", "SAMEORIGIN");
+headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+headers.set(
+"Permissions-Policy",
+"camera=(), microphone=(), geolocation=()"
+);
 
-function pageResponse(body = HTML, status = 200) {
-  return new Response(body, {
-    status,
-    headers: SECURITY_HEADERS
-  });
+headers.set(
+"Content-Security-Policy",
+[
+"default-src 'self'",
+"script-src 'self' 'unsafe-inline'",
+"style-src 'self' 'unsafe-inline'",
+"img-src 'self' data: blob: https://raw.githubusercontent.com",
+"font-src 'self' data:",
+"connect-src 'self'",
+"media-src 'self' blob:",
+"object-src 'none'",
+"base-uri 'self'",
+"form-action 'self'",
+"frame-ancestors 'self'"
+].join("; ")
+);
+
+return new Response(response.body, {
+status: response.status,
+statusText: response.statusText,
+headers
+});
 }
 
-function applySecurityHeaders(response) {
-  const headers = new Headers(response.headers);
-
-  headers.set(
-    "X-Content-Type-Options",
-    "nosniff"
-  );
-
-  headers.set(
-    "X-Frame-Options",
-    "DENY"
-  );
-
-  headers.set(
-    "Referrer-Policy",
-    "strict-origin-when-cross-origin"
-  );
-
-  headers.set(
-    "Permissions-Policy",
-    "camera=(), microphone=(), geolocation=()"
-  );
-
-  headers.set(
-    "Content-Security-Policy",
-    "default-src 'self'; " +
-    "img-src 'self' data: blob: https://raw.githubusercontent.com; " +
-    "style-src 'self' 'unsafe-inline'; " +
-    "script-src 'self' 'unsafe-inline'; " +
-    "connect-src 'self'; " +
-    "font-src 'self' data:; " +
-    "media-src 'self' blob:; " +
-    "frame-ancestors 'none'; " +
-    "base-uri 'self'; " +
-    "form-action 'self'"
-  );
-
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers
-  });
+function htmlResponse(html, status = 200) {
+return new Response(html, {
+status,
+headers: {
+"Content-Type": "text/html; charset=UTF-8",
+"Cache-Control": "no-store"
+}
+});
 }
 
-function isApiPath(pathname) {
-  return (
-    pathname === "/api" ||
-    pathname.startsWith("/api/")
-  );
+function jsonResponse(data, status = 200) {
+return new Response(JSON.stringify(data), {
+status,
+headers: {
+"Content-Type": "application/json; charset=UTF-8",
+"Cache-Control": "no-store"
+}
+});
 }
 
-function isAssetPath(pathname) {
-  return (
-    pathname.includes(".") &&
-    !pathname.endsWith(".html")
-  );
+function normalizePath(pathname) {
+if (!pathname || pathname === "/") {
+return "/";
+}
+
+if (pathname.length > 1 && pathname.endsWith("/")) {
+return pathname.slice(0, -1);
+}
+
+return pathname;
+}
+
+function isWebPage(pathname) {
+return [
+"/",
+"/login",
+"/register",
+"/loading",
+"/dashboard",
+"/deposit",
+"/products",
+"/marketplace",
+"/orders",
+"/account"
+].includes(pathname);
+}
+
+async function handleWeb(request) {
+if (request.method !== "GET") {
+return null;
+}
+
+const url = new URL(request.url);
+const pathname = normalizePath(url.pathname);
+
+if (!isWebPage(pathname)) {
+return null;
+}
+
+return htmlResponse(renderPage(pathname));
 }
 
 export default {
-  async fetch(request, env, ctx) {
-    try {
-      const url = new URL(request.url);
-      const pathname = url.pathname;
+async fetch(request, env, ctx) {
+try {
+const url = new URL(request.url);
+const pathname = normalizePath(url.pathname);
 
-      if (isApiPath(pathname)) {
-        const response = await router(
-          request,
-          env,
-          ctx
-        );
+  if (
+    pathname === "/api" ||
+    pathname.startsWith("/api/")
+  ) {
+    const response = await router(
+      request,
+      env,
+      ctx
+    );
 
-        return applySecurityHeaders(response);
-      }
-
-      if (
-        request.method !== "GET" &&
-        request.method !== "HEAD"
-      ) {
-        return new Response(
-          "Method Not Allowed",
-          {
-            status: 405,
-            headers: {
-              "Content-Type":
-                "text/plain; charset=UTF-8",
-              "Cache-Control":
-                "no-store",
-              "Allow": "GET, HEAD"
-            }
-          }
-        );
-      }
-
-      if (isAssetPath(pathname)) {
-        return new Response(
-          "Not Found",
-          {
-            status: 404,
-            headers: {
-              "Content-Type":
-                "text/plain; charset=UTF-8",
-              "Cache-Control":
-                "no-store",
-              "X-Content-Type-Options":
-                "nosniff"
-            }
-          }
-        );
-      }
-
-      return pageResponse();
-
-    } catch (error) {
-      console.error(
-        "VEN_WORKER_ERROR",
-        error
-      );
-
-      return new Response(
-        "Internal Server Error",
-        {
-          status: 500,
-          headers: {
-            "Content-Type":
-              "text/plain; charset=UTF-8",
-            "Cache-Control":
-              "no-store"
-          }
-        }
-      );
-    }
+    return securityHeaders(response);
   }
+
+  const web = await handleWeb(request);
+
+  if (web) {
+    return securityHeaders(web);
+  }
+
+  return securityHeaders(
+    htmlResponse(
+      "<!doctype html><html><head><meta charset='UTF-8'><title>VEN Digital Store</title></head><body style='background:#050509;color:white;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh'><div><h1>404</h1><p>Halaman tidak ditemukan.</p></div></body></html>",
+      404
+    )
+  );
+} catch (error) {
+  console.error(
+    "VEN_WORKER_ERROR",
+    error
+  );
+
+  return securityHeaders(
+    jsonResponse(
+      {
+        success: false,
+        error: "Internal Server Error"
+      },
+      500
+    )
+  );
+}
+
+}
 };
