@@ -1,4 +1,5 @@
 import { authHandler } from "./auth.js";
+import { walletHandler } from "./wallet.js";
 
 const ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
 
