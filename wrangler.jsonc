@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  "name": "vendigitalstore",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-05",
+
+  "workers_dev": true,
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "requirevenweb-db",
+      "database_id": "68cd65df-ae9a-41d1-93b7-6f2a0755913f"
+    }
+  ]
+}
