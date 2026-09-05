@@ -93,132 +93,78 @@ import {
   getStoreConfig
 } from "./setting.js";
 
-const ALLOWED_METHODS = [
-  "GET",
-  "POST",
-  "PATCH",
-  "PUT",
-  "DELETE",
-  "OPTIONS"
-];
+async function authRequired(request, env) {
+  const result = await requireAuth(request, env);
 
-function methodAllowed(method) {
-  return ALLOWED_METHODS.includes(
-    method
-  );
+  if (result?.response) {
+    return result.response;
+  }
+
+  return result?.user || null;
+}
+
+async function adminRequired(request, env) {
+  const result = await requireAdmin(request, env);
+
+  if (result?.response) {
+    return result.response;
+  }
+
+  return result?.user || null;
+}
+
+function methodAllowed(method, allowed) {
+  return allowed.includes(method);
 }
 
 function isResponse(value) {
   return value instanceof Response;
 }
 
-async function authRequired(
-  request,
-  env
-) {
-  return requireAuth(
-    request,
-    env
-  );
-}
+function withQuery(request, params = {}) {
+  const url = new URL(request.url);
 
-async function adminRequired(
-  request,
-  env
-) {
-  return requireAdmin(
-    request,
-    env
-  );
-}
-
-function requestWithQuery(
-  request,
-  params
-) {
-  const url =
-    new URL(request.url);
-
-  for (
-    const [key, value] of Object.entries(
-      params
-    )
-  ) {
-    if (
-      value !== undefined &&
-      value !== null
-    ) {
-      url.searchParams.set(
-        key,
-        String(value)
-      );
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, String(value));
     }
   }
 
-  return new Request(
-    url.toString(),
-    request
-  );
+  return new Request(url.toString(), request);
 }
 
-function getPathId(
-  path,
-  pattern
-) {
-  const match =
-    path.match(pattern);
-
-  return match?.[1] || null;
-}
-
-async function route(
-  request,
-  env,
-  ctx
-) {
-  const method =
-    getMethod(request);
-
-  const path =
-    getPath(request);
+async function route(request, env, ctx) {
+  const method = getMethod(request);
+  const path = getPath(request);
 
   if (
     method === "OPTIONS" &&
     path.startsWith("/api/")
   ) {
-    return new Response(
-      null,
-      {
-        status: 204,
-        headers: {
-          "Cache-Control":
-            "no-store"
-        }
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Cache-Control": "no-store",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Max-Age": "86400"
       }
-    );
+    });
   }
 
-  if (
-    path === "/api/health" &&
-    method === "GET"
-  ) {
+  if (path === "/api/health" && method === "GET") {
     return jsonResponse({
       success: true,
-      service:
-        "VenDigitalStore",
+      service: "VenDigitalStore",
       status: "ok",
-      database:
-        env.DB
-          ? "connected"
-          : "disconnected",
-      timestamp:
-        new Date().toISOString()
+      database: env.DB ? "connected" : "disconnected",
+      timestamp: new Date().toISOString()
     });
   }
 
   if (
-    path ===
-      "/api/telegram/webhook" &&
+    path === "/api/telegram/webhook" &&
     method === "POST"
   ) {
     return telegramWebhook(
@@ -229,8 +175,7 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/deposit/qr" &&
+    path === "/api/deposit/qr" &&
     method === "GET"
   ) {
     return getQrImage(
@@ -241,8 +186,7 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/auth/register" &&
+    path === "/api/auth/register" &&
     method === "POST"
   ) {
     return register(
@@ -253,8 +197,7 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/auth/login" &&
+    path === "/api/auth/login" &&
     method === "POST"
   ) {
     return login(
@@ -265,8 +208,7 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/auth/logout" &&
+    path === "/api/auth/logout" &&
     method === "POST"
   ) {
     return logout(
@@ -277,15 +219,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/auth/logout-all" &&
+    path === "/api/auth/logout-all" &&
     method === "POST"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -299,8 +239,7 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/auth/me" &&
+    path === "/api/auth/me" &&
     method === "GET"
   ) {
     return me(
@@ -321,8 +260,7 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/settings/public" &&
+    path === "/api/settings/public" &&
     method === "GET"
   ) {
     return getPublicSettings(
@@ -332,8 +270,7 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/deposit/config" &&
+    path === "/api/deposit/config" &&
     method === "GET"
   ) {
     return getDepositConfig(
@@ -343,8 +280,7 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/categories" &&
+    path === "/api/categories" &&
     method === "GET"
   ) {
     return getCategories(
@@ -354,8 +290,7 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/products" &&
+    path === "/api/products" &&
     method === "GET"
   ) {
     return getProducts(
@@ -365,29 +300,17 @@ async function route(
   }
 
   if (
-    /^\/api\/products\/[^/]+$/.test(
-      path
-    ) &&
+    path.startsWith("/api/products/") &&
     method === "GET"
   ) {
-    const id =
-      getPathId(
-        path,
-        /^\/api\/products\/([^/]+)$/
-      );
-
     return getProduct(
-      requestWithQuery(
-        request,
-        { id }
-      ),
+      request,
       env
     );
   }
 
   if (
-    path ===
-      "/api/announcements" &&
+    path === "/api/announcements" &&
     method === "GET"
   ) {
     return getPublicAnnouncements(
@@ -397,8 +320,7 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/visitor/track" &&
+    path === "/api/visitor/track" &&
     method === "POST"
   ) {
     return trackVisitor(
@@ -409,26 +331,23 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/wallet/overview" &&
+    path === "/api/wallet/overview" &&
     method === "GET"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
     }
 
-    const balance =
-      await getBalance(
-        request,
-        env,
-        ctx
-      );
+    const balance = await getBalance(
+      request,
+      env,
+      ctx
+    );
 
     if (isResponse(balance)) {
       return balance;
@@ -441,37 +360,31 @@ async function route(
         ctx
       );
 
-    if (
-      isResponse(
-        transactions
-      )
-    ) {
+    if (isResponse(transactions)) {
       return transactions;
     }
 
     return jsonResponse({
       success: true,
       balance:
-        balance.balance ??
-        balance.data?.balance ??
+        balance?.balance ??
+        balance?.data?.balance ??
         0,
       transactions:
-        transactions.transactions ??
-        transactions.data?.transactions ??
+        transactions?.transactions ??
+        transactions?.data?.transactions ??
         []
     });
   }
 
   if (
-    path ===
-      "/api/wallet/balance" &&
+    path === "/api/wallet/balance" &&
     method === "GET"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -485,15 +398,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/wallet/transactions" &&
+    path === "/api/wallet/transactions" &&
     method === "GET"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -507,15 +418,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/deposit" &&
+    path === "/api/deposit" &&
     method === "POST"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -529,15 +438,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/deposit" &&
+    path === "/api/deposit" &&
     method === "GET"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -551,15 +458,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/deposit/active" &&
+    path === "/api/deposit/active" &&
     method === "GET"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -573,15 +478,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/deposit/check" &&
+    path === "/api/deposit/check" &&
     method === "POST"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -595,15 +498,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/deposit/check-notify" &&
+    path === "/api/deposit/check-notify" &&
     method === "POST"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -617,15 +518,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/favorites" &&
+    path === "/api/favorites" &&
     method === "GET"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -639,15 +538,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/favorites/toggle" &&
+    path === "/api/favorites/toggle" &&
     method === "POST"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -661,15 +558,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/favorites/check" &&
+    path === "/api/favorites/check" &&
     method === "GET"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -686,11 +581,10 @@ async function route(
     path === "/api/orders" &&
     method === "POST"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -707,11 +601,10 @@ async function route(
     path === "/api/orders" &&
     method === "GET"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -725,85 +618,53 @@ async function route(
   }
 
   if (
-    /^\/api\/orders\/[^/]+\/cancel$/.test(
-      path
-    ) &&
-    method === "POST"
-  ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
-
-    if (isResponse(user)) {
-      return user;
-    }
-
-    const orderNumber =
-      getPathId(
-        path,
-        /^\/api\/orders\/([^/]+)\/cancel$/
-      );
-
-    return cancelOrder(
-      requestWithQuery(
-        request,
-        {
-          order_number:
-            orderNumber
-        }
-      ),
-      env,
-      ctx
-    );
-  }
-
-  if (
-    /^\/api\/orders\/[^/]+$/.test(
-      path
-    ) &&
+    /^\/api\/orders\/[^/]+$/.test(path) &&
     method === "GET"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
     }
-
-    const orderNumber =
-      getPathId(
-        path,
-        /^\/api\/orders\/([^/]+)$/
-      );
 
     return getOrder(
-      requestWithQuery(
-        request,
-        {
-          order_number:
-            orderNumber
-        }
-      ),
+      request,
       env,
       ctx
     );
   }
 
   if (
-    path ===
-      "/api/visitor/overview" &&
+    /^\/api\/orders\/[^/]+\/cancel$/.test(path) &&
+    method === "POST"
+  ) {
+    const user = await authRequired(
+      request,
+      env
+    );
+
+    if (isResponse(user)) {
+      return user;
+    }
+
+    return cancelOrder(
+      request,
+      env,
+      ctx
+    );
+  }
+
+  if (
+    path === "/api/visitor/overview" &&
     method === "GET"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -817,15 +678,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/visitor/stats" &&
+    path === "/api/visitor/stats" &&
     method === "GET"
   ) {
-    const user =
-      await authRequired(
-        request,
-        env
-      );
+    const user = await authRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -839,15 +698,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/overview" &&
+    path === "/api/admin/overview" &&
     method === "GET"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -861,15 +718,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/users" &&
+    path === "/api/admin/users" &&
     method === "GET"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -883,16 +738,13 @@ async function route(
   }
 
   if (
-    /^\/api\/admin\/users\/\d+$/.test(
-      path
-    ) &&
+    /^\/api\/admin\/users\/\d+$/.test(path) &&
     method === "GET"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -906,16 +758,13 @@ async function route(
   }
 
   if (
-    /^\/api\/admin\/users\/\d+$/.test(
-      path
-    ) &&
+    /^\/api\/admin\/users\/\d+$/.test(path) &&
     method === "PATCH"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -929,16 +778,13 @@ async function route(
   }
 
   if (
-    /^\/api\/admin\/users\/\d+\/balance$/.test(
-      path
-    ) &&
+    /^\/api\/admin\/users\/\d+\/balance$/.test(path) &&
     method === "POST"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -952,15 +798,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/categories" &&
+    path === "/api/admin/categories" &&
     method === "GET"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -974,15 +818,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/categories" &&
+    path === "/api/admin/categories" &&
     method === "POST"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -996,16 +838,13 @@ async function route(
   }
 
   if (
-    /^\/api\/admin\/categories\/\d+$/.test(
-      path
-    ) &&
+    /^\/api\/admin\/categories\/\d+$/.test(path) &&
     method === "PATCH"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1019,16 +858,13 @@ async function route(
   }
 
   if (
-    /^\/api\/admin\/categories\/\d+$/.test(
-      path
-    ) &&
+    /^\/api\/admin\/categories\/\d+$/.test(path) &&
     method === "DELETE"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1042,15 +878,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/products" &&
+    path === "/api/admin/products" &&
     method === "GET"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1064,15 +898,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/products" &&
+    path === "/api/admin/products" &&
     method === "POST"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1086,16 +918,13 @@ async function route(
   }
 
   if (
-    /^\/api\/admin\/products\/\d+$/.test(
-      path
-    ) &&
+    /^\/api\/admin\/products\/\d+$/.test(path) &&
     method === "PATCH"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1109,16 +938,13 @@ async function route(
   }
 
   if (
-    /^\/api\/admin\/products\/\d+$/.test(
-      path
-    ) &&
+    /^\/api\/admin\/products\/\d+$/.test(path) &&
     method === "DELETE"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1132,15 +958,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/orders" &&
+    path === "/api/admin/orders" &&
     method === "GET"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1154,39 +978,13 @@ async function route(
   }
 
   if (
-    /^\/api\/admin\/orders\/[^/]+\/refund$/.test(
-      path
-    ) &&
-    method === "POST"
-  ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
-
-    if (isResponse(user)) {
-      return user;
-    }
-
-    return adminRefundOrder(
-      request,
-      env,
-      ctx
-    );
-  }
-
-  if (
-    /^\/api\/admin\/orders\/[^/]+$/.test(
-      path
-    ) &&
+    /^\/api\/admin\/orders\/[^/]+$/.test(path) &&
     method === "PATCH"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1200,15 +998,33 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/deposits" &&
+    /^\/api\/admin\/orders\/[^/]+\/refund$/.test(path) &&
+    method === "POST"
+  ) {
+    const user = await adminRequired(
+      request,
+      env
+    );
+
+    if (isResponse(user)) {
+      return user;
+    }
+
+    return adminRefundOrder(
+      request,
+      env,
+      ctx
+    );
+  }
+
+  if (
+    path === "/api/admin/deposits" &&
     method === "GET"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1222,15 +1038,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/deposits/pay" &&
+    path === "/api/admin/deposits/pay" &&
     method === "POST"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1244,15 +1058,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/announcements" &&
+    path === "/api/admin/announcements" &&
     method === "GET"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1266,15 +1078,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/announcements" &&
+    path === "/api/admin/announcements" &&
     method === "POST"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1288,16 +1098,13 @@ async function route(
   }
 
   if (
-    /^\/api\/admin\/announcements\/\d+$/.test(
-      path
-    ) &&
+    /^\/api\/admin\/announcements\/\d+$/.test(path) &&
     method === "PATCH"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1311,16 +1118,13 @@ async function route(
   }
 
   if (
-    /^\/api\/admin\/announcements\/\d+$/.test(
-      path
-    ) &&
+    /^\/api\/admin\/announcements\/\d+$/.test(path) &&
     method === "DELETE"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1334,15 +1138,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/settings" &&
+    path === "/api/admin/settings" &&
     method === "GET"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1355,15 +1157,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/settings" &&
+    path === "/api/admin/settings" &&
     method === "PATCH"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1376,15 +1176,13 @@ async function route(
   }
 
   if (
-    path ===
-      "/api/admin/visitors" &&
+    path === "/api/admin/visitors" &&
     method === "GET"
   ) {
-    const user =
-      await adminRequired(
-        request,
-        env
-      );
+    const user = await adminRequired(
+      request,
+      env
+    );
 
     if (isResponse(user)) {
       return user;
@@ -1403,11 +1201,7 @@ async function route(
   );
 }
 
-export async function router(
-  request,
-  env,
-  ctx
-) {
+export async function router(request, env, ctx) {
   try {
     if (!env.DB) {
       return errorResponse(
@@ -1416,11 +1210,20 @@ export async function router(
       );
     }
 
-    const method =
-      getMethod(request);
+    const method = getMethod(request);
 
     if (
-      !methodAllowed(method)
+      !methodAllowed(
+        method,
+        [
+          "GET",
+          "POST",
+          "PATCH",
+          "PUT",
+          "DELETE",
+          "OPTIONS"
+        ]
+      )
     ) {
       return errorResponse(
         "Method tidak diizinkan.",
