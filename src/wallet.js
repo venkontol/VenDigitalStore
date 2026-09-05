@@ -9,13 +9,132 @@ import {
   requireAuth
 } from "./auth.js";
 
-async function getBalance(request, env) {
-  const user = await requireAuth(
-    request,
-    env
-  );
+const CREDIT_TYPES = [
+  "deposit",
+  "refund",
+  "bonus",
+  "adjustment"
+];
 
-  if (user instanceof Response) {
+const DEBIT_TYPES = [
+  "purchase",
+  "adjustment"
+];
+
+const MAX_BALANCE = Number.MAX_SAFE_INTEGER;
+
+function normalizePositiveInteger(value) {
+  const number = Number(value);
+
+  if (
+    !Number.isSafeInteger(number) ||
+    number <= 0
+  ) {
+    return null;
+  }
+
+  return number;
+}
+
+function normalizeUserId(value) {
+  const number = Number(value);
+
+  if (
+    !Number.isSafeInteger(number) ||
+    number <= 0
+  ) {
+    return null;
+  }
+
+  return number;
+}
+
+function normalizeReference(value) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return null;
+  }
+
+  const reference =
+    cleanString(
+      String(value),
+      255
+    );
+
+  return reference || null;
+}
+
+function normalizeDescription(value) {
+  const description =
+    cleanString(
+      String(value ?? ""),
+      500
+    );
+
+  return description || null;
+}
+
+async function findExistingReference(
+  env,
+  reference
+) {
+  if (!reference) {
+    return null;
+  }
+
+  return env.DB
+    .prepare(
+      `SELECT
+         id,
+         user_id,
+         type,
+         amount,
+         balance_before,
+         balance_after,
+         reference,
+         description,
+         created_at
+       FROM balance_transactions
+       WHERE reference = ?
+       LIMIT 1`
+    )
+    .bind(reference)
+    .first();
+}
+
+function transactionResult(
+  row,
+  duplicate = false
+) {
+  return {
+    success: true,
+    duplicate,
+    transaction_id:
+      Number(row.id),
+    balance:
+      Number(row.balance_after),
+    balance_before:
+      Number(row.balance_before),
+    balance_after:
+      Number(row.balance_after)
+  };
+}
+
+async function getBalance(
+  request,
+  env
+) {
+  const user =
+    await requireAuth(
+      request,
+      env
+    );
+
+  if (
+    user instanceof Response
+  ) {
     return user;
   }
 
@@ -24,9 +143,13 @@ async function getBalance(request, env) {
       .prepare(
         `SELECT balance
          FROM users
-         WHERE id = ?`
+         WHERE id = ?
+           AND is_active = 1
+         LIMIT 1`
       )
-      .bind(user.id)
+      .bind(
+        user.id
+      )
       .first();
 
   if (!row) {
@@ -38,41 +161,62 @@ async function getBalance(request, env) {
 
   return successResponse({
     balance:
-      Number(row.balance || 0)
+      Number(
+        row.balance || 0
+      )
   });
 }
 
-async function getTransactions(request, env) {
-  const user = await requireAuth(
-    request,
-    env
-  );
+async function getTransactions(
+  request,
+  env
+) {
+  const user =
+    await requireAuth(
+      request,
+      env
+    );
 
-  if (user instanceof Response) {
+  if (
+    user instanceof Response
+  ) {
     return user;
   }
 
   const url =
     new URL(request.url);
 
-  const limit =
-    Math.min(
-      Math.max(
-        Number(
-          url.searchParams.get("limit") || 20
-        ),
-        1
-      ),
-      100
+  let limit =
+    Number(
+      url.searchParams.get(
+        "limit"
+      ) || 20
     );
 
-  const offset =
-    Math.max(
-      Number(
-        url.searchParams.get("offset") || 0
-      ),
-      0
+  let offset =
+    Number(
+      url.searchParams.get(
+        "offset"
+      ) || 0
     );
+
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit < 1
+  ) {
+    limit = 20;
+  }
+
+  if (limit > 100) {
+    limit = 100;
+  }
+
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0
+  ) {
+    offset = 0;
+  }
 
   const result =
     await env.DB
@@ -115,153 +259,124 @@ async function creditBalance(
   description = null
 ) {
   const numericUserId =
-    Number(userId);
+    normalizeUserId(
+      userId
+    );
 
   const numericAmount =
-    Number(amount);
+    normalizePositiveInteger(
+      amount
+    );
 
-  if (
-    !Number.isSafeInteger(numericUserId) ||
-    numericUserId <= 0
-  ) {
+  if (!numericUserId) {
     return {
       success: false,
       error: "User tidak valid."
     };
   }
 
-  if (
-    !Number.isSafeInteger(numericAmount) ||
-    numericAmount <= 0
-  ) {
+  if (!numericAmount) {
     return {
       success: false,
       error: "Nominal kredit tidak valid."
     };
   }
 
-  const allowedTypes = [
-    "deposit",
-    "refund",
-    "bonus",
-    "adjustment"
-  ];
-
-  if (!allowedTypes.includes(type)) {
+  if (
+    !CREDIT_TYPES.includes(
+      type
+    )
+  ) {
     return {
       success: false,
       error: "Tipe transaksi tidak valid."
     };
   }
 
+  const walletReference =
+    normalizeReference(
+      reference
+    );
+
+  const walletDescription =
+    normalizeDescription(
+      description
+    );
+
+  if (
+    walletReference
+  ) {
+    const existing =
+      await findExistingReference(
+        env,
+        walletReference
+      );
+
+    if (existing) {
+      return transactionResult(
+        existing,
+        true
+      );
+    }
+  }
+
   const timestamp =
     nowUnix();
 
-  const existing =
-    reference
-      ? await env.DB
-          .prepare(
-            `SELECT
-               id,
-               amount,
-               balance_after
-             FROM balance_transactions
-             WHERE reference = ?`
-          )
-          .bind(reference)
-          .first()
-      : null;
-
-  if (existing) {
-    return {
-      success: true,
-      duplicate: true,
-      transaction_id:
-        Number(existing.id),
-      balance:
-        Number(existing.balance_after || 0)
-    };
-  }
-
-  const user =
-    await env.DB
-      .prepare(
-        `SELECT
-           id,
-           balance
-         FROM users
-         WHERE id = ?`
-      )
-      .bind(numericUserId)
-      .first();
-
-  if (!user) {
-    return {
-      success: false,
-      error: "User tidak ditemukan."
-    };
-  }
-
-  const before =
-    Number(user.balance || 0);
-
-  const after =
-    before + numericAmount;
-
-  if (
-    !Number.isSafeInteger(after)
-  ) {
-    return {
-      success: false,
-      error: "Saldo melebihi batas."
-    };
-  }
-
   const update =
-    env.DB
-      .prepare(
-        `UPDATE users
-         SET
-           balance = ?,
-           updated_at = ?
-         WHERE id = ?
-           AND balance = ?`
-      )
-      .bind(
-        after,
-        timestamp,
-        numericUserId,
-        before
-      );
+    env.DB.prepare(
+      `UPDATE users
+       SET
+         balance = balance + ?,
+         updated_at = ?
+       WHERE id = ?
+         AND is_active = 1
+         AND balance >= 0
+         AND balance <= ?
+         AND balance + ? <= ?`
+    ).bind(
+      numericAmount,
+      timestamp,
+      numericUserId,
+      MAX_BALANCE,
+      numericAmount,
+      MAX_BALANCE
+    );
 
   const transaction =
-    env.DB
-      .prepare(
-        `INSERT INTO balance_transactions (
-           user_id,
-           type,
-           amount,
-           balance_before,
-           balance_after,
-           reference,
-           description,
-           created_at
-         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        numericUserId,
-        type,
-        numericAmount,
-        before,
-        after,
-        reference,
-        cleanString(
-          description || "",
-          500
-        ) || null,
-        timestamp
-      );
+    env.DB.prepare(
+      `INSERT INTO balance_transactions (
+         user_id,
+         type,
+         amount,
+         balance_before,
+         balance_after,
+         reference,
+         description,
+         created_at
+       )
+       SELECT
+         ?,
+         ?,
+         ?,
+         balance - ?,
+         balance,
+         ?,
+         ?,
+         ?
+       FROM users
+       WHERE id = ?
+         AND changes() = 1`
+    ).bind(
+      numericUserId,
+      type,
+      numericAmount,
+      numericAmount,
+      walletReference,
+      walletDescription,
+      timestamp,
+      numericUserId
+    );
 
   try {
     const result =
@@ -270,9 +385,38 @@ async function creditBalance(
         transaction
       ]);
 
+    const changed =
+      Number(
+        result?.[0]?.meta?.changes ||
+          0
+      );
+
+    const transactionId =
+      Number(
+        result?.[1]?.meta?.last_row_id ||
+          0
+      );
+
     if (
-      !result?.[0]?.meta?.changes
+      changed !== 1
     ) {
+      if (
+        walletReference
+      ) {
+        const existing =
+          await findExistingReference(
+            env,
+            walletReference
+          );
+
+        if (existing) {
+          return transactionResult(
+            existing,
+            true
+          );
+        }
+      }
+
       return {
         success: false,
         conflict: true,
@@ -281,42 +425,61 @@ async function creditBalance(
       };
     }
 
-    return {
-      success: true,
-      duplicate: false,
-      transaction_id:
-        Number(
-          result?.[1]?.meta?.last_row_id || 0
-        ),
-      balance: after,
-      balance_before: before,
-      balance_after: after
-    };
-  } catch (error) {
-    if (reference) {
-      const duplicate =
-        await env.DB
-          .prepare(
-            `SELECT
-               id,
-               balance_after
-             FROM balance_transactions
-             WHERE reference = ?`
-          )
-          .bind(reference)
-          .first();
+    if (
+      transactionId <= 0
+    ) {
+      return {
+        success: false,
+        error:
+          "Transaksi saldo gagal dicatat."
+      };
+    }
 
-      if (duplicate) {
-        return {
-          success: true,
-          duplicate: true,
-          transaction_id:
-            Number(duplicate.id),
-          balance:
-            Number(
-              duplicate.balance_after || 0
-            )
-        };
+    const transactionRow =
+      await env.DB
+        .prepare(
+          `SELECT
+             id,
+             balance_before,
+             balance_after
+           FROM balance_transactions
+           WHERE id = ?
+           LIMIT 1`
+        )
+        .bind(
+          transactionId
+        )
+        .first();
+
+    if (
+      !transactionRow
+    ) {
+      return {
+        success: false,
+        error:
+          "Transaksi saldo tidak ditemukan setelah proses."
+      };
+    }
+
+    return transactionResult(
+      transactionRow,
+      false
+    );
+  } catch (error) {
+    if (
+      walletReference
+    ) {
+      const existing =
+        await findExistingReference(
+          env,
+          walletReference
+        );
+
+      if (existing) {
+        return transactionResult(
+          existing,
+          true
+        );
       }
     }
 
@@ -333,154 +496,122 @@ async function debitBalance(
   description = null
 ) {
   const numericUserId =
-    Number(userId);
+    normalizeUserId(
+      userId
+    );
 
   const numericAmount =
-    Number(amount);
+    normalizePositiveInteger(
+      amount
+    );
 
-  if (
-    !Number.isSafeInteger(numericUserId) ||
-    numericUserId <= 0
-  ) {
+  if (!numericUserId) {
     return {
       success: false,
       error: "User tidak valid."
     };
   }
 
-  if (
-    !Number.isSafeInteger(numericAmount) ||
-    numericAmount <= 0
-  ) {
+  if (!numericAmount) {
     return {
       success: false,
       error: "Nominal debit tidak valid."
     };
   }
 
-  const allowedTypes = [
-    "purchase",
-    "adjustment"
-  ];
-
-  if (!allowedTypes.includes(type)) {
+  if (
+    !DEBIT_TYPES.includes(
+      type
+    )
+  ) {
     return {
       success: false,
       error: "Tipe transaksi tidak valid."
     };
   }
 
-  const timestamp =
-    nowUnix();
+  const walletReference =
+    normalizeReference(
+      reference
+    );
 
-  if (reference) {
+  const walletDescription =
+    normalizeDescription(
+      description
+    );
+
+  if (
+    walletReference
+  ) {
     const existing =
-      await env.DB
-        .prepare(
-          `SELECT
-             id,
-             amount,
-             balance_after
-           FROM balance_transactions
-           WHERE reference = ?`
-        )
-        .bind(reference)
-        .first();
+      await findExistingReference(
+        env,
+        walletReference
+      );
 
     if (existing) {
-      return {
-        success: true,
-        duplicate: true,
-        transaction_id:
-          Number(existing.id),
-        balance:
-          Number(existing.balance_after || 0)
-      };
+      return transactionResult(
+        existing,
+        true
+      );
     }
   }
 
-  const user =
-    await env.DB
-      .prepare(
-        `SELECT
-           id,
-           balance
-         FROM users
-         WHERE id = ?`
-      )
-      .bind(numericUserId)
-      .first();
-
-  if (!user) {
-    return {
-      success: false,
-      error: "User tidak ditemukan."
-    };
-  }
-
-  const before =
-    Number(user.balance || 0);
-
-  if (
-    before < numericAmount
-  ) {
-    return {
-      success: false,
-      insufficient: true,
-      error: "Saldo tidak mencukupi."
-    };
-  }
-
-  const after =
-    before - numericAmount;
+  const timestamp =
+    nowUnix();
 
   const update =
-    env.DB
-      .prepare(
-        `UPDATE users
-         SET
-           balance = ?,
-           updated_at = ?
-         WHERE id = ?
-           AND balance = ?
-           AND balance >= ?`
-      )
-      .bind(
-        after,
-        timestamp,
-        numericUserId,
-        before,
-        numericAmount
-      );
+    env.DB.prepare(
+      `UPDATE users
+       SET
+         balance = balance - ?,
+         updated_at = ?
+       WHERE id = ?
+         AND is_active = 1
+         AND balance >= ?
+         AND balance - ? >= 0`
+    ).bind(
+      numericAmount,
+      timestamp,
+      numericUserId,
+      numericAmount,
+      numericAmount
+    );
 
   const transaction =
-    env.DB
-      .prepare(
-        `INSERT INTO balance_transactions (
-           user_id,
-           type,
-           amount,
-           balance_before,
-           balance_after,
-           reference,
-           description,
-           created_at
-         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        numericUserId,
-        type,
-        -numericAmount,
-        before,
-        after,
-        reference,
-        cleanString(
-          description || "",
-          500
-        ) || null,
-        timestamp
-      );
+    env.DB.prepare(
+      `INSERT INTO balance_transactions (
+         user_id,
+         type,
+         amount,
+         balance_before,
+         balance_after,
+         reference,
+         description,
+         created_at
+       )
+       SELECT
+         ?,
+         ?,
+         -?,
+         balance + ?,
+         balance,
+         ?,
+         ?,
+         ?
+       FROM users
+       WHERE id = ?
+         AND changes() = 1`
+    ).bind(
+      numericUserId,
+      type,
+      numericAmount,
+      numericAmount,
+      walletReference,
+      walletDescription,
+      timestamp,
+      numericUserId
+    );
 
   try {
     const result =
@@ -489,9 +620,88 @@ async function debitBalance(
         transaction
       ]);
 
+    const changed =
+      Number(
+        result?.[0]?.meta?.changes ||
+          0
+      );
+
+    const transactionId =
+      Number(
+        result?.[1]?.meta?.last_row_id ||
+          0
+      );
+
     if (
-      !result?.[0]?.meta?.changes
+      changed !== 1
     ) {
+      if (
+        walletReference
+      ) {
+        const existing =
+          await findExistingReference(
+            env,
+            walletReference
+          );
+
+        if (existing) {
+          return transactionResult(
+            existing,
+            true
+          );
+        }
+      }
+
+      const current =
+        await env.DB
+          .prepare(
+            `SELECT
+               balance,
+               is_active
+             FROM users
+             WHERE id = ?
+             LIMIT 1`
+          )
+          .bind(
+            numericUserId
+          )
+          .first();
+
+      if (
+        !current
+      ) {
+        return {
+          success: false,
+          error:
+            "User tidak ditemukan."
+        };
+      }
+
+      if (
+        Number(
+          current.is_active
+        ) !== 1
+      ) {
+        return {
+          success: false,
+          error:
+            "Akun tidak aktif."
+        };
+      }
+
+      if (
+        Number(
+          current.balance || 0
+        ) < numericAmount
+      ) {
+        return {
+          success: false,
+          insufficient: true,
+          error:
+            "Saldo tidak mencukupi."
+        };
+      }
+
       return {
         success: false,
         conflict: true,
@@ -500,42 +710,61 @@ async function debitBalance(
       };
     }
 
-    return {
-      success: true,
-      duplicate: false,
-      transaction_id:
-        Number(
-          result?.[1]?.meta?.last_row_id || 0
-        ),
-      balance: after,
-      balance_before: before,
-      balance_after: after
-    };
-  } catch (error) {
-    if (reference) {
-      const duplicate =
-        await env.DB
-          .prepare(
-            `SELECT
-               id,
-               balance_after
-             FROM balance_transactions
-             WHERE reference = ?`
-          )
-          .bind(reference)
-          .first();
+    if (
+      transactionId <= 0
+    ) {
+      return {
+        success: false,
+        error:
+          "Transaksi saldo gagal dicatat."
+      };
+    }
 
-      if (duplicate) {
-        return {
-          success: true,
-          duplicate: true,
-          transaction_id:
-            Number(duplicate.id),
-          balance:
-            Number(
-              duplicate.balance_after || 0
-            )
-        };
+    const transactionRow =
+      await env.DB
+        .prepare(
+          `SELECT
+             id,
+             balance_before,
+             balance_after
+           FROM balance_transactions
+           WHERE id = ?
+           LIMIT 1`
+        )
+        .bind(
+          transactionId
+        )
+        .first();
+
+    if (
+      !transactionRow
+    ) {
+      return {
+        success: false,
+        error:
+          "Transaksi saldo tidak ditemukan setelah proses."
+      };
+    }
+
+    return transactionResult(
+      transactionRow,
+      false
+    );
+  } catch (error) {
+    if (
+      walletReference
+    ) {
+      const existing =
+        await findExistingReference(
+          env,
+          walletReference
+        );
+
+      if (existing) {
+        return transactionResult(
+          existing,
+          true
+        );
       }
     }
 
