@@ -1,190 +1,321 @@
 import {
-  errorResponse,
-  getCurrentUser,
+  cleanString,
   nowUnix,
-  successResponse
+  successResponse,
+  errorResponse
 } from "./utils.js";
 
-export async function getBalance(request, env) {
-  const user = await getCurrentUser(request, env);
+import {
+  requireAuth
+} from "./auth.js";
 
-  if (!user) {
-    return errorResponse("Kamu harus login terlebih dahulu.", 401);
+async function getBalance(request, env) {
+  const user = await requireAuth(
+    request,
+    env
+  );
+
+  if (user instanceof Response) {
+    return user;
   }
 
-  const row = await env.DB
-    .prepare("SELECT balance FROM users WHERE id = ? LIMIT 1")
-    .bind(user.id)
-    .first();
+  const row =
+    await env.DB
+      .prepare(
+        `SELECT balance
+         FROM users
+         WHERE id = ?`
+      )
+      .bind(user.id)
+      .first();
 
   if (!row) {
-    return errorResponse("User tidak ditemukan.", 404);
+    return errorResponse(
+      "User tidak ditemukan.",
+      404
+    );
   }
 
   return successResponse({
-    balance: Number(row.balance)
+    balance:
+      Number(row.balance || 0)
   });
 }
 
-export async function getTransactions(request, env) {
-  const user = await getCurrentUser(request, env);
+async function getTransactions(request, env) {
+  const user = await requireAuth(
+    request,
+    env
+  );
 
-  if (!user) {
-    return errorResponse("Kamu harus login terlebih dahulu.", 401);
+  if (user instanceof Response) {
+    return user;
   }
 
-  const url = new URL(request.url);
-  const limitValue = Number(url.searchParams.get("limit") || 20);
-  const limit = Math.min(Math.max(Math.floor(limitValue), 1), 100);
+  const url =
+    new URL(request.url);
 
-  const rows = await env.DB
-    .prepare(
-      `SELECT
-        id,
-        type,
-        amount,
-        balance_before,
-        balance_after,
-        reference,
-        description,
-        created_at
-      FROM balance_transactions
-      WHERE user_id = ?
-      ORDER BY created_at DESC, id DESC
-      LIMIT ?`
-    )
-    .bind(user.id, limit)
-    .all();
+  const limit =
+    Math.min(
+      Math.max(
+        Number(
+          url.searchParams.get("limit") || 20
+        ),
+        1
+      ),
+      100
+    );
+
+  const offset =
+    Math.max(
+      Number(
+        url.searchParams.get("offset") || 0
+      ),
+      0
+    );
+
+  const result =
+    await env.DB
+      .prepare(
+        `SELECT
+           id,
+           type,
+           amount,
+           balance_before,
+           balance_after,
+           reference,
+           description,
+           created_at
+         FROM balance_transactions
+         WHERE user_id = ?
+         ORDER BY id DESC
+         LIMIT ? OFFSET ?`
+      )
+      .bind(
+        user.id,
+        limit,
+        offset
+      )
+      .all();
 
   return successResponse({
-    transactions: (rows.results || []).map(row => ({
-      id: Number(row.id),
-      type: row.type,
-      amount: Number(row.amount),
-      balance_before: Number(row.balance_before),
-      balance_after: Number(row.balance_after),
-      reference: row.reference,
-      description: row.description,
-      created_at: Number(row.created_at)
-    }))
+    transactions:
+      result.results || [],
+    limit,
+    offset
   });
 }
 
-export async function creditBalance(
+async function creditBalance(
   env,
   userId,
   amount,
+  type = "deposit",
   reference = null,
   description = null
 ) {
-  const value = Number(amount);
+  const numericUserId =
+    Number(userId);
 
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error("Nominal saldo tidak valid.");
+  const numericAmount =
+    Number(amount);
+
+  if (
+    !Number.isSafeInteger(numericUserId) ||
+    numericUserId <= 0
+  ) {
+    return {
+      success: false,
+      error: "User tidak valid."
+    };
   }
 
-  const now = nowUnix();
+  if (
+    !Number.isSafeInteger(numericAmount) ||
+    numericAmount <= 0
+  ) {
+    return {
+      success: false,
+      error: "Nominal kredit tidak valid."
+    };
+  }
 
-  if (reference) {
-    const existing = await env.DB
+  const allowedTypes = [
+    "deposit",
+    "refund",
+    "bonus",
+    "adjustment"
+  ];
+
+  if (!allowedTypes.includes(type)) {
+    return {
+      success: false,
+      error: "Tipe transaksi tidak valid."
+    };
+  }
+
+  const timestamp =
+    nowUnix();
+
+  const existing =
+    reference
+      ? await env.DB
+          .prepare(
+            `SELECT
+               id,
+               amount,
+               balance_after
+             FROM balance_transactions
+             WHERE reference = ?`
+          )
+          .bind(reference)
+          .first()
+      : null;
+
+  if (existing) {
+    return {
+      success: true,
+      duplicate: true,
+      transaction_id:
+        Number(existing.id),
+      balance:
+        Number(existing.balance_after || 0)
+    };
+  }
+
+  const user =
+    await env.DB
       .prepare(
-        `SELECT id, balance_after
-         FROM balance_transactions
-         WHERE reference = ?
-         LIMIT 1`
+        `SELECT
+           id,
+           balance
+         FROM users
+         WHERE id = ?`
       )
-      .bind(reference)
+      .bind(numericUserId)
       .first();
 
-    if (existing) {
-      return {
-        transactionId: Number(existing.id),
-        balance: Number(existing.balance_after),
-        duplicate: true
-      };
-    }
-  }
-
-  const user = await env.DB
-    .prepare(
-      `SELECT id, balance
-       FROM users
-       WHERE id = ?
-       LIMIT 1`
-    )
-    .bind(userId)
-    .first();
-
   if (!user) {
-    throw new Error("User tidak ditemukan.");
+    return {
+      success: false,
+      error: "User tidak ditemukan."
+    };
   }
 
-  const before = Number(user.balance);
-  const after = before + value;
+  const before =
+    Number(user.balance || 0);
 
-  const statements = [
+  const after =
+    before + numericAmount;
+
+  if (
+    !Number.isSafeInteger(after)
+  ) {
+    return {
+      success: false,
+      error: "Saldo melebihi batas."
+    };
+  }
+
+  const update =
     env.DB
       .prepare(
         `UPDATE users
-         SET balance = ?, updated_at = ?
-         WHERE id = ?`
+         SET
+           balance = ?,
+           updated_at = ?
+         WHERE id = ?
+           AND balance = ?`
       )
       .bind(
         after,
-        now,
-        userId
-      ),
+        timestamp,
+        numericUserId,
+        before
+      );
+
+  const transaction =
     env.DB
       .prepare(
-        `INSERT INTO balance_transactions
-        (
-          user_id,
-          type,
-          amount,
-          balance_before,
-          balance_after,
-          reference,
-          description,
-          created_at
-        )
-        VALUES (?, 'deposit', ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO balance_transactions (
+           user_id,
+           type,
+           amount,
+           balance_before,
+           balance_after,
+           reference,
+           description,
+           created_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
-        userId,
-        value,
+        numericUserId,
+        type,
+        numericAmount,
         before,
         after,
         reference,
-        description,
-        now
-      )
-  ];
+        cleanString(
+          description || "",
+          500
+        ) || null,
+        timestamp
+      );
 
   try {
-    const result = await env.DB.batch(statements);
+    const result =
+      await env.DB.batch([
+        update,
+        transaction
+      ]);
+
+    if (
+      !result?.[0]?.meta?.changes
+    ) {
+      return {
+        success: false,
+        conflict: true,
+        error:
+          "Saldo berubah bersamaan. Silakan ulangi."
+      };
+    }
 
     return {
-      transactionId: Number(result[1]?.meta?.last_row_id || 0),
+      success: true,
+      duplicate: false,
+      transaction_id:
+        Number(
+          result?.[1]?.meta?.last_row_id || 0
+        ),
       balance: after,
-      duplicate: false
+      balance_before: before,
+      balance_after: after
     };
   } catch (error) {
     if (reference) {
-      const existing = await env.DB
-        .prepare(
-          `SELECT id, balance_after
-           FROM balance_transactions
-           WHERE reference = ?
-           LIMIT 1`
-        )
-        .bind(reference)
-        .first();
+      const duplicate =
+        await env.DB
+          .prepare(
+            `SELECT
+               id,
+               balance_after
+             FROM balance_transactions
+             WHERE reference = ?`
+          )
+          .bind(reference)
+          .first();
 
-      if (existing) {
+      if (duplicate) {
         return {
-          transactionId: Number(existing.id),
-          balance: Number(existing.balance_after),
-          duplicate: true
+          success: true,
+          duplicate: true,
+          transaction_id:
+            Number(duplicate.id),
+          balance:
+            Number(
+              duplicate.balance_after || 0
+            )
         };
       }
     }
@@ -193,266 +324,217 @@ export async function creditBalance(
   }
 }
 
-export async function debitBalance(
+async function debitBalance(
   env,
   userId,
   amount,
+  type = "purchase",
   reference = null,
   description = null
 ) {
-  const value = Number(amount);
+  const numericUserId =
+    Number(userId);
 
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error("Nominal saldo tidak valid.");
+  const numericAmount =
+    Number(amount);
+
+  if (
+    !Number.isSafeInteger(numericUserId) ||
+    numericUserId <= 0
+  ) {
+    return {
+      success: false,
+      error: "User tidak valid."
+    };
   }
 
-  const now = nowUnix();
+  if (
+    !Number.isSafeInteger(numericAmount) ||
+    numericAmount <= 0
+  ) {
+    return {
+      success: false,
+      error: "Nominal debit tidak valid."
+    };
+  }
+
+  const allowedTypes = [
+    "purchase",
+    "adjustment"
+  ];
+
+  if (!allowedTypes.includes(type)) {
+    return {
+      success: false,
+      error: "Tipe transaksi tidak valid."
+    };
+  }
+
+  const timestamp =
+    nowUnix();
 
   if (reference) {
-    const existing = await env.DB
-      .prepare(
-        `SELECT id, balance_after
-         FROM balance_transactions
-         WHERE reference = ?
-         LIMIT 1`
-      )
-      .bind(reference)
-      .first();
+    const existing =
+      await env.DB
+        .prepare(
+          `SELECT
+             id,
+             amount,
+             balance_after
+           FROM balance_transactions
+           WHERE reference = ?`
+        )
+        .bind(reference)
+        .first();
 
     if (existing) {
       return {
-        transactionId: Number(existing.id),
-        balance: Number(existing.balance_after),
-        duplicate: true
+        success: true,
+        duplicate: true,
+        transaction_id:
+          Number(existing.id),
+        balance:
+          Number(existing.balance_after || 0)
       };
     }
   }
 
-  const user = await env.DB
-    .prepare(
-      `SELECT id, balance
-       FROM users
-       WHERE id = ?
-       LIMIT 1`
-    )
-    .bind(userId)
-    .first();
+  const user =
+    await env.DB
+      .prepare(
+        `SELECT
+           id,
+           balance
+         FROM users
+         WHERE id = ?`
+      )
+      .bind(numericUserId)
+      .first();
 
   if (!user) {
-    throw new Error("User tidak ditemukan.");
-  }
-
-  const before = Number(user.balance);
-
-  if (before < value) {
     return {
-      transactionId: null,
-      balance: before,
-      duplicate: false,
-      insufficient: true
+      success: false,
+      error: "User tidak ditemukan."
     };
   }
 
-  const after = before - value;
+  const before =
+    Number(user.balance || 0);
 
-  const statements = [
+  if (
+    before < numericAmount
+  ) {
+    return {
+      success: false,
+      insufficient: true,
+      error: "Saldo tidak mencukupi."
+    };
+  }
+
+  const after =
+    before - numericAmount;
+
+  const update =
     env.DB
       .prepare(
         `UPDATE users
-         SET balance = ?, updated_at = ?
+         SET
+           balance = ?,
+           updated_at = ?
          WHERE id = ?
+           AND balance = ?
            AND balance >= ?`
       )
       .bind(
         after,
-        now,
-        userId,
-        value
-      ),
+        timestamp,
+        numericUserId,
+        before,
+        numericAmount
+      );
+
+  const transaction =
     env.DB
       .prepare(
-        `INSERT INTO balance_transactions
-        (
-          user_id,
-          type,
-          amount,
-          balance_before,
-          balance_after,
-          reference,
-          description,
-          created_at
-        )
-        VALUES (?, 'purchase', ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO balance_transactions (
+           user_id,
+           type,
+           amount,
+           balance_before,
+           balance_after,
+           reference,
+           description,
+           created_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
-        userId,
-        -value,
+        numericUserId,
+        type,
+        -numericAmount,
         before,
         after,
         reference,
-        description,
-        now
-      )
-  ];
+        cleanString(
+          description || "",
+          500
+        ) || null,
+        timestamp
+      );
 
   try {
-    const result = await env.DB.batch(statements);
+    const result =
+      await env.DB.batch([
+        update,
+        transaction
+      ]);
 
-    if (!result[0]?.meta?.changes) {
+    if (
+      !result?.[0]?.meta?.changes
+    ) {
       return {
-        transactionId: null,
-        balance: before,
-        duplicate: false,
-        insufficient: true
+        success: false,
+        conflict: true,
+        error:
+          "Saldo berubah bersamaan. Silakan ulangi."
       };
     }
 
     return {
-      transactionId: Number(result[1]?.meta?.last_row_id || 0),
-      balance: after,
+      success: true,
       duplicate: false,
-      insufficient: false
-    };
-  } catch (error) {
-    if (reference) {
-      const existing = await env.DB
-        .prepare(
-          `SELECT id, balance_after
-           FROM balance_transactions
-           WHERE reference = ?
-           LIMIT 1`
-        )
-        .bind(reference)
-        .first();
-
-      if (existing) {
-        return {
-          transactionId: Number(existing.id),
-          balance: Number(existing.balance_after),
-          duplicate: true
-        };
-      }
-    }
-
-    throw error;
-  }
-}
-
-export async function refundBalance(
-  env,
-  userId,
-  amount,
-  reference = null,
-  description = null
-) {
-  const value = Number(amount);
-
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error("Nominal refund tidak valid.");
-  }
-
-  const now = nowUnix();
-
-  if (reference) {
-    const existing = await env.DB
-      .prepare(
-        `SELECT id, balance_after
-         FROM balance_transactions
-         WHERE reference = ?
-         LIMIT 1`
-      )
-      .bind(reference)
-      .first();
-
-    if (existing) {
-      return {
-        transactionId: Number(existing.id),
-        balance: Number(existing.balance_after),
-        duplicate: true
-      };
-    }
-  }
-
-  const user = await env.DB
-    .prepare(
-      `SELECT id, balance
-       FROM users
-       WHERE id = ?
-       LIMIT 1`
-    )
-    .bind(userId)
-    .first();
-
-  if (!user) {
-    throw new Error("User tidak ditemukan.");
-  }
-
-  const before = Number(user.balance);
-  const after = before + value;
-
-  const statements = [
-    env.DB
-      .prepare(
-        `UPDATE users
-         SET balance = ?, updated_at = ?
-         WHERE id = ?`
-      )
-      .bind(
-        after,
-        now,
-        userId
-      ),
-    env.DB
-      .prepare(
-        `INSERT INTO balance_transactions
-        (
-          user_id,
-          type,
-          amount,
-          balance_before,
-          balance_after,
-          reference,
-          description,
-          created_at
-        )
-        VALUES (?, 'refund', ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        userId,
-        value,
-        before,
-        after,
-        reference,
-        description,
-        now
-      )
-  ];
-
-  try {
-    const result = await env.DB.batch(statements);
-
-    return {
-      transactionId: Number(result[1]?.meta?.last_row_id || 0),
+      transaction_id:
+        Number(
+          result?.[1]?.meta?.last_row_id || 0
+        ),
       balance: after,
-      duplicate: false
+      balance_before: before,
+      balance_after: after
     };
   } catch (error) {
     if (reference) {
-      const existing = await env.DB
-        .prepare(
-          `SELECT id, balance_after
-           FROM balance_transactions
-           WHERE reference = ?
-           LIMIT 1`
-        )
-        .bind(reference)
-        .first();
+      const duplicate =
+        await env.DB
+          .prepare(
+            `SELECT
+               id,
+               balance_after
+             FROM balance_transactions
+             WHERE reference = ?`
+          )
+          .bind(reference)
+          .first();
 
-      if (existing) {
+      if (duplicate) {
         return {
-          transactionId: Number(existing.id),
-          balance: Number(existing.balance_after),
-          duplicate: true
+          success: true,
+          duplicate: true,
+          transaction_id:
+            Number(duplicate.id),
+          balance:
+            Number(
+              duplicate.balance_after || 0
+            )
         };
       }
     }
@@ -460,3 +542,10 @@ export async function refundBalance(
     throw error;
   }
 }
+
+export {
+  getBalance,
+  getTransactions,
+  creditBalance,
+  debitBalance
+};
