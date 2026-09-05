@@ -1,132 +1,101 @@
 import {
-  errorResponse,
-  getCurrentUser,
-  getSettingInt,
-  normalizeDepositCode,
-  nowUnix,
+  cleanString,
   randomId,
-  readJson,
-  successResponse
+  nowUnix,
+  getDepositCode,
+  getDepositConfig,
+  successResponse,
+  errorResponse,
+  readJson
 } from "./utils.js";
 
 import {
-  creditBalance
-} from "./wallet.js";
+  requireAuth,
+  requireAdmin
+} from "./auth.js";
 
-const DEFAULT_MIN_AMOUNT = 1000;
-const DEFAULT_MAX_AMOUNT = 10000000;
-const DEFAULT_EXPIRY_MINUTES = 60;
-const DEFAULT_CHECK_COOLDOWN = 30;
+async function createDeposit(request, env) {
+  const user =
+    await requireAuth(
+      request,
+      env
+    );
 
-export async function createDeposit(request, env) {
-  const user = await getCurrentUser(request, env);
-
-  if (!user) {
-    return errorResponse("Kamu harus login terlebih dahulu.", 401);
+  if (user instanceof Response) {
+    return user;
   }
 
-  let body;
+  const body =
+    await readJson(request);
 
-  try {
-    body = await readJson(request);
-  } catch (error) {
-    return errorResponse(error.message, 400);
-  }
+  const config =
+    await getDepositConfig(env);
 
-  const amount = Number(body.amount);
-
-  const minAmount = await getSettingInt(
-    env.DB,
-    "deposit_min",
-    DEFAULT_MIN_AMOUNT
-  );
-
-  const maxAmount = await getSettingInt(
-    env.DB,
-    "deposit_max",
-    DEFAULT_MAX_AMOUNT
-  );
-
-  const expiryMinutes = await getSettingInt(
-    env.DB,
-    "deposit_expiry_minutes",
-    DEFAULT_EXPIRY_MINUTES
-  );
+  const amount =
+    Number(body?.amount);
 
   if (
     !Number.isSafeInteger(amount) ||
-    amount < minAmount ||
-    amount > maxAmount
+    amount < config.min_amount ||
+    amount > config.max_amount
   ) {
     return errorResponse(
-      `Nominal deposit harus antara Rp${minAmount.toLocaleString("id-ID")} dan Rp${maxAmount.toLocaleString("id-ID")}.`,
+      `Nominal deposit harus antara Rp${config.min_amount.toLocaleString("id-ID")} dan Rp${config.max_amount.toLocaleString("id-ID")}.`,
       400
     );
   }
 
-  const activeDeposit = await env.DB
-    .prepare(
-      `SELECT
-        id,
-        code,
-        amount,
-        status,
-        expires_at,
-        created_at
-       FROM deposits
-       WHERE user_id = ?
-         AND status = 'PENDING'
-       ORDER BY created_at DESC
-       LIMIT 1`
-    )
-    .bind(user.id)
-    .first();
-
-  const now = nowUnix();
-
-  if (activeDeposit) {
-    if (Number(activeDeposit.expires_at) > now) {
-      return successResponse({
-        deposit: {
-          id: Number(activeDeposit.id),
-          code: activeDeposit.code,
-          amount: Number(activeDeposit.amount),
-          status: activeDeposit.status,
-          created_at: Number(activeDeposit.created_at),
-          expires_at: Number(activeDeposit.expires_at)
-        },
-        reused: true
-      });
-    }
-
+  const active =
     await env.DB
       .prepare(
-        `UPDATE deposits
-         SET status = 'EXPIRED',
-             cancelled_at = ?,
-             checked_at = ?
-         WHERE id = ?
-           AND status = 'PENDING'`
+        `SELECT
+           id,
+           code,
+           amount,
+           status,
+           expires_at
+         FROM deposits
+         WHERE user_id = ?
+           AND status = 'PENDING'
+           AND expires_at > ?
+         ORDER BY id DESC
+         LIMIT 1`
       )
       .bind(
-        now,
-        now,
-        activeDeposit.id
+        user.id,
+        nowUnix()
       )
-      .run();
+      .first();
+
+  if (active) {
+    return successResponse({
+      deposit:
+        formatDeposit(active)
+    });
   }
+
+  const timestamp =
+    nowUnix();
+
+  const expiresAt =
+    timestamp +
+    config.expiry_minutes * 60;
 
   let code = null;
 
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const candidate = randomId(4);
+  for (let i = 0; i < 10; i++) {
+    const candidate =
+      getDepositCode();
 
-    const exists = await env.DB
-      .prepare(
-        "SELECT id FROM deposits WHERE code = ? LIMIT 1"
-      )
-      .bind(candidate)
-      .first();
+    const exists =
+      await env.DB
+        .prepare(
+          `SELECT id
+           FROM deposits
+           WHERE code = ?`
+        )
+        .bind(candidate)
+        .first();
 
     if (!exists) {
       code = candidate;
@@ -136,103 +105,117 @@ export async function createDeposit(request, env) {
 
   if (!code) {
     return errorResponse(
-      "Gagal membuat kode deposit. Silakan coba lagi.",
+      "Gagal membuat kode deposit.",
       500
     );
   }
 
-  const expiresAt =
-    now + Math.max(expiryMinutes, 1) * 60;
-
-  const result = await env.DB
-    .prepare(
-      `INSERT INTO deposits
-      (
-        user_id,
+  const result =
+    await env.DB
+      .prepare(
+        `INSERT INTO deposits (
+           user_id,
+           code,
+           amount,
+           status,
+           payment_method,
+           created_at,
+           expires_at,
+           check_count
+         )
+         VALUES (?, ?, ?, 'PENDING', 'QRIS', ?, ?, 0)`
+      )
+      .bind(
+        user.id,
         code,
         amount,
-        status,
-        payment_method,
-        created_at,
-        expires_at,
-        check_count
+        timestamp,
+        expiresAt
       )
-      VALUES (?, ?, ?, 'PENDING', 'QRIS', ?, ?, 0)`
-    )
-    .bind(
-      user.id,
-      code,
-      amount,
-      now,
-      expiresAt
-    )
-    .run();
+      .run();
 
-  const depositId = Number(
-    result.meta?.last_row_id || 0
-  );
-
-  if (!depositId) {
-    return errorResponse(
-      "Gagal membuat deposit.",
-      500
-    );
-  }
+  const deposit =
+    await env.DB
+      .prepare(
+        `SELECT
+           id,
+           user_id,
+           code,
+           amount,
+           status,
+           payment_method,
+           created_at,
+           expires_at,
+           checked_at,
+           paid_at,
+           check_count,
+           wallet_transaction_id
+         FROM deposits
+         WHERE id = ?`
+      )
+      .bind(
+        result.meta.last_row_id
+      )
+      .first();
 
   return successResponse({
-    deposit: {
-      id: depositId,
-      code,
-      amount,
-      status: "PENDING",
-      payment_method: "QRIS",
-      created_at: now,
-      expires_at: expiresAt
-    }
+    deposit:
+      formatDeposit(deposit)
   }, 201);
 }
 
-export async function getDeposit(request, env) {
-  const user = await getCurrentUser(request, env);
+async function getDeposit(request, env) {
+  const user =
+    await requireAuth(
+      request,
+      env
+    );
 
-  if (!user) {
-    return errorResponse("Kamu harus login terlebih dahulu.", 401);
+  if (user instanceof Response) {
+    return user;
   }
 
-  const url = new URL(request.url);
-  const id = Number(url.searchParams.get("id"));
+  const url =
+    new URL(request.url);
 
-  if (!Number.isSafeInteger(id) || id <= 0) {
+  const code =
+    cleanString(
+      url.searchParams.get("code"),
+      20
+    ).toUpperCase();
+
+  if (!code) {
     return errorResponse(
-      "ID deposit tidak valid.",
+      "Kode deposit wajib diisi.",
       400
     );
   }
 
-  const deposit = await env.DB
-    .prepare(
-      `SELECT
-        id,
-        code,
-        amount,
-        status,
-        payment_method,
-        created_at,
-        expires_at,
-        checked_at,
-        paid_at,
-        cancelled_at,
-        check_count
-       FROM deposits
-       WHERE id = ?
-         AND user_id = ?
-       LIMIT 1`
-    )
-    .bind(
-      id,
-      user.id
-    )
-    .first();
+  const deposit =
+    await env.DB
+      .prepare(
+        `SELECT
+           id,
+           user_id,
+           code,
+           amount,
+           status,
+           payment_method,
+           created_at,
+           expires_at,
+           checked_at,
+           paid_at,
+           check_count,
+           wallet_transaction_id
+         FROM deposits
+         WHERE user_id = ?
+           AND code = ?`
+      )
+      .bind(
+        user.id,
+        code
+      )
+      .first();
 
   if (!deposit) {
     return errorResponse(
@@ -240,90 +223,83 @@ export async function getDeposit(request, env) {
       404
     );
   }
-
-  const now = nowUnix();
 
   if (
     deposit.status === "PENDING" &&
-    Number(deposit.expires_at) <= now
+    Number(deposit.expires_at) <= nowUnix()
   ) {
     await env.DB
       .prepare(
         `UPDATE deposits
-         SET status = 'EXPIRED',
-             cancelled_at = ?,
-             checked_at = ?
+         SET
+           status = 'EXPIRED',
+           updated_at = COALESCE(updated_at, expires_at)
          WHERE id = ?
-           AND user_id = ?
            AND status = 'PENDING'`
       )
-      .bind(
-        now,
-        now,
-        id,
-        user.id
-      )
+      .bind(deposit.id)
       .run();
 
-    deposit.status = "EXPIRED";
-    deposit.cancelled_at = now;
-    deposit.checked_at = now;
+    deposit.status =
+      "EXPIRED";
   }
 
   return successResponse({
-    deposit: formatDeposit(deposit)
+    deposit:
+      formatDeposit(deposit)
   });
 }
 
-export async function checkDeposit(request, env) {
-  const user = await getCurrentUser(request, env);
+async function checkDeposit(request, env) {
+  const user =
+    await requireAuth(
+      request,
+      env
+    );
 
-  if (!user) {
-    return errorResponse("Kamu harus login terlebih dahulu.", 401);
+  if (user instanceof Response) {
+    return user;
   }
 
-  let body;
+  const body =
+    await readJson(request);
 
-  try {
-    body = await readJson(request);
-  } catch (error) {
-    return errorResponse(error.message, 400);
-  }
+  const code =
+    cleanString(
+      body?.code,
+      20
+    ).toUpperCase();
 
-  const id = Number(body.id);
-
-  if (!Number.isSafeInteger(id) || id <= 0) {
+  if (!code) {
     return errorResponse(
-      "ID deposit tidak valid.",
+      "Kode deposit wajib diisi.",
       400
     );
   }
 
-  const deposit = await env.DB
-    .prepare(
-      `SELECT
-        id,
-        user_id,
-        code,
-        amount,
-        status,
-        payment_method,
-        created_at,
-        expires_at,
-        checked_at,
-        paid_at,
-        cancelled_at,
-        check_count
-       FROM deposits
-       WHERE id = ?
-         AND user_id = ?
-       LIMIT 1`
-    )
-    .bind(
-      id,
-      user.id
-    )
-    .first();
+  const timestamp =
+    nowUnix();
+
+  const deposit =
+    await env.DB
+      .prepare(
+        `SELECT
+           id,
+           code,
+           amount,
+           status,
+           expires_at,
+           check_count,
+           checked_at
+         FROM deposits
+         WHERE user_id = ?
+           AND code = ?`
+      )
+      .bind(
+        user.id,
+        code
+      )
+      .first();
 
   if (!deposit) {
     return errorResponse(
@@ -332,342 +308,544 @@ export async function checkDeposit(request, env) {
     );
   }
 
-  const now = nowUnix();
-
-  if (deposit.status === "PAID") {
+  if (
+    deposit.status === "PAID"
+  ) {
     return successResponse({
-      deposit: formatDeposit(deposit),
-      paid: true
+      status:
+        "PAID",
+      message:
+        "Deposit sudah dibayar."
     });
   }
 
   if (
-    deposit.status === "EXPIRED" ||
-    deposit.status === "CANCELLED"
+    deposit.status !== "PENDING"
   ) {
-    return successResponse({
-      deposit: formatDeposit(deposit),
-      paid: false
-    });
-  }
-
-  if (Number(deposit.expires_at) <= now) {
-    await env.DB
-      .prepare(
-        `UPDATE deposits
-         SET status = 'EXPIRED',
-             cancelled_at = ?,
-             checked_at = ?
-         WHERE id = ?
-           AND user_id = ?
-           AND status = 'PENDING'`
-      )
-      .bind(
-        now,
-        now,
-        id,
-        user.id
-      )
-      .run();
-
-    deposit.status = "EXPIRED";
-    deposit.cancelled_at = now;
-    deposit.checked_at = now;
-
-    return successResponse({
-      deposit: formatDeposit(deposit),
-      paid: false
-    });
-  }
-
-  const cooldown = await getSettingInt(
-    env.DB,
-    "deposit_check_cooldown_seconds",
-    DEFAULT_CHECK_COOLDOWN
-  );
-
-  if (
-    deposit.checked_at &&
-    Number(deposit.checked_at) + cooldown > now
-  ) {
-    const remaining =
-      Number(deposit.checked_at) +
-      cooldown -
-      now;
-
     return errorResponse(
-      `Tunggu ${remaining} detik sebelum mengecek kembali.`,
-      429,
-      {
-        retry_after: remaining,
-        deposit: formatDeposit(deposit)
-      }
+      "Deposit tidak dapat dicek.",
+      409
     );
   }
 
-  await env.DB
-    .prepare(
-      `UPDATE deposits
-       SET checked_at = ?,
-           check_count = check_count + 1
-       WHERE id = ?
-         AND user_id = ?
-         AND status = 'PENDING'`
-    )
-    .bind(
-      now,
-      id,
-      user.id
-    )
-    .run();
-
-  const updated = await env.DB
-    .prepare(
-      `SELECT
-        id,
-        user_id,
-        code,
-        amount,
-        status,
-        payment_method,
-        created_at,
-        expires_at,
-        checked_at,
-        paid_at,
-        cancelled_at,
-        check_count
-       FROM deposits
-       WHERE id = ?
-         AND user_id = ?
-       LIMIT 1`
-    )
-    .bind(
-      id,
-      user.id
-    )
-    .first();
-
-  return successResponse({
-    deposit: formatDeposit(updated || deposit),
-    paid: updated?.status === "PAID",
-    checked: true
-  });
-}
-
-export async function getActiveDeposit(request, env) {
-  const user = await getCurrentUser(request, env);
-
-  if (!user) {
-    return errorResponse("Kamu harus login terlebih dahulu.", 401);
-  }
-
-  const deposit = await env.DB
-    .prepare(
-      `SELECT
-        id,
-        user_id,
-        code,
-        amount,
-        status,
-        payment_method,
-        created_at,
-        expires_at,
-        checked_at,
-        paid_at,
-        cancelled_at,
-        check_count
-       FROM deposits
-       WHERE user_id = ?
-         AND status = 'PENDING'
-       ORDER BY created_at DESC
-       LIMIT 1`
-    )
-    .bind(user.id)
-    .first();
-
-  if (!deposit) {
-    return successResponse({
-      deposit: null
-    });
-  }
-
-  const now = nowUnix();
-
-  if (Number(deposit.expires_at) <= now) {
+  if (
+    Number(deposit.expires_at) <= timestamp
+  ) {
     await env.DB
       .prepare(
         `UPDATE deposits
-         SET status = 'EXPIRED',
-             cancelled_at = ?,
-             checked_at = ?
+         SET status = 'EXPIRED'
          WHERE id = ?
            AND status = 'PENDING'`
       )
+      .bind(deposit.id)
+      .run();
+
+    return errorResponse(
+      "Deposit sudah expired.",
+      409
+    );
+  }
+
+  const cooldown =
+    30;
+
+  if (
+    deposit.checked_at &&
+    timestamp -
+      Number(deposit.checked_at) <
+      cooldown
+  ) {
+    const remaining =
+      cooldown -
+      (
+        timestamp -
+        Number(deposit.checked_at)
+      );
+
+    return errorResponse(
+      `Tunggu ${remaining} detik sebelum mengecek kembali.`,
+      429
+    );
+  }
+
+  const result =
+    await env.DB
+      .prepare(
+        `UPDATE deposits
+         SET
+           checked_at = ?,
+           check_count = check_count + 1
+         WHERE id = ?
+           AND status = 'PENDING'
+           AND (
+             checked_at IS NULL
+             OR ? - checked_at >= ?
+           )`
+      )
       .bind(
-        now,
-        now,
-        deposit.id
+        timestamp,
+        deposit.id,
+        timestamp,
+        cooldown
       )
       .run();
 
-    return successResponse({
-      deposit: null
-    });
+  if (!result.meta.changes) {
+    return errorResponse(
+      "Pengecekan terlalu cepat. Silakan tunggu.",
+      429
+    );
   }
 
   return successResponse({
-    deposit: formatDeposit(deposit)
+    status:
+      "PENDING",
+    message:
+      "Permintaan pengecekan pembayaran berhasil dicatat.",
+    code:
+      deposit.code,
+    amount:
+      Number(deposit.amount)
   });
 }
 
-export async function payDeposit(
-  env,
-  code,
-  telegramReference = null
-) {
-  const normalizedCode =
-    normalizeDepositCode(code);
+async function getActiveDeposit(request, env) {
+  const user =
+    await requireAuth(
+      request,
+      env
+    );
 
-  const deposit = await env.DB
-    .prepare(
-      `SELECT
-        id,
-        user_id,
-        code,
-        amount,
-        status,
-        expires_at,
-        paid_at
-       FROM deposits
-       WHERE code = ?
-       LIMIT 1`
-    )
-    .bind(normalizedCode)
-    .first();
-
-  if (!deposit) {
-    return {
-      success: false,
-      reason: "NOT_FOUND"
-    };
+  if (user instanceof Response) {
+    return user;
   }
 
-  if (deposit.status === "PAID") {
-    const user = await env.DB
+  const timestamp =
+    nowUnix();
+
+  const deposit =
+    await env.DB
       .prepare(
-        "SELECT id, username, balance FROM users WHERE id = ? LIMIT 1"
+        `SELECT
+           id,
+           user_id,
+           code,
+           amount,
+           status,
+           payment_method,
+           created_at,
+           expires_at,
+           checked_at,
+           paid_at,
+           check_count,
+           wallet_transaction_id
+         FROM deposits
+         WHERE user_id = ?
+           AND status = 'PENDING'
+           AND expires_at > ?
+         ORDER BY id DESC
+         LIMIT 1`
       )
-      .bind(deposit.user_id)
+      .bind(
+        user.id,
+        timestamp
+      )
       .first();
 
-    return {
-      success: true,
-      duplicate: true,
-      deposit,
-      user
-    };
-  }
-
-  if (deposit.status !== "PENDING") {
-    return {
-      success: false,
-      reason: "INVALID_STATUS",
-      status: deposit.status,
+  return successResponse({
+    deposit:
       deposit
-    };
+        ? formatDeposit(deposit)
+        : null
+  });
+}
+
+async function payDeposit(request, env) {
+  const admin =
+    await requireAdmin(
+      request,
+      env
+    );
+
+  if (admin instanceof Response) {
+    return admin;
   }
 
-  const now = nowUnix();
+  const body =
+    await readJson(request);
 
-  if (Number(deposit.expires_at) <= now) {
+  const code =
+    cleanString(
+      body?.code,
+      20
+    ).toUpperCase();
+
+  if (!code) {
+    return errorResponse(
+      "Kode deposit wajib diisi.",
+      400
+    );
+  }
+
+  const timestamp =
+    nowUnix();
+
+  const deposit =
+    await env.DB
+      .prepare(
+        `SELECT
+           d.id,
+           d.user_id,
+           d.code,
+           d.amount,
+           d.status,
+           d.expires_at,
+           d.wallet_transaction_id,
+           u.username,
+           u.balance
+         FROM deposits d
+         JOIN users u
+           ON u.id = d.user_id
+         WHERE d.code = ?`
+      )
+      .bind(code)
+      .first();
+
+  if (!deposit) {
+    return errorResponse(
+      "Kode deposit tidak ditemukan.",
+      404
+    );
+  }
+
+  if (
+    deposit.status === "PAID"
+  ) {
+    return successResponse({
+      status:
+        "PAID",
+      message:
+        "Deposit sudah pernah dibayar.",
+      code:
+        deposit.code,
+      amount:
+        Number(deposit.amount),
+      balance:
+        Number(deposit.balance || 0),
+      transaction_id:
+        deposit.wallet_transaction_id
+          ? Number(
+              deposit.wallet_transaction_id
+            )
+          : null
+    });
+  }
+
+  if (
+    deposit.status !== "PENDING"
+  ) {
+    return errorResponse(
+      `Deposit berstatus ${deposit.status}.`,
+      409
+    );
+  }
+
+  if (
+    Number(deposit.expires_at) <= timestamp
+  ) {
     await env.DB
       .prepare(
         `UPDATE deposits
-         SET status = 'EXPIRED',
-             cancelled_at = ?,
-             checked_at = ?
+         SET status = 'EXPIRED'
          WHERE id = ?
            AND status = 'PENDING'`
       )
-      .bind(
-        now,
-        now,
-        deposit.id
-      )
+      .bind(deposit.id)
       .run();
 
-    return {
-      success: false,
-      reason: "EXPIRED",
-      deposit
-    };
+    return errorResponse(
+      "Deposit sudah expired.",
+      409
+    );
+  }
+
+  const amount =
+    Number(deposit.amount);
+
+  if (
+    !Number.isSafeInteger(amount) ||
+    amount <= 0
+  ) {
+    return errorResponse(
+      "Nominal deposit tidak valid.",
+      500
+    );
+  }
+
+  const before =
+    Number(deposit.balance || 0);
+
+  const after =
+    before + amount;
+
+  if (
+    !Number.isSafeInteger(after)
+  ) {
+    return errorResponse(
+      "Saldo user melebihi batas.",
+      500
+    );
   }
 
   const reference =
-    telegramReference ||
     `DEPOSIT:${deposit.code}`;
 
-  const credit = await creditBalance(
-    env,
-    Number(deposit.user_id),
-    Number(deposit.amount),
-    reference,
-    `Deposit QRIS ${deposit.code}`
-  );
+  const existingTransaction =
+    await env.DB
+      .prepare(
+        `SELECT
+           id,
+           balance_after
+         FROM balance_transactions
+         WHERE reference = ?`
+      )
+      .bind(reference)
+      .first();
 
-  const paidAt = now;
+  if (existingTransaction) {
+    const transactionId =
+      Number(existingTransaction.id);
 
-  if (credit.duplicate) {
+    const balanceAfter =
+      Number(
+        existingTransaction.balance_after
+      );
+
     await env.DB
       .prepare(
         `UPDATE deposits
-         SET status = 'PAID',
-             paid_at = COALESCE(paid_at, ?),
-             checked_at = ?
+         SET
+           status = 'PAID',
+           paid_at = COALESCE(paid_at, ?),
+           checked_at = COALESCE(checked_at, ?),
+           wallet_transaction_id = ?
          WHERE id = ?
-           AND status != 'PAID'`
+           AND status IN ('PENDING','PAID')`
       )
       .bind(
-        paidAt,
-        paidAt,
+        timestamp,
+        timestamp,
+        transactionId,
         deposit.id
       )
       .run();
-  } else {
-    await env.DB
-      .prepare(
-        `UPDATE deposits
-         SET status = 'PAID',
-             paid_at = ?,
-             checked_at = ?
-         WHERE id = ?
-           AND status = 'PENDING'`
-      )
-      .bind(
-        paidAt,
-        paidAt,
-        deposit.id
-      )
-      .run();
+
+    return successResponse({
+      status:
+        "PAID",
+      message:
+        "Deposit sudah dikonfirmasi sebelumnya.",
+      code:
+        deposit.code,
+      amount,
+      balance:
+        balanceAfter,
+      transaction_id:
+        transactionId
+    });
   }
 
-  const user = await env.DB
-    .prepare(
-      "SELECT id, username, balance FROM users WHERE id = ? LIMIT 1"
-    )
-    .bind(deposit.user_id)
-    .first();
+  const updateUser =
+    env.DB
+      .prepare(
+        `UPDATE users
+         SET
+           balance = ?,
+           updated_at = ?
+         WHERE id = ?
+           AND balance = ?`
+      )
+      .bind(
+        after,
+        timestamp,
+        deposit.user_id,
+        before
+      );
 
-  return {
-    success: true,
-    duplicate: Boolean(credit.duplicate),
-    deposit: {
-      ...deposit,
-      status: "PAID",
-      paid_at: paidAt
-    },
-    user
-  };
+  const transaction =
+    env.DB
+      .prepare(
+        `INSERT INTO balance_transactions (
+           user_id,
+           type,
+           amount,
+           balance_before,
+           balance_after,
+           reference,
+           description,
+           created_at
+         )
+         VALUES (?, 'deposit', ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        deposit.user_id,
+        amount,
+        before,
+        after,
+        reference,
+        `Deposit QRIS ${deposit.code}`,
+        timestamp
+      );
+
+  try {
+    const result =
+      await env.DB.batch([
+        updateUser,
+        transaction
+      ]);
+
+    if (
+      !result?.[0]?.meta?.changes
+    ) {
+      return errorResponse(
+        "Saldo user berubah bersamaan. Silakan ulangi.",
+        409
+      );
+    }
+
+    const transactionId =
+      Number(
+        result?.[1]?.meta?.last_row_id || 0
+      );
+
+    const depositUpdate =
+      await env.DB
+        .prepare(
+          `UPDATE deposits
+           SET
+             status = 'PAID',
+             paid_at = ?,
+             checked_at = COALESCE(checked_at, ?),
+             wallet_transaction_id = ?
+           WHERE id = ?
+             AND status = 'PENDING'`
+        )
+        .bind(
+          timestamp,
+          timestamp,
+          transactionId,
+          deposit.id
+        )
+        .run();
+
+    if (
+      !depositUpdate.meta.changes
+    ) {
+      const alreadyPaid =
+        await env.DB
+          .prepare(
+            `SELECT
+               status,
+               wallet_transaction_id
+             FROM deposits
+             WHERE id = ?`
+          )
+          .bind(deposit.id)
+          .first();
+
+      if (
+        alreadyPaid?.status === "PAID"
+      ) {
+        return successResponse({
+          status:
+            "PAID",
+          message:
+            "Deposit sudah dikonfirmasi.",
+          code:
+            deposit.code,
+          amount,
+          balance:
+            after,
+          transaction_id:
+            Number(
+              alreadyPaid.wallet_transaction_id ||
+              transactionId
+            )
+        });
+      }
+
+      return errorResponse(
+        "Saldo sudah bertambah tetapi status deposit gagal diperbarui. Hubungi admin.",
+        500
+      );
+    }
+
+    return successResponse({
+      status:
+        "PAID",
+      message:
+        "Deposit berhasil dikonfirmasi.",
+      code:
+        deposit.code,
+      amount,
+      balance:
+        after,
+      transaction_id:
+        transactionId
+    });
+  } catch (error) {
+    const duplicate =
+      await env.DB
+        .prepare(
+          `SELECT
+             id,
+             balance_after
+           FROM balance_transactions
+           WHERE reference = ?`
+        )
+        .bind(reference)
+        .first();
+
+    if (duplicate) {
+      const transactionId =
+        Number(duplicate.id);
+
+      await env.DB
+        .prepare(
+          `UPDATE deposits
+           SET
+             status = 'PAID',
+             paid_at = COALESCE(paid_at, ?),
+             wallet_transaction_id = ?
+           WHERE id = ?`
+        )
+        .bind(
+          timestamp,
+          transactionId,
+          deposit.id
+        )
+        .run();
+
+      return successResponse({
+        status:
+          "PAID",
+        message:
+          "Deposit sudah dikonfirmasi.",
+        code:
+          deposit.code,
+        amount,
+        balance:
+          Number(
+            duplicate.balance_after || 0
+          ),
+        transaction_id:
+          transactionId
+      });
+    }
+
+    throw error;
+  }
 }
 
 function formatDeposit(deposit) {
@@ -676,22 +854,43 @@ function formatDeposit(deposit) {
   }
 
   return {
-    id: Number(deposit.id),
-    code: deposit.code,
-    amount: Number(deposit.amount),
-    status: deposit.status,
-    payment_method: deposit.payment_method,
-    created_at: Number(deposit.created_at),
-    expires_at: Number(deposit.expires_at),
-    checked_at: deposit.checked_at
-      ? Number(deposit.checked_at)
-      : null,
-    paid_at: deposit.paid_at
-      ? Number(deposit.paid_at)
-      : null,
-    cancelled_at: deposit.cancelled_at
-      ? Number(deposit.cancelled_at)
-      : null,
-    check_count: Number(deposit.check_count || 0)
+    id:
+      Number(deposit.id),
+    code:
+      deposit.code,
+    amount:
+      Number(deposit.amount || 0),
+    status:
+      deposit.status,
+    payment_method:
+      deposit.payment_method ||
+      "QRIS",
+    created_at:
+      deposit.created_at,
+    expires_at:
+      deposit.expires_at,
+    checked_at:
+      deposit.checked_at,
+    paid_at:
+      deposit.paid_at,
+    check_count:
+      Number(
+        deposit.check_count || 0
+      ),
+    wallet_transaction_id:
+      deposit.wallet_transaction_id
+        ? Number(
+            deposit.wallet_transaction_id
+          )
+        : null
   };
 }
+
+export {
+  createDeposit,
+  getDeposit,
+  checkDeposit,
+  getActiveDeposit,
+  payDeposit,
+  formatDeposit
+};
