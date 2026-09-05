@@ -1,77 +1,195 @@
 import {
-  errorResponse,
+  getCurrentUser,
   successResponse,
-  cleanString,
-  getClientIp,
-  getUserAgent,
+  errorResponse,
   nowUnix,
+  getClientIp,
   sha256,
-  getCurrentUser
+  cleanString
 } from "./utils.js";
 
-export async function trackVisitor(request, env) {
-  const url = new URL(request.url);
+const VISITOR_COOKIE = "vd_visitor";
+const VISITOR_MAX_AGE = 60 * 60 * 24 * 365;
+const ONLINE_WINDOW = 15 * 60;
+const TZ_OFFSET = 7 * 60 * 60;
 
-  if (
-    request.method !== "GET" &&
-    request.method !== "POST"
-  ) {
-    return errorResponse("Method tidak didukung.", 405);
-  }
+function json(data, status = 200) {
+  return successResponse(data, status);
+}
 
-  const path = cleanString(url.pathname, 500) || "/";
+function getLocalDate(timestamp = nowUnix()) {
+  const date = new Date((timestamp + TZ_OFFSET) * 1000);
 
-  const ip = getClientIp(request);
-  const userAgent = getUserAgent(request);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
 
-  const visitorSource =
-    `${ip}|${userAgent}`;
+  return `${year}-${month}-${day}`;
+}
 
-  const visitorId =
-    await sha256(visitorSource);
+function getStartOfLocalDay(timestamp = nowUnix()) {
+  const date = getLocalDate(timestamp);
+  const [year, month, day] = date.split("-").map(Number);
 
-  const timestamp = nowUnix();
+  return Math.floor(
+    Date.UTC(year, month - 1, day) / 1000
+  ) - TZ_OFFSET;
+}
 
-  const user = await getCurrentUser(request, env).catch(
-    () => null
+function getVisitorCookie(request) {
+  const cookie = request.headers.get("Cookie") || "";
+
+  const match = cookie.match(
+    new RegExp(
+      "(?:^|;\\s*)" +
+      VISITOR_COOKIE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+      "=([^;]+)"
+    )
   );
 
-  const userId = user ? Number(user.id) : null;
-  const isLoggedIn = user ? 1 : 0;
+  return match ? decodeURIComponent(match[1]) : "";
+}
 
-  const existing = await env.DB.prepare(`
-    SELECT
-      id,
-      first_seen_at,
-      last_seen_at,
-      page_views
-    FROM visitor_sessions
-    WHERE visitor_id = ?
-    LIMIT 1
-  `).bind(visitorId).first();
+function visitorIdFromRequest(request) {
+  return getVisitorCookie(request);
+}
 
-  let isReturning = 0;
+function visitorCookie(value) {
+  return `${VISITOR_COOKIE}=${encodeURIComponent(value)}; Max-Age=${VISITOR_MAX_AGE}; Path=/; HttpOnly; Secure; SameSite=Lax`;
+}
 
-  if (existing) {
-    isReturning =
-      Number(existing.page_views || 0) > 0 ? 1 : 0;
+async function makeVisitorId(request) {
+  const existing = visitorIdFromRequest(request);
 
+  if(existing){
+    return {
+      id: existing,
+      isNew: false
+    };
+  }
+
+  const ip = getClientIp(request);
+  const userAgent =
+    cleanString(
+      request.headers.get("User-Agent") || "",
+      500
+    );
+
+  const raw =
+    `${ip}|${userAgent}|${crypto.randomUUID()}`;
+
+  const hash =
+    await sha256(raw);
+
+  return {
+    id: `v_${hash.slice(0, 32)}`,
+    isNew: true
+  };
+}
+
+async function getAuthenticatedUser(request, env) {
+  try{
+    return await getCurrentUser(
+      request,
+      env
+    );
+  }catch{
+    return null;
+  }
+}
+
+async function ensureStatsRow(env, statDate) {
+  await env.DB.prepare(`
+    INSERT INTO visitor_stats (
+      stat_date,
+      total_views,
+      unique_visitors,
+      returning_visitors,
+      created_at,
+      updated_at
+    )
+    VALUES (?, 0, 0, 0, unixepoch(), unixepoch())
+    ON CONFLICT(stat_date)
+    DO NOTHING
+  `)
+    .bind(statDate)
+    .run();
+}
+
+export async function trackVisitor(
+  request,
+  env
+) {
+  const now = nowUnix();
+
+  const url =
+    new URL(request.url);
+
+  const path =
+    cleanString(
+      url.pathname || "/",
+      500
+    );
+
+  const visitor =
+    await makeVisitorId(request);
+
+  const user =
+    await getAuthenticatedUser(
+      request,
+      env
+    );
+
+  const userId =
+    user?.id || null;
+
+  const statDate =
+    getLocalDate(now);
+
+  await ensureStatsRow(
+    env,
+    statDate
+  );
+
+  const existing =
+    await env.DB.prepare(`
+      SELECT
+        id,
+        first_seen_at,
+        last_seen_at,
+        page_views,
+        is_logged_in,
+        user_id
+      FROM visitor_sessions
+      WHERE visitor_id = ?
+      LIMIT 1
+    `)
+      .bind(visitor.id)
+      .first();
+
+  const isReturning =
+    Boolean(existing);
+
+  if(existing){
     await env.DB.prepare(`
       UPDATE visitor_sessions
-      SET last_seen_at = ?,
-          last_path = ?,
-          page_views = page_views + 1,
-          is_logged_in = ?,
-          user_id = ?
-      WHERE id = ?
-    `).bind(
-      timestamp,
-      path,
-      isLoggedIn,
-      userId,
-      existing.id
-    ).run();
-  } else {
+      SET
+        last_seen_at = ?,
+        last_path = ?,
+        page_views = page_views + 1,
+        is_logged_in = ?,
+        user_id = ?
+      WHERE visitor_id = ?
+    `)
+      .bind(
+        now,
+        path,
+        userId ? 1 : 0,
+        userId,
+        visitor.id
+      )
+      .run();
+  }else{
     await env.DB.prepare(`
       INSERT INTO visitor_sessions (
         visitor_id,
@@ -83,336 +201,293 @@ export async function trackVisitor(request, env) {
         user_id
       )
       VALUES (?, ?, ?, ?, 1, ?, ?)
-    `).bind(
-      visitorId,
-      timestamp,
-      timestamp,
-      path,
-      isLoggedIn,
-      userId
-    ).run();
-  }
-
-  const statDate =
-    new Date(timestamp * 1000)
-      .toISOString()
-      .slice(0, 10);
-
-  const existingStats = await env.DB.prepare(`
-    SELECT id
-    FROM visitor_stats
-    WHERE stat_date = ?
-    LIMIT 1
-  `).bind(statDate).first();
-
-  if (existingStats) {
-    await env.DB.prepare(`
-      UPDATE visitor_stats
-      SET total_views = total_views + 1,
-          unique_visitors = unique_visitors + ?,
-          returning_visitors = returning_visitors + ?,
-          updated_at = ?
-      WHERE id = ?
-    `).bind(
-      existing ? 0 : 1,
-      isReturning,
-      timestamp,
-      existingStats.id
-    ).run();
-  } else {
-    await env.DB.prepare(`
-      INSERT INTO visitor_stats (
-        stat_date,
-        total_views,
-        unique_visitors,
-        returning_visitors,
-        created_at,
-        updated_at
+    `)
+      .bind(
+        visitor.id,
+        now,
+        now,
+        path,
+        userId ? 1 : 0,
+        userId
       )
-      VALUES (?, 1, ?, ?, ?, ?)
-    `).bind(
-      statDate,
-      existing ? 0 : 1,
-      isReturning,
-      timestamp,
-      timestamp
-    ).run();
+      .run();
   }
 
-  return successResponse({
-    tracked: true
-  });
+  await env.DB.prepare(`
+    UPDATE visitor_stats
+    SET
+      total_views = total_views + 1,
+      unique_visitors = unique_visitors + ?,
+      returning_visitors = returning_visitors + ?,
+      updated_at = unixepoch()
+    WHERE stat_date = ?
+  `)
+    .bind(
+      isReturning ? 0 : 1,
+      isReturning ? 1 : 0,
+      statDate
+    )
+    .run();
+
+  const headers = {
+    "Cache-Control": "no-store"
+  };
+
+  if(visitor.isNew){
+    headers["Set-Cookie"] =
+      visitorCookie(visitor.id);
+  }
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      visitor_id: visitor.id,
+      new_visitor: visitor.isNew
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type":
+          "application/json; charset=UTF-8",
+        ...headers
+      }
+    }
+  );
 }
 
-export async function getVisitorOverview(request, env) {
-  const user = await getCurrentUser(request, env);
-
-  if (!user) {
-    return errorResponse("Login diperlukan.", 401);
-  }
-
+export async function getVisitorOverview(
+  request,
+  env
+) {
   const now = nowUnix();
 
   const todayStart =
-    getStartOfDay(now);
+    getStartOfLocalDay(now);
+
+  const tomorrowStart =
+    todayStart + 86400;
 
   const weekStart =
-    getStartOfWeek(now);
+    todayStart - 6 * 86400;
 
   const monthStart =
-    getStartOfMonth(now);
+    todayStart - 29 * 86400;
 
-  const [
-    total,
-    today,
-    week,
-    month,
-    online,
-    uniqueToday,
-    returningToday
-  ] = await Promise.all([
-    env.DB.prepare(`
+  const todayDate =
+    getLocalDate(now);
+
+  const today =
+    await env.DB.prepare(`
       SELECT
-        COALESCE(SUM(total_views), 0) AS total_views,
-        COALESCE(SUM(unique_visitors), 0) AS unique_visitors,
-        COALESCE(SUM(returning_visitors), 0) AS returning_visitors
-      FROM visitor_stats
-    `).first(),
-
-    env.DB.prepare(`
-      SELECT
-        COALESCE(SUM(total_views), 0) AS total_views,
-        COALESCE(SUM(unique_visitors), 0) AS unique_visitors,
-        COALESCE(SUM(returning_visitors), 0) AS returning_visitors
-      FROM visitor_stats
-      WHERE stat_date >= ?
-    `).bind(formatDate(todayStart)).first(),
-
-    env.DB.prepare(`
-      SELECT
-        COALESCE(SUM(total_views), 0) AS total_views,
-        COALESCE(SUM(unique_visitors), 0) AS unique_visitors,
-        COALESCE(SUM(returning_visitors), 0) AS returning_visitors
-      FROM visitor_stats
-      WHERE stat_date >= ?
-    `).bind(formatDate(weekStart)).first(),
-
-    env.DB.prepare(`
-      SELECT
-        COALESCE(SUM(total_views), 0) AS total_views,
-        COALESCE(SUM(unique_visitors), 0) AS unique_visitors,
-        COALESCE(SUM(returning_visitors), 0) AS returning_visitors
-      FROM visitor_stats
-      WHERE stat_date >= ?
-    `).bind(formatDate(monthStart)).first(),
-
-    env.DB.prepare(`
-      SELECT COUNT(*) AS total
-      FROM visitor_sessions
-      WHERE last_seen_at >= ?
-    `).bind(now - 300).first(),
-
-    env.DB.prepare(`
-      SELECT COALESCE(unique_visitors, 0) AS total
+        COALESCE(total_views, 0) AS total_views,
+        COALESCE(unique_visitors, 0) AS unique_visitors,
+        COALESCE(returning_visitors, 0) AS returning_visitors
       FROM visitor_stats
       WHERE stat_date = ?
       LIMIT 1
-    `).bind(formatDate(todayStart)).first(),
+    `)
+      .bind(todayDate)
+      .first();
 
-    env.DB.prepare(`
-      SELECT COALESCE(returning_visitors, 0) AS total
+  const week =
+    await env.DB.prepare(`
+      SELECT
+        COALESCE(SUM(total_views), 0) AS total_views,
+        COALESCE(SUM(unique_visitors), 0) AS unique_visitors,
+        COALESCE(SUM(returning_visitors), 0) AS returning_visitors
       FROM visitor_stats
-      WHERE stat_date = ?
-      LIMIT 1
-    `).bind(formatDate(todayStart)).first()
-  ]);
-
-  return successResponse({
-    visitors: {
-      total_views: Number(total?.total_views || 0),
-      unique_visitors: Number(total?.unique_visitors || 0),
-      returning_visitors: Number(
-        total?.returning_visitors || 0
-      ),
-      today: {
-        views: Number(today?.total_views || 0),
-        unique_visitors: Number(
-          uniqueToday?.total ??
-          today?.unique_visitors ??
-          0
-        ),
-        returning_visitors: Number(
-          returningToday?.total ??
-          today?.returning_visitors ??
-          0
-        )
-      },
-      week: {
-        views: Number(week?.total_views || 0),
-        unique_visitors: Number(
-          week?.unique_visitors || 0
-        ),
-        returning_visitors: Number(
-          week?.returning_visitors || 0
-        )
-      },
-      month: {
-        views: Number(month?.total_views || 0),
-        unique_visitors: Number(
-          month?.unique_visitors || 0
-        ),
-        returning_visitors: Number(
-          month?.returning_visitors || 0
-        )
-      },
-      online_now: Number(online?.total || 0)
-    }
-  });
-}
-
-export async function getVisitorStats(request, env) {
-  const user = await getCurrentUser(request, env);
-
-  if (!user) {
-    return errorResponse("Login diperlukan.", 401);
-  }
-
-  const url = new URL(request.url);
-
-  const daysRaw =
-    Number(url.searchParams.get("days") || 30);
-
-  const days =
-    Number.isSafeInteger(daysRaw)
-      ? Math.min(Math.max(daysRaw, 1), 365)
-      : 30;
-
-  const now = nowUnix();
-
-  const start =
-    now - days * 86400;
-
-  const result = await env.DB.prepare(`
-    SELECT
-      stat_date,
-      total_views,
-      unique_visitors,
-      returning_visitors
-    FROM visitor_stats
-    WHERE stat_date >= ?
-    ORDER BY stat_date ASC
-  `).bind(formatDate(start)).all();
-
-  return successResponse({
-    days,
-    stats: (result.results || []).map(row => ({
-      date: row.stat_date,
-      views: Number(row.total_views || 0),
-      unique_visitors: Number(
-        row.unique_visitors || 0
-      ),
-      returning_visitors: Number(
-        row.returning_visitors || 0
+      WHERE
+        stat_date >= ?
+        AND stat_date <= ?
+    `)
+      .bind(
+        getLocalDate(weekStart),
+        todayDate
       )
-    }))
-  });
-}
+      .first();
 
-export async function adminGetVisitorStats(request, env) {
-  const user = await getCurrentUser(request, env);
-
-  if (!user || Number(user.is_admin) !== 1) {
-    return errorResponse("Akses admin diperlukan.", 403);
-  }
-
-  const url = new URL(request.url);
-
-  const daysRaw =
-    Number(url.searchParams.get("days") || 30);
-
-  const days =
-    Number.isSafeInteger(daysRaw)
-      ? Math.min(Math.max(daysRaw, 1), 365)
-      : 30;
-
-  const now = nowUnix();
-  const start = now - days * 86400;
-
-  const result = await env.DB.prepare(`
-    SELECT
-      stat_date,
-      total_views,
-      unique_visitors,
-      returning_visitors
-    FROM visitor_stats
-    WHERE stat_date >= ?
-    ORDER BY stat_date ASC
-  `).bind(formatDate(start)).all();
+  const month =
+    await env.DB.prepare(`
+      SELECT
+        COALESCE(SUM(total_views), 0) AS total_views,
+        COALESCE(SUM(unique_visitors), 0) AS unique_visitors,
+        COALESCE(SUM(returning_visitors), 0) AS returning_visitors
+      FROM visitor_stats
+      WHERE
+        stat_date >= ?
+        AND stat_date <= ?
+    `)
+      .bind(
+        getLocalDate(monthStart),
+        todayDate
+      )
+      .first();
 
   const online =
     await env.DB.prepare(`
-      SELECT COUNT(*) AS total
+      SELECT COUNT(*) AS online_now
       FROM visitor_sessions
       WHERE last_seen_at >= ?
-    `).bind(now - 300).first();
+    `)
+      .bind(now - ONLINE_WINDOW)
+      .first();
 
-  return successResponse({
-    days,
-    online_now: Number(online?.total || 0),
-    stats: (result.results || []).map(row => ({
-      date: row.stat_date,
-      total_views: Number(row.total_views || 0),
-      unique_visitors: Number(
-        row.unique_visitors || 0
+  const total =
+    await env.DB.prepare(`
+      SELECT
+        COALESCE(SUM(total_views), 0) AS total_views,
+        COALESCE(SUM(unique_visitors), 0) AS unique_visitors,
+        COALESCE(SUM(returning_visitors), 0) AS returning_visitors
+      FROM visitor_stats
+    `)
+      .first();
+
+  return json({
+    success: true,
+    today: {
+      views: Number(today?.total_views || 0),
+      unique_visitors:
+        Number(today?.unique_visitors || 0),
+      returning_visitors:
+        Number(today?.returning_visitors || 0)
+    },
+    week: {
+      views: Number(week?.total_views || 0),
+      unique_visitors:
+        Number(week?.unique_visitors || 0),
+      returning_visitors:
+        Number(week?.returning_visitors || 0)
+    },
+    month: {
+      views: Number(month?.total_views || 0),
+      unique_visitors:
+        Number(month?.unique_visitors || 0),
+      returning_visitors:
+        Number(month?.returning_visitors || 0)
+    },
+    total: {
+      views: Number(total?.total_views || 0),
+      unique_visitors:
+        Number(total?.unique_visitors || 0),
+      returning_visitors:
+        Number(total?.returning_visitors || 0)
+    },
+    online_now:
+      Number(online?.online_now || 0)
+  });
+}
+
+export async function getVisitorStats(
+  request,
+  env
+) {
+  const url =
+    new URL(request.url);
+
+  const daysRaw =
+    Number(
+      url.searchParams.get("days") || 30
+    );
+
+  const days =
+    Math.min(
+      Math.max(
+        Number.isFinite(daysRaw)
+          ? Math.floor(daysRaw)
+          : 30,
+        1
       ),
-      returning_visitors: Number(
-        row.returning_visitors || 0
+      365
+    );
+
+  const now =
+    nowUnix();
+
+  const start =
+    getStartOfLocalDay(now) -
+    (days - 1) * 86400;
+
+  const rows =
+    await env.DB.prepare(`
+      SELECT
+        stat_date,
+        total_views,
+        unique_visitors,
+        returning_visitors
+      FROM visitor_stats
+      WHERE stat_date >= ?
+      ORDER BY stat_date ASC
+      LIMIT ?
+    `)
+      .bind(
+        getLocalDate(start),
+        days
       )
+      .all();
+
+  return json({
+    success: true,
+    days,
+    data: (rows.results || []).map(row=>({
+      date: row.stat_date,
+      views: Number(row.total_views || 0),
+      unique_visitors:
+        Number(row.unique_visitors || 0),
+      returning_visitors:
+        Number(row.returning_visitors || 0)
     }))
   });
 }
 
-function getStartOfDay(timestamp) {
-  const date = new Date(timestamp * 1000);
+export async function adminGetVisitorStats(
+  request,
+  env
+) {
+  const overview =
+    await getVisitorOverview(
+      request,
+      env
+    );
 
-  return Math.floor(
-    new Date(
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate()
-    ).getTime() / 1000
-  );
+  const overviewData =
+    await overview.json();
+
+  const stats =
+    await getVisitorStats(
+      request,
+      env
+    );
+
+  const statsData =
+    await stats.json();
+
+  return json({
+    success: true,
+    overview: overviewData,
+    stats: statsData.data || []
+  });
 }
 
-function getStartOfWeek(timestamp) {
-  const date = new Date(timestamp * 1000);
-  const day = date.getDay();
-  const diff = day === 0 ? 6 : day - 1;
+export async function cleanupVisitorSessions(
+  env
+) {
+  const cutoff =
+    nowUnix() -
+    60 * 60 * 24 * 400;
 
-  date.setDate(
-    date.getDate() - diff
-  );
+  const result =
+    await env.DB.prepare(`
+      DELETE FROM visitor_sessions
+      WHERE last_seen_at < ?
+    `)
+      .bind(cutoff)
+      .run();
 
-  date.setHours(0, 0, 0, 0);
-
-  return Math.floor(
-    date.getTime() / 1000
-  );
-}
-
-function getStartOfMonth(timestamp) {
-  const date = new Date(timestamp * 1000);
-
-  date.setDate(1);
-  date.setHours(0, 0, 0, 0);
-
-  return Math.floor(
-    date.getTime() / 1000
-  );
-}
-
-function formatDate(timestamp) {
-  return new Date(timestamp * 1000)
-    .toISOString()
-    .slice(0, 10);
-}
+  return {
+    success: true,
+    deleted:
+      Number(
+        result?.meta?.changes || 0
+      )
+  };
+    }
