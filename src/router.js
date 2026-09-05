@@ -1,359 +1,86 @@
-import { authHandler } from "./auth.js";
-import { walletHandler } from "./wallet.js";
-import { depositHandler } from "./deposit.js";
+import { createDeposit, notifyCheckPayment, getQrisImage } from "./deposit.js";
 import { handleTelegramWebhook } from "./telegram.js";
+import { getSecurityHeaders } from "./utils.js";
 
-const ALLOWED_METHODS =
-  "GET, POST, PUT, PATCH, DELETE, OPTIONS";
+export async function handleRequest(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+  const method = request.method;
 
-function corsHeaders(request, env) {
-  const origin =
-    request.headers.get("Origin") || "";
+  // Apply Security Headers secara universal
+  const headers = getSecurityHeaders();
 
-  const configuredOrigin =
-    env?.ALLOWED_ORIGIN ||
-    env?.FRONTEND_URL ||
-    "";
-
-  let allowOrigin = "*";
-
-  if (configuredOrigin) {
-    allowOrigin = configuredOrigin;
-  } else if (origin) {
-    allowOrigin = origin;
-  }
-
-  return {
-    "Access-Control-Allow-Origin":
-      allowOrigin,
-
-    "Access-Control-Allow-Methods":
-      ALLOWED_METHODS,
-
-    "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, X-Requested-With, X-Idempotency-Key",
-
-    "Access-Control-Allow-Credentials":
-      allowOrigin === "*"
-        ? "false"
-        : "true",
-
-    "Access-Control-Max-Age":
-      "86400",
-
-    "Vary":
-      "Origin"
-  };
-}
-
-function json(
-  data,
-  status = 200,
-  headers = {}
-) {
-  return new Response(
-    JSON.stringify(data),
-    {
-      status,
-      headers: {
-        "Content-Type":
-          "application/json; charset=utf-8",
-
-        "Cache-Control":
-          "no-store",
-
-        ...headers
-      }
-    }
-  );
-}
-
-function notFound() {
-  return json(
-    {
-      success: false,
-      error:
-        "Endpoint tidak ditemukan."
-    },
-    404
-  );
-}
-
-function methodNotAllowed() {
-  return json(
-    {
-      success: false,
-      error:
-        "Method tidak diizinkan."
-    },
-    405,
-    {
-      Allow:
-        ALLOWED_METHODS
-    }
-  );
-}
-
-function serverError() {
-  return json(
-    {
-      success: false,
-      error:
-        "Terjadi kesalahan pada server."
-    },
-    500
-  );
-}
-
-function normalizePath(
-  pathname
-) {
-  if (!pathname) {
-    return "/";
-  }
-
-  if (pathname.length > 1) {
-    return pathname.replace(
-      /\/+$/,
-      ""
-    );
-  }
-
-  return pathname;
-}
-
-async function handleApi(
-  request,
-  env,
-  ctx
-) {
-  const url =
-    new URL(request.url);
-
-  const pathname =
-    normalizePath(
-      url.pathname
-    );
-
-  if (
-    request.method ===
-    "OPTIONS"
-  ) {
-    return new Response(
-      null,
-      {
-        status: 204
-      }
-    );
-  }
-
-  if (
-    !pathname.startsWith(
-      "/api"
-    )
-  ) {
-    return notFound();
-  }
-
-  if (
-    pathname === "/api"
-  ) {
-    return json({
-      success: true,
-      name:
-        "VenDigitalStore API",
-      version:
-        "1.0.0",
-      status:
-        "online"
-    });
-  }
-
-  if (
-    pathname ===
-      "/api/health"
-  ) {
-    return json({
-      success: true,
-      status:
-        "ok",
-      service:
-        "VenDigitalStore API"
-    });
-  }
-
-  /*
-   * TELEGRAM WEBHOOK
-   *
-   * Route ini sengaja diproses
-   * sebelum route lain karena
-   * Telegram tidak menggunakan
-   * session customer.
-   */
-  if (
-    pathname ===
-      "/api/telegram/webhook"
-  ) {
-    if (
-      request.method !==
-      "POST"
-    ) {
-      return methodNotAllowed();
-    }
-
-    return await handleTelegramWebhook(
-      request,
-      env,
-      ctx
-    );
-  }
-
-  /*
-   * AUTH
-   */
-  if (
-    pathname ===
-      "/api/auth" ||
-    pathname.startsWith(
-      "/api/auth/"
-    )
-  ) {
-    return await authHandler(
-      request,
-      env,
-      pathname
-    );
-  }
-
-  /*
-   * WALLET
-   */
-  if (
-    pathname ===
-      "/api/wallet" ||
-    pathname.startsWith(
-      "/api/wallet/"
-    )
-  ) {
-    return await walletHandler(
-      request,
-      env,
-      pathname
-    );
-  }
-
-  /*
-   * DEPOSIT
-   */
-  if (
-    pathname ===
-      "/api/deposit" ||
-    pathname.startsWith(
-      "/api/deposit/"
-    ) ||
-    pathname ===
-      "/api/deposits"
-  ) {
-    return await depositHandler(
-      request,
-      env,
-      pathname
-    );
-  }
-
-  return notFound();
-}
-
-export async function router(
-  request,
-  env,
-  ctx
-) {
   try {
-    const response =
-      await handleApi(
-        request,
-        env,
-        ctx
-      );
-
-    const headers =
-      corsHeaders(
-        request,
-        env
-      );
-
-    const newHeaders =
-      new Headers(
-        response.headers
-      );
-
-    for (
-      const [key, value]
-      of Object.entries(
-        headers
-      )
-    ) {
-      newHeaders.set(
-        key,
-        value
-      );
+    // API Webhook Telegram
+    if (path === "/api/telegram/webhook" && method === "POST") {
+      return await handleTelegramWebhook(request, env);
     }
 
-    return new Response(
-      response.body,
-      {
-        status:
-          response.status,
-
-        statusText:
-          response.statusText,
-
-        headers:
-          newHeaders
-      }
-    );
-  } catch (error) {
-    console.error(
-      "ROUTER_ERROR",
-      error
-    );
-
-    const response =
-      serverError();
-
-    const headers =
-      corsHeaders(
-        request,
-        env
-      );
-
-    const newHeaders =
-      new Headers(
-        response.headers
-      );
-
-    for (
-      const [key, value]
-      of Object.entries(
-        headers
-      )
-    ) {
-      newHeaders.set(
-        key,
-        value
-      );
+    // Proxy QRIS Image (Akses Publik via Worker)
+    if (path === "/api/deposit/qris" && method === "GET") {
+      const imageResponse = await getQrisImage(env);
+      return new Response(imageResponse.body, {
+        status: imageResponse.status,
+        headers: { ...headers, "Content-Type": "image/jpeg" }
+      });
     }
 
-    return new Response(
-      response.body,
-      {
-        status: 500,
-        headers:
-          newHeaders
-      }
+    // --- PROTECTED ROUTES (BUTUH AUTENTIKASI) ---
+    const sessionToken = getCookie(request, "session_id");
+    const userId = sessionToken ? await validateSession(env, sessionToken) : null;
+
+    if (!userId && path.startsWith("/api/wallet")) {
+      return Response.json({ error: "Unauthorized" }, { status: 401, headers });
+    }
+
+    // Endpoint Deposit
+    if (path === "/api/deposit/create" && method === "POST") {
+      const res = await createDeposit(request, env, userId);
+      return addHeaders(res, headers);
+    }
+
+    if (path === "/api/deposit/check" && method === "POST") {
+      const res = await notifyCheckPayment(request, env, userId);
+      return addHeaders(res, headers);
+    }
+
+    // Fallback 404
+    return Response.json({ error: "Endpoint tidak ditemukan" }, { status: 404, headers });
+
+  } catch (err) {
+    return Response.json(
+      { error: "Internal Server Error", detail: err.message },
+      { status: 500, headers }
     );
   }
 }
 
-export default router;
+// Utility Helpers
+function getCookie(request, name) {
+  const cookieString = request.headers.get("Cookie");
+  if (!cookieString) return null;
+  const cookies = cookieString.split(";");
+  for (let cookie of cookies) {
+    const [cookieName, cookieValue] = cookie.trim().split("=");
+    if (cookieName === name) return cookieValue;
+  }
+  return null;
+}
+
+async function validateSession(env, token) {
+  const session = await env.DB.prepare(
+    "SELECT user_id, expires_at FROM sessions WHERE id = ?"
+  ).bind(token).first();
+
+  if (!session || new Date(session.expires_at) < new Date()) {
+    return null;
+  }
+  return session.user_id;
+}
+
+function addHeaders(response, headers) {
+  Object.entries(headers).forEach(([key, val]) => {
+    response.headers.set(key, val);
+  });
+  return response;
+}
