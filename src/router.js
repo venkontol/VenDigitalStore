@@ -92,7 +92,7 @@ import {
   updateSettings,
   getDepositConfig,
   getStoreConfig
-} from "./settings.js";
+} from "./setting.js";
 
 async function authRequired(request, env) {
   return requireAuth(request, env);
