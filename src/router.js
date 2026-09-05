@@ -75,7 +75,7 @@ import {
   adminCreateAnnouncement,
   adminUpdateAnnouncement,
   adminDeleteAnnouncement,
-  getPublicAnnouncements,
+  getPublicAnnouncements
 } from "./admin_extra.js";
 
 import {
@@ -93,34 +93,132 @@ import {
   getStoreConfig
 } from "./setting.js";
 
-async function authRequired(request, env) {
-  return requireAuth(request, env);
+const ALLOWED_METHODS = [
+  "GET",
+  "POST",
+  "PATCH",
+  "PUT",
+  "DELETE",
+  "OPTIONS"
+];
+
+function methodAllowed(method) {
+  return ALLOWED_METHODS.includes(
+    method
+  );
 }
 
-async function adminRequired(request, env) {
-  return requireAdmin(request, env);
+function isResponse(value) {
+  return value instanceof Response;
 }
 
-function methodAllowed(method, allowed) {
-  return allowed.includes(method);
+async function authRequired(
+  request,
+  env
+) {
+  return requireAuth(
+    request,
+    env
+  );
 }
 
-async function route(request, env, ctx) {
-  const method = getMethod(request);
-  const path = getPath(request);
+async function adminRequired(
+  request,
+  env
+) {
+  return requireAdmin(
+    request,
+    env
+  );
+}
 
-  if (path === "/api/health") {
+function requestWithQuery(
+  request,
+  params
+) {
+  const url =
+    new URL(request.url);
+
+  for (
+    const [key, value] of Object.entries(
+      params
+    )
+  ) {
+    if (
+      value !== undefined &&
+      value !== null
+    ) {
+      url.searchParams.set(
+        key,
+        String(value)
+      );
+    }
+  }
+
+  return new Request(
+    url.toString(),
+    request
+  );
+}
+
+function getPathId(
+  path,
+  pattern
+) {
+  const match =
+    path.match(pattern);
+
+  return match?.[1] || null;
+}
+
+async function route(
+  request,
+  env,
+  ctx
+) {
+  const method =
+    getMethod(request);
+
+  const path =
+    getPath(request);
+
+  if (
+    method === "OPTIONS" &&
+    path.startsWith("/api/")
+  ) {
+    return new Response(
+      null,
+      {
+        status: 204,
+        headers: {
+          "Cache-Control":
+            "no-store"
+        }
+      }
+    );
+  }
+
+  if (
+    path === "/api/health" &&
+    method === "GET"
+  ) {
     return jsonResponse({
       success: true,
-      service: "VenDigitalStore",
+      service:
+        "VenDigitalStore",
       status: "ok",
-      database: env.DB ? "connected" : "disconnected",
-      timestamp: new Date().toISOString()
+      database:
+        env.DB
+          ? "connected"
+          : "disconnected",
+      timestamp:
+        new Date().toISOString()
     });
   }
 
   if (
-    path === "/api/telegram/webhook" &&
+    path ===
+      "/api/telegram/webhook" &&
     method === "POST"
   ) {
     return telegramWebhook(
@@ -131,7 +229,8 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/deposit/qr" &&
+    path ===
+      "/api/deposit/qr" &&
     method === "GET"
   ) {
     return getQrImage(
@@ -142,7 +241,8 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/auth/register" &&
+    path ===
+      "/api/auth/register" &&
     method === "POST"
   ) {
     return register(
@@ -153,7 +253,8 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/auth/login" &&
+    path ===
+      "/api/auth/login" &&
     method === "POST"
   ) {
     return login(
@@ -164,7 +265,8 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/auth/logout" &&
+    path ===
+      "/api/auth/logout" &&
     method === "POST"
   ) {
     return logout(
@@ -175,15 +277,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/auth/logout-all" &&
+    path ===
+      "/api/auth/logout-all" &&
     method === "POST"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -195,7 +299,8 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/auth/me" &&
+    path ===
+      "/api/auth/me" &&
     method === "GET"
   ) {
     return me(
@@ -216,7 +321,8 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/settings/public" &&
+    path ===
+      "/api/settings/public" &&
     method === "GET"
   ) {
     return getPublicSettings(
@@ -226,7 +332,8 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/deposit/config" &&
+    path ===
+      "/api/deposit/config" &&
     method === "GET"
   ) {
     return getDepositConfig(
@@ -236,7 +343,8 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/categories" &&
+    path ===
+      "/api/categories" &&
     method === "GET"
   ) {
     return getCategories(
@@ -246,7 +354,8 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/products" &&
+    path ===
+      "/api/products" &&
     method === "GET"
   ) {
     return getProducts(
@@ -256,17 +365,29 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path.startsWith("/api/products/") &&
+    /^\/api\/products\/[^/]+$/.test(
+      path
+    ) &&
     method === "GET"
   ) {
+    const id =
+      getPathId(
+        path,
+        /^\/api\/products\/([^/]+)$/
+      );
+
     return getProduct(
-      request,
+      requestWithQuery(
+        request,
+        { id }
+      ),
       env
     );
   }
 
   if (
-    path === "/api/announcements" &&
+    path ===
+      "/api/announcements" &&
     method === "GET"
   ) {
     return getPublicAnnouncements(
@@ -276,7 +397,8 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/visitor/track" &&
+    path ===
+      "/api/visitor/track" &&
     method === "POST"
   ) {
     return trackVisitor(
@@ -287,25 +409,28 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/wallet/overview" &&
+    path ===
+      "/api/wallet/overview" &&
     method === "GET"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
-    const balance = await getBalance(
-      request,
-      env,
-      ctx
-    );
+    const balance =
+      await getBalance(
+        request,
+        env,
+        ctx
+      );
 
-    if (balance instanceof Response) {
+    if (isResponse(balance)) {
       return balance;
     }
 
@@ -316,7 +441,11 @@ async function route(request, env, ctx) {
         ctx
       );
 
-    if (transactions instanceof Response) {
+    if (
+      isResponse(
+        transactions
+      )
+    ) {
       return transactions;
     }
 
@@ -334,15 +463,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/wallet/balance" &&
+    path ===
+      "/api/wallet/balance" &&
     method === "GET"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -354,15 +485,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/wallet/transactions" &&
+    path ===
+      "/api/wallet/transactions" &&
     method === "GET"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -374,15 +507,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/deposit" &&
+    path ===
+      "/api/deposit" &&
     method === "POST"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -394,15 +529,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/deposit" &&
+    path ===
+      "/api/deposit" &&
     method === "GET"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -414,15 +551,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/deposit/active" &&
+    path ===
+      "/api/deposit/active" &&
     method === "GET"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -434,15 +573,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/deposit/check" &&
+    path ===
+      "/api/deposit/check" &&
     method === "POST"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -454,15 +595,39 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/favorites" &&
+    path ===
+      "/api/deposit/check-notify" &&
+    method === "POST"
+  ) {
+    const user =
+      await authRequired(
+        request,
+        env
+      );
+
+    if (isResponse(user)) {
+      return user;
+    }
+
+    return notifyPaymentCheck(
+      request,
+      env,
+      ctx
+    );
+  }
+
+  if (
+    path ===
+      "/api/favorites" &&
     method === "GET"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -474,15 +639,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/favorites/toggle" &&
+    path ===
+      "/api/favorites/toggle" &&
     method === "POST"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -494,15 +661,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/favorites/check" &&
+    path ===
+      "/api/favorites/check" &&
     method === "GET"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -517,12 +686,13 @@ async function route(request, env, ctx) {
     path === "/api/orders" &&
     method === "POST"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -537,12 +707,13 @@ async function route(request, env, ctx) {
     path === "/api/orders" &&
     method === "GET"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -554,55 +725,87 @@ async function route(request, env, ctx) {
   }
 
   if (
-    /^\/api\/orders\/[^/]+$/.test(path) &&
-    method === "GET"
-  ) {
-    const user = await authRequired(
-      request,
-      env
-    );
-
-    if (user instanceof Response) {
-      return user;
-    }
-
-    return getOrder(
-      request,
-      env,
-      ctx
-    );
-  }
-
-  if (
-    /^\/api\/orders\/[^/]+\/cancel$/.test(path) &&
+    /^\/api\/orders\/[^/]+\/cancel$/.test(
+      path
+    ) &&
     method === "POST"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
+    const orderNumber =
+      getPathId(
+        path,
+        /^\/api\/orders\/([^/]+)\/cancel$/
+      );
+
     return cancelOrder(
-      request,
+      requestWithQuery(
+        request,
+        {
+          order_number:
+            orderNumber
+        }
+      ),
       env,
       ctx
     );
   }
 
   if (
-    path === "/api/visitor/overview" &&
+    /^\/api\/orders\/[^/]+$/.test(
+      path
+    ) &&
     method === "GET"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
+      return user;
+    }
+
+    const orderNumber =
+      getPathId(
+        path,
+        /^\/api\/orders\/([^/]+)$/
+      );
+
+    return getOrder(
+      requestWithQuery(
+        request,
+        {
+          order_number:
+            orderNumber
+        }
+      ),
+      env,
+      ctx
+    );
+  }
+
+  if (
+    path ===
+      "/api/visitor/overview" &&
+    method === "GET"
+  ) {
+    const user =
+      await authRequired(
+        request,
+        env
+      );
+
+    if (isResponse(user)) {
       return user;
     }
 
@@ -614,15 +817,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/visitor/stats" &&
+    path ===
+      "/api/visitor/stats" &&
     method === "GET"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await authRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -634,15 +839,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/admin/overview" &&
+    path ===
+      "/api/admin/overview" &&
     method === "GET"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -654,15 +861,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/admin/users" &&
+    path ===
+      "/api/admin/users" &&
     method === "GET"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -674,15 +883,18 @@ async function route(request, env, ctx) {
   }
 
   if (
-    /^\/api\/admin\/users\/\d+$/.test(path) &&
+    /^\/api\/admin\/users\/\d+$/.test(
+      path
+    ) &&
     method === "GET"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -694,15 +906,18 @@ async function route(request, env, ctx) {
   }
 
   if (
-    /^\/api\/admin\/users\/\d+$/.test(path) &&
+    /^\/api\/admin\/users\/\d+$/.test(
+      path
+    ) &&
     method === "PATCH"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -714,15 +929,18 @@ async function route(request, env, ctx) {
   }
 
   if (
-    /^\/api\/admin\/users\/\d+\/balance$/.test(path) &&
+    /^\/api\/admin\/users\/\d+\/balance$/.test(
+      path
+    ) &&
     method === "POST"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -734,15 +952,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/admin/categories" &&
+    path ===
+      "/api/admin/categories" &&
     method === "GET"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -754,15 +974,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/admin/categories" &&
+    path ===
+      "/api/admin/categories" &&
     method === "POST"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -774,15 +996,18 @@ async function route(request, env, ctx) {
   }
 
   if (
-    /^\/api\/admin\/categories\/\d+$/.test(path) &&
+    /^\/api\/admin\/categories\/\d+$/.test(
+      path
+    ) &&
     method === "PATCH"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -794,15 +1019,18 @@ async function route(request, env, ctx) {
   }
 
   if (
-    /^\/api\/admin\/categories\/\d+$/.test(path) &&
+    /^\/api\/admin\/categories\/\d+$/.test(
+      path
+    ) &&
     method === "DELETE"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -814,15 +1042,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/admin/products" &&
+    path ===
+      "/api/admin/products" &&
     method === "GET"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -834,15 +1064,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/admin/products" &&
+    path ===
+      "/api/admin/products" &&
     method === "POST"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -854,15 +1086,18 @@ async function route(request, env, ctx) {
   }
 
   if (
-    /^\/api\/admin\/products\/\d+$/.test(path) &&
+    /^\/api\/admin\/products\/\d+$/.test(
+      path
+    ) &&
     method === "PATCH"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -874,15 +1109,18 @@ async function route(request, env, ctx) {
   }
 
   if (
-    /^\/api\/admin\/products\/\d+$/.test(path) &&
+    /^\/api\/admin\/products\/\d+$/.test(
+      path
+    ) &&
     method === "DELETE"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -894,15 +1132,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/admin/orders" &&
+    path ===
+      "/api/admin/orders" &&
     method === "GET"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -914,35 +1154,18 @@ async function route(request, env, ctx) {
   }
 
   if (
-    /^\/api\/admin\/orders\/[^/]+$/.test(path) &&
-    method === "PATCH"
-  ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
-
-    if (user instanceof Response) {
-      return user;
-    }
-
-    return adminUpdateOrderStatus(
-      request,
-      env,
-      ctx
-    );
-  }
-
-  if (
-    /^\/api\/admin\/orders\/[^/]+\/refund$/.test(path) &&
+    /^\/api\/admin\/orders\/[^/]+\/refund$/.test(
+      path
+    ) &&
     method === "POST"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -954,15 +1177,40 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/admin/deposits" &&
+    /^\/api\/admin\/orders\/[^/]+$/.test(
+      path
+    ) &&
+    method === "PATCH"
+  ) {
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
+
+    if (isResponse(user)) {
+      return user;
+    }
+
+    return adminUpdateOrderStatus(
+      request,
+      env,
+      ctx
+    );
+  }
+
+  if (
+    path ===
+      "/api/admin/deposits" &&
     method === "GET"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -974,153 +1222,17 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/admin/announcements" &&
-    method === "GET"
-  ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
-
-    if (user instanceof Response) {
-      return user;
-    }
-
-    return adminGetAnnouncements(
-      request,
-      env,
-      ctx
-    );
-  }
-
-  if (
-    path === "/api/admin/announcements" &&
+    path ===
+      "/api/admin/deposits/pay" &&
     method === "POST"
   ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
-      return user;
-    }
-
-    return adminCreateAnnouncement(
-      request,
-      env,
-      ctx
-    );
-  }
-
-  if (
-    /^\/api\/admin\/announcements\/\d+$/.test(path) &&
-    method === "PATCH"
-  ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
-
-    if (user instanceof Response) {
-      return user;
-    }
-
-    return adminUpdateAnnouncement(
-      request,
-      env,
-      ctx
-    );
-  }
-
-  if (
-    /^\/api\/admin\/announcements\/\d+$/.test(path) &&
-    method === "DELETE"
-  ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
-
-    if (user instanceof Response) {
-      return user;
-    }
-
-    return adminDeleteAnnouncement(
-      request,
-      env,
-      ctx
-    );
-  }
-
-  if (
-    path === "/api/admin/settings" &&
-    method === "GET"
-  ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
-
-    if (user instanceof Response) {
-      return user;
-    }
-
-    return getAdminSettings(
-      request,
-      env
-    );
-  }
-
-  if (
-    path === "/api/admin/settings" &&
-    method === "PATCH"
-  ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
-
-    if (user instanceof Response) {
-      return user;
-    }
-
-    return updateSettings(
-      request,
-      env
-    );
-  }
-
-  if (
-    path === "/api/admin/visitors" &&
-    method === "GET"
-  ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
-
-    if (user instanceof Response) {
-      return user;
-    }
-
-    return adminGetVisitorStats(
-      request,
-      env,
-      ctx
-    );
-  }
-
-  if (
-    path === "/api/admin/deposits/pay" &&
-    method === "POST"
-  ) {
-    const user = await adminRequired(
-      request,
-      env
-    );
-
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
@@ -1132,19 +1244,21 @@ async function route(request, env, ctx) {
   }
 
   if (
-    path === "/api/deposit/check-notify" &&
-    method === "POST"
+    path ===
+      "/api/admin/announcements" &&
+    method === "GET"
   ) {
-    const user = await authRequired(
-      request,
-      env
-    );
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
 
-    if (user instanceof Response) {
+    if (isResponse(user)) {
       return user;
     }
 
-    return notifyPaymentCheck(
+    return adminGetAnnouncements(
       request,
       env,
       ctx
@@ -1152,12 +1266,135 @@ async function route(request, env, ctx) {
   }
 
   if (
-    method === "OPTIONS" &&
-    path.startsWith("/api/")
+    path ===
+      "/api/admin/announcements" &&
+    method === "POST"
   ) {
-    return new Response(null,{
-      status:204
-    });
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
+
+    if (isResponse(user)) {
+      return user;
+    }
+
+    return adminCreateAnnouncement(
+      request,
+      env,
+      ctx
+    );
+  }
+
+  if (
+    /^\/api\/admin\/announcements\/\d+$/.test(
+      path
+    ) &&
+    method === "PATCH"
+  ) {
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
+
+    if (isResponse(user)) {
+      return user;
+    }
+
+    return adminUpdateAnnouncement(
+      request,
+      env,
+      ctx
+    );
+  }
+
+  if (
+    /^\/api\/admin\/announcements\/\d+$/.test(
+      path
+    ) &&
+    method === "DELETE"
+  ) {
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
+
+    if (isResponse(user)) {
+      return user;
+    }
+
+    return adminDeleteAnnouncement(
+      request,
+      env,
+      ctx
+    );
+  }
+
+  if (
+    path ===
+      "/api/admin/settings" &&
+    method === "GET"
+  ) {
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
+
+    if (isResponse(user)) {
+      return user;
+    }
+
+    return getAdminSettings(
+      request,
+      env
+    );
+  }
+
+  if (
+    path ===
+      "/api/admin/settings" &&
+    method === "PATCH"
+  ) {
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
+
+    if (isResponse(user)) {
+      return user;
+    }
+
+    return updateSettings(
+      request,
+      env
+    );
+  }
+
+  if (
+    path ===
+      "/api/admin/visitors" &&
+    method === "GET"
+  ) {
+    const user =
+      await adminRequired(
+        request,
+        env
+      );
+
+    if (isResponse(user)) {
+      return user;
+    }
+
+    return adminGetVisitorStats(
+      request,
+      env,
+      ctx
+    );
   }
 
   return errorResponse(
@@ -1166,7 +1403,11 @@ async function route(request, env, ctx) {
   );
 }
 
-export async function router(request, env, ctx) {
+export async function router(
+  request,
+  env,
+  ctx
+) {
   try {
     if (!env.DB) {
       return errorResponse(
@@ -1175,18 +1416,11 @@ export async function router(request, env, ctx) {
       );
     }
 
+    const method =
+      getMethod(request);
+
     if (
-      !methodAllowed(
-        getMethod(request),
-        [
-          "GET",
-          "POST",
-          "PATCH",
-          "PUT",
-          "DELETE",
-          "OPTIONS"
-        ]
-      )
+      !methodAllowed(method)
     ) {
       return errorResponse(
         "Method tidak diizinkan.",
