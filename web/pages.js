@@ -1,14 +1,10 @@
 import { STYLE } from "./style.js";
 import { APP } from "./app.js";
 
-// Character from Frame 2 (user selected)
-const ANIME_IMAGE = "/character.jpg";
-// Fallback if static asset not served yet
-const ANIME_FALLBACK =
-  "https://raw.githubusercontent.com/venkontol/Khusus-image-/main/grok_1788555622820.jpg";
+// Ganti URL ini setelah kamu upload karakter Frame 2
+const ANIME_IMAGE = "https://raw.githubusercontent.com/venkontol/Khusus-image-/main/grok_1788555622820.jpg";
 
 function shell(content, options = {}) {
-  const isAuthPage = options.auth !== false;
   const showCharacter = options.character !== false;
 
   return `<!doctype html>
@@ -23,17 +19,14 @@ function shell(content, options = {}) {
 </head>
 <body class="${options.bodyClass || ""}">
   <div class="ven-page">
-    <!-- Background layers -->
     <div class="ven-bg">
       <div class="ven-gradient"></div>
       <div class="ven-mist"></div>
       <div class="ven-noise"></div>
     </div>
 
-    <!-- Soft particles (limited for performance) -->
     <div class="ven-particles" id="particles" aria-hidden="true"></div>
 
-    <!-- Header -->
     <header class="ven-header">
       <a class="ven-logo" href="/dashboard" aria-label="VenDigitalStore">
         <span class="ven-logo-mark"><span>V</span></span>
@@ -74,13 +67,11 @@ function shell(content, options = {}) {
             id="animeCharacter"
             class="ven-character"
             src="${ANIME_IMAGE}"
-            onerror="this.src='${ANIME_FALLBACK}'"
             alt="VenDigitalStore"
             draggable="false"
           />
           <div class="ven-character-shine"></div>
         </div>
-        <div class="ven-petals" id="petals"></div>
       </section>`
           : ""
       }
@@ -96,9 +87,8 @@ function shell(content, options = {}) {
       <span>SECURE ACCESS</span>
     </footer>
 
-    <!-- Audio (default muted) -->
     <audio id="bgMusic" loop preload="none">
-      <source src="/ambient.mp3" type="audio/mpeg">
+      <source src="https://raw.githubusercontent.com/venkontol/Khusus-image-/main/ambient.mp3" type="audio/mpeg">
     </audio>
   </div>
 
@@ -107,7 +97,6 @@ function shell(content, options = {}) {
 </html>`;
 }
 
-/* ===================== LOGIN ===================== */
 function loginPage() {
   return shell(`
     <div class="auth-panel" id="authPanel">
@@ -121,6 +110,304 @@ function loginPage() {
         <label class="auth-field">
           <span>USERNAME</span>
           <div class="input-wrap">
-            <input
-              id
-... 
+            <input id="loginUsername" name="username" type="text" placeholder="Enter username" autocomplete="username" required minlength="3" maxlength="32" />
+          </div>
+        </label>
+
+        <label class="auth-field">
+          <span>PASSWORD</span>
+          <div class="input-wrap">
+            <input id="loginPassword" name="password" type="password" placeholder="Enter password" autocomplete="current-password" required />
+            <button type="button" class="password-toggle" data-password-toggle="#loginPassword">SHOW</button>
+          </div>
+        </label>
+
+        <div class="auth-message" id="loginMessage" aria-live="polite"></div>
+
+        <button type="submit" class="auth-submit" id="loginSubmit">
+          <span>ACCESS SYSTEM</span>
+        </button>
+      </form>
+
+      <div class="auth-divider"><span></span><b>NEW USER</b><span></span></div>
+
+      <button type="button" class="auth-secondary" id="showRegister">CREATE ACCOUNT</button>
+
+      <div class="auth-security">
+        <span class="security-dot"></span>
+        <span>ENCRYPTED SESSION</span>
+      </div>
+    </div>
+  `);
+}
+
+function registerPage() {
+  return shell(`
+    <div class="auth-panel" id="authPanel">
+      <div class="auth-heading">
+        <div class="auth-kicker">NEW ACCOUNT</div>
+        <h1>CREATE ACCOUNT</h1>
+        <p>Join the VenDigitalStore system.</p>
+      </div>
+
+      <form id="registerForm" class="auth-form" autocomplete="on">
+        <label class="auth-field">
+          <span>FIRST NAME</span>
+          <div class="input-wrap">
+            <input id="registerFirstName" name="first_name" type="text" placeholder="Enter your name" autocomplete="given-name" required maxlength="50" />
+          </div>
+        </label>
+
+        <label class="auth-field">
+          <span>USERNAME</span>
+          <div class="input-wrap">
+            <input id="registerUsername" name="username" type="text" placeholder="Choose username" autocomplete="username" required minlength="3" maxlength="32" />
+          </div>
+        </label>
+
+        <label class="auth-field">
+          <span>PASSWORD</span>
+          <div class="input-wrap">
+            <input id="registerPassword" name="password" type="password" placeholder="Create password" autocomplete="new-password" required />
+            <button type="button" class="password-toggle" data-password-toggle="#registerPassword">SHOW</button>
+          </div>
+        </label>
+
+        <label class="auth-field">
+          <span>CONFIRM PASSWORD</span>
+          <div class="input-wrap">
+            <input id="registerConfirmPassword" name="confirm_password" type="password" placeholder="Repeat password" autocomplete="new-password" required />
+          </div>
+        </label>
+
+        <div class="auth-message" id="registerMessage" aria-live="polite"></div>
+
+        <button type="submit" class="auth-submit" id="registerSubmit">
+          <span>CREATE ACCOUNT</span>
+        </button>
+      </form>
+
+      <div class="auth-divider"><span></span><b>EXISTING USER</b><span></span></div>
+
+      <button type="button" class="auth-secondary" id="showLogin">BACK TO LOGIN</button>
+    </div>
+  `);
+}
+
+function dashboardPage() {
+  return shell(`
+    <div class="dashboard" data-page="dashboard">
+      <div class="dash-top">
+        <div class="dash-welcome">
+          <div class="auth-kicker">VEN DIGITAL SYSTEM</div>
+          <h1 id="dashboardWelcome">Welcome back</h1>
+          <p class="dash-username" data-user-username>@user</p>
+        </div>
+
+        <button type="button" class="hamburger" id="menuToggle" aria-label="Open menu">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+
+      <div class="balance-card">
+        <span class="balance-label">AVAILABLE BALANCE</span>
+        <strong class="balance-value" data-user-balance>Rp 0</strong>
+        <button type="button" class="btn-deposit" id="depositButton">DEPOSIT</button>
+      </div>
+
+      <div class="dash-hint">
+        Gunakan menu di pojok kanan untuk order <strong>Nokos</strong> atau <strong>Suntik Sosmed</strong>.
+      </div>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-logo">VEN</span>
+        <button type="button" class="sidebar-close" id="sidebarClose" aria-label="Close menu">×</button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button type="button" class="sidebar-item" data-nav="/marketplace">
+          <span class="sidebar-icon">◈</span>
+          <div>
+            <strong>Marketplace</strong>
+            <small>Nokos & Suntik Sosmed</small>
+          </div>
+        </button>
+
+        <button type="button" class="sidebar-item" data-nav="/orders">
+          <span class="sidebar-icon">☰</span>
+          <div>
+            <strong>Orders</strong>
+            <small>Riwayat pesanan</small>
+          </div>
+        </button>
+
+        <button type="button" class="sidebar-item" data-nav="/account">
+          <span class="sidebar-icon">◎</span>
+          <div>
+            <strong>Account</strong>
+            <small>Profil & pengaturan</small>
+          </div>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button type="button" class="sidebar-item logout" data-action="logout">
+          <span class="sidebar-icon">⏻</span>
+          <div>
+            <strong>Logout</strong>
+            <small>Keluar dari sistem</small>
+          </div>
+        </button>
+      </div>
+    </aside>
+  `, { character: false, bodyClass: "page-dashboard" });
+}
+
+function depositPage() {
+  return shell(`
+    <div class="dashboard deposit-page">
+      <div class="dash-top">
+        <div>
+          <div class="auth-kicker">WALLET SYSTEM</div>
+          <h1>DEPOSIT</h1>
+          <p>Tambah saldo ke akun VenDigitalStore.</p>
+        </div>
+        <button type="button" class="btn-back" data-nav="/dashboard">← Dashboard</button>
+      </div>
+
+      <form id="depositForm" class="auth-form">
+        <label class="auth-field">
+          <span>JUMLAH (Rp)</span>
+          <div class="input-wrap">
+            <input id="depositAmount" type="number" min="1000" max="10000000" step="1000" placeholder="Minimum Rp 1.000" required />
+          </div>
+        </label>
+
+        <div class="auth-message" id="depositMessage"></div>
+
+        <button type="submit" class="auth-submit" id="depositSubmit">
+          <span>CREATE DEPOSIT</span>
+        </button>
+      </form>
+
+      <div class="deposit-result" id="depositResult" hidden>
+        <div class="deposit-info-row">
+          <span>REFERENCE</span>
+          <strong data-deposit-reference>-</strong>
+        </div>
+        <div class="deposit-info-row">
+          <span>AMOUNT</span>
+          <strong data-deposit-amount>-</strong>
+        </div>
+        <div class="deposit-info-row">
+          <span>STATUS</span>
+          <strong data-deposit-status>PENDING</strong>
+        </div>
+        <div class="deposit-info-row">
+          <span>EXPIRED</span>
+          <strong data-deposit-expired>-</strong>
+        </div>
+        <p class="deposit-note">Selesaikan pembayaran. Status akan diperbarui otomatis.</p>
+      </div>
+    </div>
+  `, { character: false, bodyClass: "page-dashboard" });
+}
+
+function marketplacePage() {
+  return shell(`
+    <div class="dashboard">
+      <div class="dash-top">
+        <div>
+          <div class="auth-kicker">MARKETPLACE</div>
+          <h1>Pilih Layanan</h1>
+        </div>
+        <button type="button" class="btn-back" data-nav="/dashboard">← Dashboard</button>
+      </div>
+
+      <div class="service-grid">
+        <button type="button" class="service-card" data-service="nokos">
+          <strong>NOKOS</strong>
+          <span>Nomor Kosong / Virtual Number</span>
+        </button>
+        <button type="button" class="service-card" data-service="sosmed">
+          <strong>SUNTIK SOSMED</strong>
+          <span>Followers, Likes, Views, dll</span>
+        </button>
+      </div>
+    </div>
+  `, { character: false, bodyClass: "page-dashboard" });
+}
+
+function ordersPage() {
+  return shell(`
+    <div class="dashboard">
+      <div class="dash-top">
+        <div>
+          <div class="auth-kicker">ORDERS</div>
+          <h1>Riwayat Pesanan</h1>
+        </div>
+        <button type="button" class="btn-back" data-nav="/dashboard">← Dashboard</button>
+      </div>
+      <div class="empty-state">
+        <p>Belum ada pesanan.</p>
+      </div>
+    </div>
+  `, { character: false, bodyClass: "page-dashboard" });
+}
+
+function accountPage() {
+  return shell(`
+    <div class="dashboard">
+      <div class="dash-top">
+        <div>
+          <div class="auth-kicker">ACCOUNT</div>
+          <h1>Profil</h1>
+        </div>
+        <button type="button" class="btn-back" data-nav="/dashboard">← Dashboard</button>
+      </div>
+      <div class="account-card">
+        <p><strong>Username:</strong> <span data-user-username>@user</span></p>
+        <p><strong>Nama:</strong> <span data-user-name>-</span></p>
+        <p><strong>Saldo:</strong> <span data-user-balance>Rp 0</span></p>
+      </div>
+    </div>
+  `, { character: false, bodyClass: "page-dashboard" });
+}
+
+function loadingPage() {
+  return shell(`
+    <div class="auth-panel loading-panel">
+      <div class="loading-logo">VEN</div>
+      <div class="loading-ring"><span></span></div>
+      <div class="loading-text">INITIALIZING SYSTEM</div>
+      <div class="loading-status" id="loadingStatus">CONNECTING</div>
+    </div>
+  `, { character: false });
+}
+
+export function renderPage(pathname) {
+  switch (pathname) {
+    case "/":
+    case "/login":
+      return loginPage();
+    case "/register":
+      return registerPage();
+    case "/dashboard":
+      return dashboardPage();
+    case "/deposit":
+      return depositPage();
+    case "/marketplace":
+      return marketplacePage();
+    case "/orders":
+      return ordersPage();
+    case "/account":
+      return accountPage();
+    case "/loading":
+      return loadingPage();
+    default:
+      return loginPage();
+  }
+}
