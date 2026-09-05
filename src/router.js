@@ -55,7 +55,10 @@ import {
   adminGetUsers,
   adminGetUser,
   adminUpdateUser,
-  adminAdjustBalance,
+  adminAdjustBalance
+} from "./admin.js";
+
+import {
   adminGetCategories,
   adminCreateCategory,
   adminUpdateCategory,
@@ -71,8 +74,10 @@ import {
   adminGetAnnouncements,
   adminCreateAnnouncement,
   adminUpdateAnnouncement,
-  adminDeleteAnnouncement
-} from "./admin.js";
+  adminDeleteAnnouncement,
+  getPublicAnnouncements,
+  adminGetVisitorStats
+} from "./admin_extra.js";
 
 import {
   trackVisitor,
