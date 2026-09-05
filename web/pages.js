@@ -1,11 +1,13 @@
 import { STYLE } from "./style.js";
 import { APP } from "./app.js";
 
-// Ganti URL ini setelah kamu upload karakter Frame 2
-const ANIME_IMAGE = "https://raw.githubusercontent.com/venkontol/Khusus-image-/main/grok_1788555622820.jpg";
+const CHARACTER_VIDEO = "https://raw.githubusercontent.com/venkontol/VenDigitalStore/main/character-live.mp4";
+const CHARACTER_IMAGE = "https://raw.githubusercontent.com/venkontol/VenDigitalStore/main/character-frame2.jpg";
+const AMBIENT_MUSIC = "https://raw.githubusercontent.com/venkontol/VenDigitalStore/main/ambient-music.mp3";
 
 function shell(content, options = {}) {
   const showCharacter = options.character !== false;
+  const useVideo = options.video === true; // true = login/register
 
   return `<!doctype html>
 <html lang="id">
@@ -63,13 +65,26 @@ function shell(content, options = {}) {
       <section class="ven-character-stage" aria-hidden="true">
         <div class="ven-character-wrap" id="characterWrap">
           <div class="ven-character-glow"></div>
-          <img
-            id="animeCharacter"
-            class="ven-character"
-            src="${ANIME_IMAGE}"
-            alt="VenDigitalStore"
-            draggable="false"
-          />
+          ${
+            useVideo
+              ? `<video
+                  id="animeCharacter"
+                  class="ven-character"
+                  src="${CHARACTER_VIDEO}"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  preload="auto"
+                ></video>`
+              : `<img
+                  id="animeCharacter"
+                  class="ven-character"
+                  src="${CHARACTER_IMAGE}"
+                  alt="VenDigitalStore"
+                  draggable="false"
+                />`
+          }
           <div class="ven-character-shine"></div>
         </div>
       </section>`
@@ -88,7 +103,7 @@ function shell(content, options = {}) {
     </footer>
 
     <audio id="bgMusic" loop preload="none">
-      <source src="https://raw.githubusercontent.com/venkontol/Khusus-image-/main/ambient.mp3" type="audio/mpeg">
+      <source src="${AMBIENT_MUSIC}" type="audio/mpeg">
     </audio>
   </div>
 
@@ -138,7 +153,7 @@ function loginPage() {
         <span>ENCRYPTED SESSION</span>
       </div>
     </div>
-  `);
+  `, { video: true });
 }
 
 function registerPage() {
@@ -191,7 +206,7 @@ function registerPage() {
 
       <button type="button" class="auth-secondary" id="showLogin">BACK TO LOGIN</button>
     </div>
-  `);
+  `, { video: true });
 }
 
 function dashboardPage() {
