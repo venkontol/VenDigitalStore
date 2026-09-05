@@ -1,6 +1,5 @@
 import {
   errorResponse,
-  getCurrentUser,
   getSetting,
   nowUnix,
   normalizeDepositCode,
@@ -9,19 +8,31 @@ import {
 } from "./utils.js";
 
 import {
+  getCurrentUser
+} from "./auth.js";
+
+import {
   payDeposit
 } from "./deposit.js";
 
-const TELEGRAM_API = "https://api.telegram.org";
+const TELEGRAM_API =
+  "https://api.telegram.org";
+
+const QR_WAIT_PREFIX =
+  "telegram_qr_waiting_";
+
+const QR_WAIT_TTL =
+  10 * 60;
 
 export async function notifyPaymentCheck(
   request,
   env
 ) {
-  const user = await getCurrentUser(
-    request,
-    env
-  );
+  const user =
+    await getCurrentUser(
+      request,
+      env
+    );
 
   if (!user) {
     return errorResponse(
@@ -33,18 +44,23 @@ export async function notifyPaymentCheck(
   let body;
 
   try {
-    body = await readJson(request);
+    body =
+      await readJson(request);
   } catch (error) {
     return errorResponse(
-      error.message,
+      error?.message ||
+        "Request tidak valid.",
       400
     );
   }
 
-  const depositId = Number(body.id);
+  const depositId =
+    Number(body?.id);
 
   if (
-    !Number.isSafeInteger(depositId) ||
+    !Number.isSafeInteger(
+      depositId
+    ) ||
     depositId <= 0
   ) {
     return errorResponse(
@@ -53,25 +69,26 @@ export async function notifyPaymentCheck(
     );
   }
 
-  const deposit = await env.DB
-    .prepare(
-      `SELECT
-        id,
-        user_id,
-        code,
-        amount,
-        status,
-        expires_at
-       FROM deposits
-       WHERE id = ?
-         AND user_id = ?
-       LIMIT 1`
-    )
-    .bind(
-      depositId,
-      user.id
-    )
-    .first();
+  const deposit =
+    await env.DB
+      .prepare(`
+        SELECT
+          id,
+          user_id,
+          code,
+          amount,
+          status,
+          expires_at
+        FROM deposits
+        WHERE id = ?
+        AND user_id = ?
+        LIMIT 1
+      `)
+      .bind(
+        depositId,
+        user.id
+      )
+      .first();
 
   if (!deposit) {
     return errorResponse(
@@ -80,19 +97,37 @@ export async function notifyPaymentCheck(
     );
   }
 
-  if (deposit.status !== "PENDING") {
+  if (
+    deposit.status !==
+    "PENDING"
+  ) {
     return errorResponse(
       "Deposit ini sudah tidak menunggu pembayaran.",
       400,
       {
-        status: deposit.status
+        status:
+          deposit.status
       }
     );
   }
 
   if (
-    Number(deposit.expires_at) <= nowUnix()
+    Number(
+      deposit.expires_at
+    ) <= nowUnix()
   ) {
+    await env.DB
+      .prepare(`
+        UPDATE deposits
+        SET status = 'EXPIRED'
+        WHERE id = ?
+        AND status = 'PENDING'
+      `)
+      .bind(
+        deposit.id
+      )
+      .run();
+
     return errorResponse(
       "Deposit sudah kedaluwarsa.",
       400,
@@ -106,10 +141,16 @@ export async function notifyPaymentCheck(
     await sendPaymentCheckNotification(
       env,
       {
-        code: deposit.code,
-        amount: Number(deposit.amount),
-        username: user.username,
-        userId: user.id
+        code:
+          deposit.code,
+        amount:
+          Number(
+            deposit.amount
+          ),
+        username:
+          user.username,
+        userId:
+          user.id
       }
     );
 
@@ -122,7 +163,8 @@ export async function notifyPaymentCheck(
 
   return successResponse({
     sent: true,
-    code: deposit.code
+    code:
+      deposit.code
   });
 }
 
@@ -130,8 +172,21 @@ export async function telegramWebhook(
   request,
   env
 ) {
+  const token =
+    getTelegramToken(env);
+
+  if (!token) {
+    return errorResponse(
+      "Telegram bot belum dikonfigurasi.",
+      503
+    );
+  }
+
   const secret =
-    env.TELEGRAM_WEBHOOK_SECRET;
+    String(
+      env.TELEGRAM_WEBHOOK_SECRET ||
+        ""
+    );
 
   if (secret) {
     const provided =
@@ -141,7 +196,10 @@ export async function telegramWebhook(
 
     if (
       !provided ||
-      provided !== secret
+      !constantTimeEqual(
+        provided,
+        secret
+      )
     ) {
       return errorResponse(
         "Unauthorized.",
@@ -153,7 +211,8 @@ export async function telegramWebhook(
   let update;
 
   try {
-    update = await request.json();
+    update =
+      await request.json();
   } catch {
     return errorResponse(
       "Invalid Telegram update.",
@@ -170,30 +229,31 @@ export async function telegramWebhook(
     });
   }
 
-  const text =
-    typeof message.text === "string"
-      ? message.text.trim()
-      : "";
+  const chatId =
+    String(
+      message.chat?.id ??
+        ""
+    );
 
-  if (!text) {
+  if (!chatId) {
     return successResponse({
       received: true
     });
   }
 
-  const chatId =
-    String(message.chat?.id ?? "");
-
   const ownerChatId =
-    await getSetting(
-      env.DB,
-      "telegram_owner_chat_id",
-      env.TELEGRAM_OWNER_CHAT_ID || ""
+    String(
+      await getSetting(
+        env.DB,
+        "telegram_owner_chat_id",
+        env.TELEGRAM_OWNER_CHAT_ID ||
+          ""
+      ) || ""
     );
 
   if (
     !ownerChatId ||
-    chatId !== String(ownerChatId)
+    chatId !== ownerChatId
   ) {
     await sendTelegramMessage(
       env,
@@ -206,8 +266,15 @@ export async function telegramWebhook(
     });
   }
 
+  const text =
+    typeof message.text ===
+    "string"
+      ? message.text.trim()
+      : "";
+
   if (
-    text.toLowerCase() === "/start"
+    text.toLowerCase() ===
+    "/start"
   ) {
     await sendTelegramMessage(
       env,
@@ -216,7 +283,7 @@ export async function telegramWebhook(
         "VenDigitalStore Bot",
         "",
         "/pay XXXX - konfirmasi deposit",
-        "/setqr - balas dengan foto QRIS baru",
+        "/setqr - ganti QRIS",
         "/status - cek status bot"
       ].join("\n")
     );
@@ -227,12 +294,28 @@ export async function telegramWebhook(
   }
 
   if (
-    text.toLowerCase() === "/status"
+    text.toLowerCase() ===
+    "/status"
   ) {
+    const qr =
+      await getSetting(
+        env.DB,
+        "telegram_qr_file_id",
+        null
+      );
+
     await sendTelegramMessage(
       env,
       chatId,
-      "Bot VenDigitalStore aktif."
+      [
+        "VenDigitalStore Bot aktif.",
+        "",
+        `QRIS: ${
+          qr
+            ? "tersedia"
+            : "belum tersedia"
+        }`
+      ].join("\n")
     );
 
     return successResponse({
@@ -241,7 +324,8 @@ export async function telegramWebhook(
   }
 
   if (
-    text.toLowerCase() === "/setqr"
+    text.toLowerCase() ===
+    "/setqr"
   ) {
     await setQrWaitingState(
       env,
@@ -251,30 +335,36 @@ export async function telegramWebhook(
     await sendTelegramMessage(
       env,
       chatId,
-      "Silakan kirim foto QRIS baru sebagai balasan berikutnya."
+      "Silakan kirim foto QRIS baru dalam 10 menit."
     );
 
     return successResponse({
-      received: true
+      received: true,
+      waiting_qr: true
     });
   }
 
   const waitingQr =
     await getSetting(
       env.DB,
-      `telegram_qr_waiting_${chatId}`,
+      QR_WAIT_PREFIX +
+        chatId,
       null
     );
 
   if (
-    waitingQr === "1" &&
+    waitingQr &&
+    Number(waitingQr) >=
+      nowUnix() &&
     message.photo?.length
   ) {
     const photos =
       message.photo;
 
     const largest =
-      photos[photos.length - 1];
+      photos[
+        photos.length - 1
+      ];
 
     const fileId =
       largest?.file_id;
@@ -287,25 +377,35 @@ export async function telegramWebhook(
 
     await env.DB.batch([
       env.DB
-        .prepare(
-          `INSERT INTO settings (key, value, updated_at)
-           VALUES ('telegram_qr_file_id', ?, ?)
-           ON CONFLICT(key)
-           DO UPDATE SET
-             value = excluded.value,
-             updated_at = excluded.updated_at`
-        )
+        .prepare(`
+          INSERT INTO settings (
+            key,
+            value,
+            updated_at
+          )
+          VALUES (
+            'telegram_qr_file_id',
+            ?,
+            ?
+          )
+          ON CONFLICT(key)
+          DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at
+        `)
         .bind(
           fileId,
           nowUnix()
         ),
+
       env.DB
-        .prepare(
-          `DELETE FROM settings
-           WHERE key = ?`
-        )
+        .prepare(`
+          DELETE FROM settings
+          WHERE key = ?
+        `)
         .bind(
-          `telegram_qr_waiting_${chatId}`
+          QR_WAIT_PREFIX +
+            chatId
         )
     ]);
 
@@ -319,6 +419,23 @@ export async function telegramWebhook(
       received: true,
       qr_updated: true
     });
+  }
+
+  if (
+    waitingQr &&
+    Number(waitingQr) <
+      nowUnix()
+  ) {
+    await env.DB
+      .prepare(`
+        DELETE FROM settings
+        WHERE key = ?
+      `)
+      .bind(
+        QR_WAIT_PREFIX +
+          chatId
+      )
+      .run();
   }
 
   const payMatch =
@@ -340,41 +457,19 @@ export async function telegramWebhook(
       );
 
     if (!result.success) {
-      if (
-        result.reason === "NOT_FOUND"
-      ) {
-        await sendTelegramMessage(
-          env,
-          chatId,
-          `Deposit ${code} tidak ditemukan.`
-        );
-      } else if (
-        result.reason === "EXPIRED"
-      ) {
-        await sendTelegramMessage(
-          env,
-          chatId,
-          `Deposit ${code} sudah expired.`
-        );
-      } else if (
-        result.reason === "INVALID_STATUS"
-      ) {
-        await sendTelegramMessage(
-          env,
-          chatId,
-          `Deposit ${code} tidak bisa dibayar. Status: ${result.status}.`
-        );
-      } else {
-        await sendTelegramMessage(
-          env,
-          chatId,
-          `Gagal memproses deposit ${code}.`
-        );
-      }
+      await sendPayError(
+        env,
+        chatId,
+        code,
+        result
+      );
 
       return successResponse({
         received: true,
-        paid: false
+        paid: false,
+        reason:
+          result.reason ||
+          "FAILED"
       });
     }
 
@@ -384,8 +479,19 @@ export async function telegramWebhook(
 
     const balance =
       Number(
-        result.user?.balance || 0
-      ).toLocaleString("id-ID");
+        result.user?.balance ||
+          0
+      ).toLocaleString(
+        "id-ID"
+      );
+
+    const amount =
+      Number(
+        result.deposit?.amount ||
+          0
+      ).toLocaleString(
+        "id-ID"
+      );
 
     const messageText =
       result.duplicate
@@ -401,7 +507,7 @@ export async function telegramWebhook(
             "",
             `Kode: ${code}`,
             `Username: ${username}`,
-            `Nominal: Rp${Number(result.deposit.amount).toLocaleString("id-ID")}`,
+            `Nominal: Rp${amount}`,
             `Saldo: Rp${balance}`
           ].join("\n");
 
@@ -414,23 +520,43 @@ export async function telegramWebhook(
     return successResponse({
       received: true,
       paid: true,
-      duplicate: Boolean(
-        result.duplicate
-      )
+      duplicate:
+        Boolean(
+          result.duplicate
+        )
     });
   }
 
-  await sendTelegramMessage(
-    env,
-    chatId,
-    [
-      "Perintah tidak dikenali.",
-      "",
-      "/pay XXXX",
-      "/setqr",
-      "/status"
-    ].join("\n")
-  );
+  if (message.photo?.length) {
+    await sendTelegramMessage(
+      env,
+      chatId,
+      [
+        "Foto diterima.",
+        "",
+        "Jika ingin mengganti QRIS:",
+        "/setqr"
+      ].join("\n")
+    );
+
+    return successResponse({
+      received: true
+    });
+  }
+
+  if (text) {
+    await sendTelegramMessage(
+      env,
+      chatId,
+      [
+        "Perintah tidak dikenali.",
+        "",
+        "/pay XXXX",
+        "/setqr",
+        "/status"
+      ].join("\n")
+    );
+  }
 
   return successResponse({
     received: true
@@ -454,8 +580,12 @@ export async function getQrImage(
       {
         status: 404,
         headers: {
-          "Content-Type": "text/plain; charset=UTF-8",
-          "Cache-Control": "no-store"
+          "Content-Type":
+            "text/plain; charset=UTF-8",
+          "Cache-Control":
+            "no-store",
+          "X-Content-Type-Options":
+            "nosniff"
         }
       }
     );
@@ -470,8 +600,12 @@ export async function getQrImage(
       {
         status: 503,
         headers: {
-          "Content-Type": "text/plain; charset=UTF-8",
-          "Cache-Control": "no-store"
+          "Content-Type":
+            "text/plain; charset=UTF-8",
+          "Cache-Control":
+            "no-store",
+          "X-Content-Type-Options":
+            "nosniff"
         }
       }
     );
@@ -482,7 +616,8 @@ export async function getQrImage(
       env,
       "getFile",
       {
-        file_id: fileId
+        file_id:
+          fileId
       }
     );
 
@@ -495,27 +630,109 @@ export async function getQrImage(
       {
         status: 502,
         headers: {
-          "Content-Type": "text/plain; charset=UTF-8",
-          "Cache-Control": "no-store"
+          "Content-Type":
+            "text/plain; charset=UTF-8",
+          "Cache-Control":
+            "no-store",
+          "X-Content-Type-Options":
+            "nosniff"
+        }
+      }
+    );
+  }
+
+  const filePath =
+    String(
+      fileResult.result.file_path
+    );
+
+  if (
+    filePath.includes("..") ||
+    filePath.includes("\\")
+  ) {
+    return new Response(
+      "QRIS tidak valid.",
+      {
+        status: 502,
+        headers: {
+          "Content-Type":
+            "text/plain; charset=UTF-8",
+          "Cache-Control":
+            "no-store",
+          "X-Content-Type-Options":
+            "nosniff"
         }
       }
     );
   }
 
   const fileUrl =
-    `${TELEGRAM_API}/file/bot${token}/${fileResult.result.file_path}`;
+    `${TELEGRAM_API}/file/bot${token}/${filePath}`;
 
-  const imageResponse =
-    await fetch(fileUrl);
+  let imageResponse;
 
-  if (!imageResponse.ok) {
+  try {
+    imageResponse =
+      await fetch(
+        fileUrl
+      );
+  } catch {
     return new Response(
       "QRIS tidak dapat diambil.",
       {
         status: 502,
         headers: {
-          "Content-Type": "text/plain; charset=UTF-8",
-          "Cache-Control": "no-store"
+          "Content-Type":
+            "text/plain; charset=UTF-8",
+          "Cache-Control":
+            "no-store",
+          "X-Content-Type-Options":
+            "nosniff"
+        }
+      }
+    );
+  }
+
+  if (
+    !imageResponse.ok
+  ) {
+    return new Response(
+      "QRIS tidak dapat diambil.",
+      {
+        status: 502,
+        headers: {
+          "Content-Type":
+            "text/plain; charset=UTF-8",
+          "Cache-Control":
+            "no-store",
+          "X-Content-Type-Options":
+            "nosniff"
+        }
+      }
+    );
+  }
+
+  const contentType =
+    imageResponse.headers.get(
+      "Content-Type"
+    ) || "";
+
+  if (
+    !contentType.startsWith(
+      "image/"
+    )
+  ) {
+    return new Response(
+      "QRIS bukan file gambar.",
+      {
+        status: 502,
+        headers: {
+          "Content-Type":
+            "text/plain; charset=UTF-8",
+          "Cache-Control":
+            "no-store",
+          "X-Content-Type-Options":
+            "nosniff"
         }
       }
     );
@@ -526,14 +743,17 @@ export async function getQrImage(
 
   headers.set(
     "Content-Type",
-    imageResponse.headers.get(
-      "Content-Type"
-    ) || "image/jpeg"
+    contentType
   );
 
   headers.set(
     "Cache-Control",
     "private, max-age=300"
+  );
+
+  headers.set(
+    "X-Content-Type-Options",
+    "nosniff"
   );
 
   return new Response(
@@ -550,15 +770,20 @@ async function sendPaymentCheckNotification(
   data
 ) {
   const ownerChatId =
-    await getSetting(
-      env.DB,
-      "telegram_owner_chat_id",
-      env.TELEGRAM_OWNER_CHAT_ID || ""
+    String(
+      await getSetting(
+        env.DB,
+        "telegram_owner_chat_id",
+        env.TELEGRAM_OWNER_CHAT_ID ||
+          ""
+      ) || ""
     );
 
   if (!ownerChatId) {
     return {
-      success: false
+      success: false,
+      reason:
+        "OWNER_CHAT_ID_MISSING"
     };
   }
 
@@ -568,7 +793,9 @@ async function sendPaymentCheckNotification(
     `Kode: ${data.code}`,
     `Username: ${data.username}`,
     `User ID: ${data.userId}`,
-    `Nominal: Rp${Number(data.amount).toLocaleString("id-ID")}`,
+    `Nominal: Rp${Number(
+      data.amount || 0
+    ).toLocaleString("id-ID")}`,
     "",
     `Konfirmasi: /pay ${data.code}`
   ].join("\n");
@@ -584,21 +811,79 @@ async function setQrWaitingState(
   env,
   chatId
 ) {
+  const expiresAt =
+    nowUnix() +
+    QR_WAIT_TTL;
+
   await env.DB
-    .prepare(
-      `INSERT INTO settings
-      (key, value, updated_at)
-      VALUES (?, '1', ?)
+    .prepare(`
+      INSERT INTO settings (
+        key,
+        value,
+        updated_at
+      )
+      VALUES (?, ?, ?)
       ON CONFLICT(key)
       DO UPDATE SET
-        value = '1',
-        updated_at = excluded.updated_at`
-    )
+        value = excluded.value,
+        updated_at = excluded.updated_at
+    `)
     .bind(
-      `telegram_qr_waiting_${chatId}`,
+      QR_WAIT_PREFIX +
+        chatId,
+      String(expiresAt),
       nowUnix()
     )
     .run();
+}
+
+async function sendPayError(
+  env,
+  chatId,
+  code,
+  result
+) {
+  let text;
+
+  switch (
+    result?.reason
+  ) {
+    case "NOT_FOUND":
+      text =
+        `Deposit ${code} tidak ditemukan.`;
+      break;
+
+    case "EXPIRED":
+      text =
+        `Deposit ${code} sudah expired.`;
+      break;
+
+    case "INVALID_STATUS":
+      text =
+        `Deposit ${code} tidak bisa dibayar. Status: ${result.status}.`;
+      break;
+
+    case "USER_INACTIVE":
+      text =
+        "Akun pengguna tidak aktif.";
+      break;
+
+    case "INVALID_AMOUNT":
+      text =
+        `Nominal deposit ${code} tidak valid.`;
+      break;
+
+    default:
+      text =
+        `Gagal memproses deposit ${code}.`;
+      break;
+  }
+
+  await sendTelegramMessage(
+    env,
+    chatId,
+    text
+  );
 }
 
 async function sendTelegramMessage(
@@ -606,7 +891,11 @@ async function sendTelegramMessage(
   chatId,
   text
 ) {
-  if (!chatId) {
+  if (
+    chatId === null ||
+    chatId === undefined ||
+    !String(chatId)
+  ) {
     return {
       success: false
     };
@@ -617,15 +906,18 @@ async function sendTelegramMessage(
       env,
       "sendMessage",
       {
-        chat_id: chatId,
-        text
+        chat_id:
+          chatId,
+        text:
+          String(text || "")
       }
     );
 
   return {
-    success: Boolean(
-      result.ok
-    ),
+    success:
+      Boolean(
+        result?.ok
+      ),
     result
   };
 }
@@ -656,26 +948,77 @@ async function telegramApi(
             "Content-Type":
               "application/json"
           },
-          body: JSON.stringify(body)
+          body:
+            JSON.stringify(
+              body
+            )
         }
       );
 
-    const data =
-      await response.json();
+    let data;
+
+    try {
+      data =
+        await response.json();
+    } catch {
+      return {
+        ok: false,
+        description:
+          "Respons Telegram tidak valid."
+      };
+    }
 
     return data;
   } catch (error) {
     return {
       ok: false,
       description:
-        String(error?.message || error)
+        String(
+          error?.message ||
+            error
+        )
     };
   }
 }
 
-function getTelegramToken(env) {
-  return (
+function getTelegramToken(
+  env
+) {
+  return String(
     env.TELEGRAM_BOT_TOKEN ||
-    ""
-  );
+      ""
+  ).trim();
+}
+
+function constantTimeEqual(
+  a,
+  b
+) {
+  if (
+    typeof a !== "string" ||
+    typeof b !== "string"
+  ) {
+    return false;
+  }
+
+  if (
+    a.length !==
+    b.length
+  ) {
+    return false;
+  }
+
+  let result = 0;
+
+  for (
+    let index = 0;
+    index < a.length;
+    index++
+  ) {
+    result |=
+      a.charCodeAt(index) ^
+      b.charCodeAt(index);
+  }
+
+  return result === 0;
       }
