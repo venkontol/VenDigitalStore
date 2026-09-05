@@ -1,5 +1,4 @@
 export const APP = `
-
 <script>
 (function () {
   "use strict";
@@ -10,13 +9,12 @@ export const APP = `
     return document.querySelector(selector);
   }
 
-  function $$(selector) {
+  function \[ (selector) {
     return Array.from(document.querySelectorAll(selector));
   }
 
   async function api(path, options) {
     options = options || {};
-
     const headers = new Headers(options.headers || {});
 
     if (options.body && !headers.has("Content-Type")) {
@@ -32,7 +30,6 @@ export const APP = `
     });
 
     let data = null;
-
     try {
       data = await response.json();
     } catch (_) {
@@ -41,9 +38,7 @@ export const APP = `
 
     if (!response.ok) {
       const message =
-        (data && (data.error || data.message)) ||
-        "Permintaan gagal.";
-
+        (data && (data.error || data.message)) || "Permintaan gagal.";
       const error = new Error(message);
       error.status = response.status;
       error.data = data;
@@ -55,35 +50,25 @@ export const APP = `
 
   function showMessage(element, message, type) {
     if (!element) return;
-
     element.textContent = message || "";
-    element.className = "ven-message";
-
-    if (type) {
-      element.classList.add("is-" + type);
-    }
+    element.className = "auth-message";
+    if (type) element.classList.add("is-" + type);
   }
 
   function setLoading(button, loading, normalText) {
     if (!button) return;
-
     if (loading) {
       button.disabled = true;
-      button.dataset.originalText =
-        button.textContent || normalText || "";
+      button.dataset.originalText = button.textContent || normalText || "";
       button.textContent = "MEMPROSES...";
     } else {
       button.disabled = false;
-      button.textContent =
-        normalText ||
-        button.dataset.originalText ||
-        "LANJUT";
+      button.textContent = normalText || button.dataset.originalText || "LANJUT";
     }
   }
 
   function formatMoney(value) {
     const number = Number(value || 0);
-
     return new Intl.NumberFormat("id-ID", {
       style: "currency",
       currency: "IDR",
@@ -103,21 +88,31 @@ export const APP = `
     return api("/auth/me");
   }
 
+  function updateUserUI(user) {
+    if (!user) return; \]("[data-user-username]").forEach(function (el) {
+      el.textContent = "@" + escapeText(user.username || "");
+    });
+
+    \[ ("[data-user-name]").forEach(function (el) {
+      el.textContent = escapeText(user.first_name || user.username || "User");
+    }); \]("[data-user-balance]").forEach(function (el) {
+      el.textContent = formatMoney(user.balance);
+    });
+
+    const welcome = $("#dashboardWelcome");
+    if (welcome) {
+      welcome.textContent = "Welcome back, " + escapeText(user.first_name || user.username || "User");
+    }
+  }
+
   async function handleExistingSession() {
     const path = window.location.pathname;
 
     try {
       const data = await getMe();
+      if (!data || !data.user) return;
 
-      if (!data || !data.user) {
-        return;
-      }
-
-      if (
-        path === "/login" ||
-        path === "/register" ||
-        path === "/"
-      ) {
+      if (path === "/login" || path === "/register" || path === "/") {
         redirect("/dashboard");
         return;
       }
@@ -127,7 +122,6 @@ export const APP = `
       if (
         path === "/dashboard" ||
         path === "/deposit" ||
-        path === "/products" ||
         path === "/marketplace" ||
         path === "/orders" ||
         path === "/account"
@@ -137,43 +131,19 @@ export const APP = `
     }
   }
 
-  function updateUserUI(user) {
-    if (!user) return;
-
-    const usernameElements = $$("[data-user-username]");
-    const nameElements = $$("[data-user-name]");
-    const balanceElements = $$("[data-user-balance]");
-
-    usernameElements.forEach(function (element) {
-      element.textContent = "@" + escapeText(user.username || "");
-    });
-
-    nameElements.forEach(function (element) {
-      element.textContent =
-        escapeText(user.first_name || user.username || "User");
-    });
-
-    balanceElements.forEach(function (element) {
-      element.textContent = formatMoney(user.balance);
-    });
-  }
-
   function setupPasswordToggles() {
-    $$("[data-password-toggle]").forEach(function (button) {
+    \[ ("[data-password-toggle]").forEach(function (button) {
       button.addEventListener("click", function () {
-        const targetSelector =
-          button.getAttribute("data-password-toggle");
-
-        const input = document.querySelector(targetSelector);
-
+        const target = button.getAttribute("data-password-toggle");
+        const input = document.querySelector(target);
         if (!input) return;
 
         if (input.type === "password") {
           input.type = "text";
-          button.textContent = "SEMBUNYIKAN";
+          button.textContent = "HIDE";
         } else {
           input.type = "password";
-          button.textContent = "LIHAT";
+          button.textContent = "SHOW";
         }
       });
     });
@@ -181,7 +151,6 @@ export const APP = `
 
   function setupLogin() {
     const form = $("#loginForm");
-
     if (!form) return;
 
     const message = $("#loginMessage");
@@ -189,71 +158,40 @@ export const APP = `
 
     form.addEventListener("submit", async function (event) {
       event.preventDefault();
-
       showMessage(message, "", "");
 
-      const usernameInput = form.querySelector(
-        "[name='username']"
-      );
-
-      const passwordInput = form.querySelector(
-        "[name='password']"
-      );
-
-      const username =
-        usernameInput ? usernameInput.value.trim() : "";
-
-      const password =
-        passwordInput ? passwordInput.value : "";
+      const username = (form.querySelector("[name='username']") || {}).value.trim();
+      const password = (form.querySelector("[name='password']") || {}).value;
 
       if (!username || !password) {
-        showMessage(
-          message,
-          "Username dan password wajib diisi.",
-          "error"
-        );
+        showMessage(message, "Username dan password wajib diisi.", "error");
         return;
       }
 
-      setLoading(button, true);
+      setLoading(button, true, "ACCESS SYSTEM");
 
       try {
         const data = await api("/auth/login", {
           method: "POST",
-          body: JSON.stringify({
-            username: username,
-            password: password
-          })
+          body: JSON.stringify({ username: username, password: password })
         });
 
-        if (data && data.user) {
-          updateUserUI(data.user);
-        }
+        if (data && data.user) updateUserUI(data.user);
 
-        showMessage(
-          message,
-          "Login berhasil. Membuka dashboard...",
-          "success"
-        );
-
+        showMessage(message, "Login berhasil. Membuka dashboard...", "success");
         setTimeout(function () {
           redirect("/dashboard");
-        }, 350);
+        }, 400);
       } catch (error) {
-        showMessage(
-          message,
-          error.message || "Login gagal.",
-          "error"
-        );
+        showMessage(message, error.message || "Login gagal.", "error");
       } finally {
-        setLoading(button, false, "MASUK");
+        setLoading(button, false, "ACCESS SYSTEM");
       }
     });
   }
 
   function setupRegister() {
     const form = $("#registerForm");
-
     if (!form) return;
 
     const message = $("#registerMessage");
@@ -261,83 +199,35 @@ export const APP = `
 
     form.addEventListener("submit", async function (event) {
       event.preventDefault();
-
       showMessage(message, "", "");
 
-      const firstNameInput = form.querySelector(
-        "[name='first_name']"
-      );
-
-      const usernameInput = form.querySelector(
-        "[name='username']"
-      );
-
-      const passwordInput = form.querySelector(
-        "[name='password']"
-      );
-
-      const confirmInput = form.querySelector(
-        "[name='confirm_password']"
-      );
-
-      const firstName =
-        firstNameInput ? firstNameInput.value.trim() : "";
-
-      const username =
-        usernameInput ? usernameInput.value.trim() : "";
-
-      const password =
-        passwordInput ? passwordInput.value : "";
-
-      const confirmPassword =
-        confirmInput ? confirmInput.value : "";
+      const firstName = (form.querySelector("[name='first_name']") || {}).value.trim();
+      const username = (form.querySelector("[name='username']") || {}).value.trim();
+      const password = (form.querySelector("[name='password']") || {}).value;
+      const confirmPassword = (form.querySelector("[name='confirm_password']") || {}).value;
 
       if (!firstName) {
-        showMessage(
-          message,
-          "Nama depan wajib diisi.",
-          "error"
-        );
+        showMessage(message, "Nama depan wajib diisi.", "error");
         return;
       }
-
       if (!username) {
-        showMessage(
-          message,
-          "Username wajib diisi.",
-          "error"
-        );
+        showMessage(message, "Username wajib diisi.", "error");
         return;
       }
-
       if (!password) {
-        showMessage(
-          message,
-          "Password wajib diisi.",
-          "error"
-        );
+        showMessage(message, "Password wajib diisi.", "error");
         return;
       }
-
       if (password.length < 8) {
-        showMessage(
-          message,
-          "Password minimal 8 karakter.",
-          "error"
-        );
+        showMessage(message, "Password minimal 8 karakter.", "error");
         return;
       }
-
       if (password !== confirmPassword) {
-        showMessage(
-          message,
-          "Konfirmasi password tidak sama.",
-          "error"
-        );
+        showMessage(message, "Konfirmasi password tidak sama.", "error");
         return;
       }
 
-      setLoading(button, true);
+      setLoading(button, true, "CREATE ACCOUNT");
 
       try {
         const data = await api("/auth/register", {
@@ -349,74 +239,51 @@ export const APP = `
           })
         });
 
-        if (data && data.user) {
-          updateUserUI(data.user);
-        }
+        if (data && data.user) updateUserUI(data.user);
 
-        /*
-         * Backend register langsung membuat session.
-         * Jadi tidak perlu login ulang.
-         */
-        showMessage(
-          message,
-          "Akun berhasil dibuat. Membuka dashboard...",
-          "success"
-        );
-
+        showMessage(message, "Akun berhasil dibuat. Membuka dashboard...", "success");
         setTimeout(function () {
           redirect("/dashboard");
         }, 400);
       } catch (error) {
-        showMessage(
-          message,
-          error.message || "Gagal membuat akun.",
-          "error"
-        );
+        showMessage(message, error.message || "Gagal membuat akun.", "error");
       } finally {
-        setLoading(button, false, "BUAT AKUN");
+        setLoading(button, false, "CREATE ACCOUNT");
       }
     });
   }
 
-  function setupLogout() {
-    $$("[data-action='logout']").forEach(function (button) {
+  function setupLogout() { \]("[data-action='logout']").forEach(function (button) {
       button.addEventListener("click", async function () {
         button.disabled = true;
-
         try {
-          await api("/auth/logout", {
-            method: "POST"
-          });
-        } catch (_) {
-          /*
-           * Tetap arahkan ke login.
-           * Session browser akan dibersihkan oleh backend
-           * jika endpoint logout berhasil.
-           */
-        }
-
+          await api("/auth/logout", { method: "POST" });
+        } catch (_) {}
         redirect("/login");
       });
     });
   }
 
   async function setupDashboard() {
-    const dashboard =
-      document.querySelector("[data-page='dashboard']");
-
+    const dashboard = document.querySelector("[data-page='dashboard']");
     if (!dashboard) return;
 
     try {
       const data = await getMe();
-
       if (!data || !data.user) {
         redirect("/login");
         return;
       }
-
       updateUserUI(data.user);
     } catch (error) {
       redirect("/login");
+    }
+
+    const depositBtn = $("#depositButton");
+    if (depositBtn) {
+      depositBtn.addEventListener("click", function () {
+        redirect("/deposit");
+      });
     }
   }
 
@@ -424,24 +291,19 @@ export const APP = `
     $$("[data-nav]").forEach(function (element) {
       element.addEventListener("click", function () {
         const path = element.getAttribute("data-nav");
-
-        if (path) {
-          redirect(path);
-        }
+        if (path) redirect(path);
       });
     });
   }
 
   function setupDeposit() {
     const form = $("#depositForm");
-
     if (!form) return;
 
     const message = $("#depositMessage");
     const result = $("#depositResult");
     const button = form.querySelector("button[type='submit']");
 
-    let currentReference = null;
     let pollTimer = null;
 
     function clearPoll() {
@@ -453,444 +315,170 @@ export const APP = `
 
     function renderDeposit(deposit) {
       if (!result || !deposit) return;
-
       result.hidden = false;
 
-      const reference =
-        result.querySelector("[data-deposit-reference]");
+      const ref = result.querySelector("[data-deposit-reference]");
+      const amount = result.querySelector("[data-deposit-amount]");
+      const status = result.querySelector("[data-deposit-status]");
+      const expired = result.querySelector("[data-deposit-expired]");
 
-      const amount =
-        result.querySelector("[data-deposit-amount]");
-
-      const status =
-        result.querySelector("[data-deposit-status]");
-
-      const expired =
-        result.querySelector("[data-deposit-expired]");
-
-      if (reference) {
-        reference.textContent =
-          escapeText(
-            deposit.reference_id ||
-            deposit.merchant_order_id ||
-            "-"
-          );
-      }
-
-      if (amount) {
-        amount.textContent =
-          formatMoney(deposit.amount);
-      }
-
-      if (status) {
-        status.textContent =
-          escapeText(deposit.status || "PENDING");
-      }
-
-      if (expired) {
-        expired.textContent =
-          escapeText(deposit.expired_at || "-");
-      }
+      if (ref) ref.textContent = escapeText(deposit.reference_id || deposit.merchant_order_id || "-");
+      if (amount) amount.textContent = formatMoney(deposit.amount);
+      if (status) status.textContent = escapeText(deposit.status || "PENDING");
+      if (expired) expired.textContent = escapeText(deposit.expired_at || "-");
     }
 
     async function pollDeposit(referenceId) {
       if (!referenceId) return;
-
       try {
-        const data = await api(
-          "/deposit?reference_id=" +
-          encodeURIComponent(referenceId)
-        );
-
-        const deposit =
-          data && (data.deposit || data.data || data);
-
+        const data = await api("/deposit?reference_id=" + encodeURIComponent(referenceId));
+        const deposit = data && (data.deposit || data.data || data);
         renderDeposit(deposit);
 
-        const status =
-          String(
-            deposit && deposit.status
-              ? deposit.status
-              : ""
-          ).toUpperCase();
+        const status = String(deposit && deposit.status ? deposit.status : "").toUpperCase();
 
-        if (
-          status === "PAID" ||
-          status === "SUCCESS" ||
-          status === "COMPLETED"
-        ) {
-          showMessage(
-            message,
-            "Pembayaran berhasil dikonfirmasi.",
-            "success"
-          );
-
+        if (status === "PAID" || status === "SUCCESS" || status === "COMPLETED") {
+          showMessage(message, "Pembayaran berhasil dikonfirmasi.", "success");
           clearPoll();
-
           setTimeout(function () {
             redirect("/dashboard");
           }, 900);
-
           return;
         }
 
-        if (
-          status === "EXPIRED" ||
-          status === "CANCELLED" ||
-          status === "FAILED"
-        ) {
-          showMessage(
-            message,
-            "Deposit berstatus " + status + ".",
-            "error"
-          );
-
+        if (status === "EXPIRED" || status === "CANCELLED" || status === "FAILED") {
+          showMessage(message, "Deposit " + status.toLowerCase() + ".", "error");
           clearPoll();
           return;
         }
 
         pollTimer = setTimeout(function () {
           pollDeposit(referenceId);
-        }, 10000);
-      } catch (error) {
-        /*
-         * Jangan langsung menghentikan polling hanya karena
-         * satu request gagal.
-         */
+        }, 4000);
+      } catch (_) {
         pollTimer = setTimeout(function () {
           pollDeposit(referenceId);
-        }, 15000);
+        }, 5000);
       }
     }
 
     form.addEventListener("submit", async function (event) {
       event.preventDefault();
-
+      showMessage(message, "", "");
       clearPoll();
 
-      showMessage(message, "", "");
+      const amountInput = $("#depositAmount");
+      const amount = amountInput ? Number(amountInput.value) : 0;
 
-      if (result) {
-        result.hidden = true;
-      }
-
-      const amountInput = form.querySelector(
-        "[name='amount']"
-      );
-
-      const amount = Number(
-        amountInput ? amountInput.value : 0
-      );
-
-      if (!Number.isFinite(amount) || amount < 1000) {
-        showMessage(
-          message,
-          "Minimal deposit Rp1.000.",
-          "error"
-        );
+      if (!amount || amount < 1000) {
+        showMessage(message, "Minimal deposit Rp 1.000", "error");
         return;
       }
 
-      if (amount > 10000000) {
-        showMessage(
-          message,
-          "Maksimal deposit Rp10.000.000.",
-          "error"
-        );
-        return;
-      }
-
-      setLoading(button, true);
+      setLoading(button, true, "CREATE DEPOSIT");
 
       try {
         const data = await api("/deposit", {
           method: "POST",
-          body: JSON.stringify({
-            amount: amount,
-            payment_method: "QRIS"
-          })
+          body: JSON.stringify({ amount: amount })
         });
 
-        const deposit =
-          data && (data.deposit || data.data || data);
-
-        currentReference =
-          deposit &&
-          (
-            deposit.reference_id ||
-            deposit.merchant_order_id
-          );
-
+        const deposit = data && (data.deposit || data.data || data);
         renderDeposit(deposit);
 
-        showMessage(
-          message,
-          "Deposit berhasil dibuat. Silakan selesaikan pembayaran lalu cek statusnya.",
-          "success"
-        );
+        const refId = deposit && (deposit.reference_id || deposit.merchant_order_id);
+        if (refId) pollDeposit(refId);
 
-        if (currentReference) {
-          pollDeposit(currentReference);
-        }
+        showMessage(message, "Deposit dibuat. Silakan selesaikan pembayaran.", "success");
       } catch (error) {
-        showMessage(
-          message,
-          error.message || "Gagal membuat deposit.",
-          "error"
-        );
+        showMessage(message, error.message || "Gagal membuat deposit.", "error");
       } finally {
-        setLoading(button, false, "BUAT DEPOSIT");
-      }
-    });
-
-    const manualCheck =
-      document.querySelector("[data-check-deposit]");
-
-    if (manualCheck) {
-      manualCheck.addEventListener("click", function () {
-        if (!currentReference) {
-          showMessage(
-            message,
-            "Belum ada deposit yang sedang dicek.",
-            "error"
-          );
-          return;
-        }
-
-        showMessage(
-          message,
-          "Memeriksa status pembayaran...",
-          ""
-        );
-
-        pollDeposit(currentReference);
-      });
-    }
-  }
-
-  function createSnow() {
-    const containers = [
-      document.querySelector("#particles"),
-      document.querySelector("#snowFront")
-    ].filter(Boolean);
-
-    if (!containers.length) return;
-
-    containers.forEach(function (container) {
-      if (container.dataset.generated === "1") {
-        return;
-      }
-
-      container.dataset.generated = "1";
-
-      const count =
-        container.id === "snowFront" ? 55 : 85;
-
-      for (let i = 0; i < count; i++) {
-        const particle =
-          document.createElement("span");
-
-        particle.className =
-          container.id === "snowFront"
-            ? "ven-snow-particle"
-            : "ven-particle";
-
-        particle.style.left =
-          Math.random() * 100 + "%";
-
-        particle.style.setProperty(
-          "--size",
-          (Math.random() * 4 + 1) + "px"
-        );
-
-        particle.style.setProperty(
-          "--duration",
-          (Math.random() * 9 + 7) + "s"
-        );
-
-        particle.style.setProperty(
-          "--delay",
-          (Math.random() * -14) + "s"
-        );
-
-        particle.style.setProperty(
-          "--opacity",
-          (Math.random() * 0.65 + 0.2).toFixed(2)
-        );
-
-        container.appendChild(particle);
+        setLoading(button, false, "CREATE DEPOSIT");
       }
     });
   }
 
-  function setupParallax() {
-    const page =
-      document.querySelector(".ven-page");
+  function setupSound() {
+    const toggle = $("#soundToggle");
+    const audio = $("#bgMusic");
+    if (!toggle || !audio) return;
 
-    if (!page) return;
+    let enabled = localStorage.getItem("ven_sound") === "1";
 
-    let targetX = 0;
-    let targetY = 0;
-    let currentX = 0;
-    let currentY = 0;
-
-    function setTarget(clientX, clientY) {
-      const width = window.innerWidth || 1;
-      const height = window.innerHeight || 1;
-
-      targetX =
-        ((clientX / width) - 0.5) * 2;
-
-      targetY =
-        ((clientY / height) - 0.5) * 2;
+    function updateUI() {
+      toggle.classList.toggle("is-on", enabled);
+      const offIcon = toggle.querySelector(".icon-sound-off");
+      const onIcon = toggle.querySelector(".icon-sound-on");
+      if (offIcon) offIcon.style.display = enabled ? "none" : "block";
+      if (onIcon) onIcon.style.display = enabled ? "block" : "none";
+      toggle.title = enabled ? "Sound On" : "Sound Off";
     }
 
-    window.addEventListener(
-      "pointermove",
-      function (event) {
-        if (event.pointerType === "touch") {
-          return;
-        }
+    updateUI();
 
-        setTarget(
-          event.clientX,
-          event.clientY
-        );
-      },
-      { passive: true }
-    );
-
-    window.addEventListener(
-      "touchmove",
-      function (event) {
-        if (!event.touches || !event.touches[0]) {
-          return;
-        }
-
-        setTarget(
-          event.touches[0].clientX,
-          event.touches[0].clientY
-        );
-      },
-      { passive: true }
-    );
-
-    function animate() {
-      currentX +=
-        (targetX - currentX) * 0.055;
-
-      currentY +=
-        (targetY - currentY) * 0.055;
-
-      page.style.setProperty(
-        "--mouse-x",
-        currentX.toFixed(4)
-      );
-
-      page.style.setProperty(
-        "--mouse-y",
-        currentY.toFixed(4)
-      );
-
-      requestAnimationFrame(animate);
+    if (enabled) {
+      audio.volume = 0.35;
+      audio.play().catch(function () {});
     }
 
-    animate();
-  }
+    toggle.addEventListener("click", function () {
+      enabled = !enabled;
+      localStorage.setItem("ven_sound", enabled ? "1" : "0");
+      updateUI();
 
-  function setupLiveClock() {
-    $$("[data-live-clock]").forEach(function (element) {
-      function update() {
-        const now = new Date();
-
-        element.textContent =
-          now.toLocaleTimeString("id-ID", {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit"
-          });
-      }
-
-      update();
-      setInterval(update, 1000);
-    });
-  }
-
-  function setupMagneticButtons() {
-    $$(".ven-button").forEach(function (button) {
-      button.addEventListener(
-        "pointermove",
-        function (event) {
-          if (event.pointerType === "touch") {
-            return;
-          }
-
-          const rect =
-            button.getBoundingClientRect();
-
-          const x =
-            event.clientX -
-            rect.left -
-            rect.width / 2;
-
-          const y =
-            event.clientY -
-            rect.top -
-            rect.height / 2;
-
-          button.style.setProperty(
-            "--button-x",
-            (x * 0.08).toFixed(2) + "px"
-          );
-
-          button.style.setProperty(
-            "--button-y",
-            (y * 0.08).toFixed(2) + "px"
-          );
-        }
-      );
-
-      button.addEventListener(
-        "pointerleave",
-        function () {
-          button.style.setProperty(
-            "--button-x",
-            "0px"
-          );
-
-          button.style.setProperty(
-            "--button-y",
-            "0px"
-          );
-        }
-      );
-    });
-  }
-
-  function setupFocusEffects() {
-    $$("input").forEach(function (input) {
-      input.addEventListener("focus", function () {
-        input.closest(".ven-field")?.classList.add(
-          "is-focused"
-        );
-      });
-
-      input.addEventListener("blur", function () {
-        input.closest(".ven-field")?.classList.remove(
-          "is-focused"
-        );
-      });
-    });
-  }
-
-  function setupKeyboard() {
-    document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") {
-        $$("[data-close]").forEach(function (element) {
-          element.click();
-        });
+      if (enabled) {
+        audio.volume = 0.35;
+        audio.play().catch(function () {});
+      } else {
+        audio.pause();
       }
     });
+  }
+
+  function setupSidebar() {
+    const toggle = $("#menuToggle");
+    const sidebar = $("#sidebar");
+    const overlay = $("#sidebarOverlay");
+    const closeBtn = $("#sidebarClose");
+
+    if (!sidebar) return;
+
+    function open() {
+      sidebar.classList.add("is-open");
+      if (overlay) overlay.classList.add("is-open");
+      document.body.style.overflow = "hidden";
+    }
+
+    function close() {
+      sidebar.classList.remove("is-open");
+      if (overlay) overlay.classList.remove("is-open");
+      document.body.style.overflow = "";
+    }
+
+    if (toggle) toggle.addEventListener("click", open);
+    if (closeBtn) closeBtn.addEventListener("click", close);
+    if (overlay) overlay.addEventListener("click", close);
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") close();
+    });
+  }
+
+  function setupShowRegisterLogin() {
+    const showReg = $("#showRegister");
+    const showLog = $("#showLogin");
+
+    if (showReg) {
+      showReg.addEventListener("click", function () {
+        redirect("/register");
+      });
+    }
+
+    if (showLog) {
+      showLog.addEventListener("click", function () {
+        redirect("/login");
+      });
+    }
   }
 
   function boot() {
@@ -901,27 +489,17 @@ export const APP = `
     setupNavigation();
     setupDeposit();
     setupDashboard();
-
-    createSnow();
-    setupParallax();
-    setupLiveClock();
-    setupMagneticButtons();
-    setupFocusEffects();
-    setupKeyboard();
-
+    setupSound();
+    setupSidebar();
+    setupShowRegisterLogin();
     handleExistingSession();
   }
 
-  if (
-    document.readyState === "loading"
-  ) {
-    document.addEventListener(
-      "DOMContentLoaded",
-      boot
-    );
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
   } else {
     boot();
   }
-
 })();
-</script>`;
+</script>
+`;
