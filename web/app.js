@@ -1,5 +1,4 @@
 export const APP = `
-<script>
 (function () {
   "use strict";
 
@@ -501,5 +500,4 @@ export const APP = `
     boot();
   }
 })();
-</script>
 `;
