@@ -76,7 +76,6 @@ import {
   adminUpdateAnnouncement,
   adminDeleteAnnouncement,
   getPublicAnnouncements,
-  adminGetVisitorStats
 } from "./admin_extra.js";
 
 import {
