@@ -3,163 +3,112 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#0b0d12">
-  <meta
-    name="description"
-    content="Login ke VenDigitalStore"
-  >
+  <meta name="theme-color" content="#05070d">
+  <meta name="description" content="Login ke VenDigitalStore">
   <title>Login — VenDigitalStore</title>
 
-  <link
-    rel="stylesheet"
-    href="/CSS/base.css"
-  >
-
-  <link
-    rel="stylesheet"
-    href="/CSS/components.css"
-  >
-
-  <link
-    rel="stylesheet"
-    href="/CSS/login.css"
-  >
+  <link rel="stylesheet" href="/CSS/base.css">
+  <link rel="stylesheet" href="/CSS/components.css">
+  <link rel="stylesheet" href="/CSS/login.css">
 </head>
 
-<body>
-  <main class="login-page">
-    <video
-      class="login-background"
-      autoplay
-      muted
-      loop
-      playsinline
-      preload="metadata"
-      aria-hidden="true"
-    >
-      <source
-        src="/images/login-background.mp4"
-        type="video/mp4"
+<body class="login-page">
+  <main class="login-shell">
+    <section class="login-card" aria-labelledby="login-title">
+      <a
+        class="login-brand"
+        href="/"
+        aria-label="VenDigitalStore"
       >
-    </video>
+        <span class="login-brand-mark">VD</span>
+        <span>VenDigitalStore</span>
+      </a>
 
-    <div
-      class="login-overlay"
-      aria-hidden="true"
-    ></div>
+      <div class="login-header">
+        <span class="login-eyebrow">
+          ACCOUNT ACCESS
+        </span>
 
-    <div class="login-shell">
-      <section
-        class="login-card"
-        aria-labelledby="login-title"
+        <h1 id="login-title">
+          Selamat datang kembali
+        </h1>
+
+        <p>
+          Login untuk mengakses akun,
+          saldo, pesanan, dan layanan digital kamu.
+        </p>
+      </div>
+
+      <div
+        id="loginAlert"
+        class="alert"
+        role="alert"
+        aria-live="polite"
+      ></div>
+
+      <form
+        id="loginForm"
+        class="login-form"
+        method="post"
+        action="/api/auth/login"
+        novalidate
       >
-        <a
-          class="login-brand"
-          href="/"
-          aria-label="VenDigitalStore"
-        >
-          <span class="login-brand-mark">VD</span>
-          <span>VenDigitalStore</span>
-        </a>
+        <div class="form-group">
+          <label for="username">
+            Username
+          </label>
 
-        <div class="login-header">
-          <span class="login-eyebrow">
-            ACCOUNT ACCESS
-          </span>
-
-          <h1 id="login-title">
-            Selamat datang kembali
-          </h1>
-
-          <p>
-            Login untuk mengakses saldo,
-            pesanan, NOKOS, dan layanan
-            digital VenDigitalStore.
-          </p>
-        </div>
-
-        <div
-          id="loginAlert"
-          class="alert"
-          role="alert"
-          aria-live="polite"
-        ></div>
-
-        <form
-          id="loginForm"
-          class="login-form"
-          method="post"
-          action="/api/auth/login"
-          novalidate
-        >
-          <div class="form-group">
-            <label
-              for="loginUsername"
-            >
-              Username
-            </label>
-
-            <input
-              id="loginUsername"
-              class="input"
-              type="text"
-              name="username"
-              autocomplete="username"
-              autocapitalize="none"
-              spellcheck="false"
-              maxlength="32"
-              required
-            >
-          </div>
-
-          <div class="form-group">
-            <label
-              for="loginPassword"
-            >
-              Password
-            </label>
-
-            <input
-              id="loginPassword"
-              class="input"
-              type="password"
-              name="password"
-              autocomplete="current-password"
-              required
-            >
-          </div>
-
-          <button
-            id="loginButton"
-            class="btn btn-primary login-submit"
-            type="submit"
+          <input
+            id="username"
+            class="input"
+            type="text"
+            name="username"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            maxlength="32"
+            required
           >
-            Login
-          </button>
-        </form>
-
-        <div class="login-footer">
-          <span>
-            Belum punya akun?
-          </span>
-
-          <a href="/register">
-            Buat akun
-          </a>
         </div>
 
-        <div class="login-home">
-          <a href="/">
-            Kembali ke beranda
-          </a>
+        <div class="form-group">
+          <label for="password">
+            Password
+          </label>
+
+          <input
+            id="password"
+            class="input"
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            required
+          >
         </div>
-      </section>
-    </div>
+
+        <button
+          id="loginButton"
+          class="btn btn-primary login-submit"
+          type="submit"
+        >
+          Login
+        </button>
+      </form>
+
+      <div class="login-footer">
+        <span>Belum punya akun?</span>
+        <a href="/register">
+          Buat akun
+        </a>
+      </div>
+
+      <a
+        class="login-home-link"
+        href="/"
+      >
+        Kembali ke beranda
+      </a>
+    </section>
   </main>
-
-  <script
-    type="module"
-    src="/javascript/login.js"
-  ></script>
 </body>
 </html>
