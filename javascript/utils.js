@@ -1,15 +1,71 @@
-export function jsonResponse(data, status = 200, headers = {}) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=UTF-8",
-      "Cache-Control": "no-store",
-      ...headers
-    }
-  });
+const JSON_HEADERS = {
+  "Content-Type": "application/json; charset=UTF-8",
+  "Cache-Control": "no-store"
+};
+
+const PASSWORD_SCHEME = "pbkdf2";
+const PASSWORD_HASH = "sha256";
+const PASSWORD_ITERATIONS = 120000;
+const PASSWORD_BITS = 256;
+
+const INTEGER_RULES = Object.freeze({
+  positive: Object.freeze({
+    min: 1
+  }),
+  nonNegative: Object.freeze({
+    min: 0
+  })
+});
+
+const DEPOSIT_RULES = Object.freeze({
+  codeMaxLength: 64,
+  codePattern: /^[A-Z0-9_-]{6,64}$/,
+  minAmount: 1000,
+  maxAmount: 10000000
+});
+
+function integerFromValue(
+  value,
+  {
+    min = Number.MIN_SAFE_INTEGER,
+    max = Number.MAX_SAFE_INTEGER
+  } = {}
+) {
+  const number = Number(value);
+
+  if (!Number.isSafeInteger(number)) {
+    return null;
+  }
+
+  if (number < min || number > max) {
+    return null;
+  }
+
+  return number;
 }
 
-export function errorResponse(message, status = 400, extra = {}) {
+export function jsonResponse(
+  data,
+  status = 200,
+  headers = {}
+) {
+  return new Response(
+    JSON.stringify(data),
+    {
+      status,
+      headers: {
+        ...JSON_HEADERS,
+        ...headers
+      }
+    }
+  );
+}
+
+export function errorResponse(
+  message,
+  status = 400,
+  extra = {}
+) {
   return jsonResponse(
     {
       success: false,
@@ -20,7 +76,10 @@ export function errorResponse(message, status = 400, extra = {}) {
   );
 }
 
-export function successResponse(data = {}, status = 200) {
+export function successResponse(
+  data = {},
+  status = 200
+) {
   return jsonResponse(
     {
       success: true,
@@ -32,7 +91,17 @@ export function successResponse(data = {}, status = 200) {
 
 export async function readJson(request) {
   try {
-    return await request.json();
+    const data = await request.json();
+
+    if (
+      data === null ||
+      typeof data !== "object" ||
+      Array.isArray(data)
+    ) {
+      return null;
+    }
+
+    return data;
   } catch {
     return null;
   }
@@ -50,22 +119,33 @@ export function getMethod(request) {
   return request.method.toUpperCase();
 }
 
-export function cleanString(value, maxLength = 255) {
+export function cleanString(
+  value,
+  maxLength = 255
+) {
   return String(value ?? "")
     .trim()
     .slice(0, maxLength);
 }
 
 export function cleanUsername(value) {
-  return cleanString(value, 32).toLowerCase();
+  return cleanString(
+    value,
+    32
+  ).toLowerCase();
 }
 
 export function cleanFirstName(value) {
-  return cleanString(value, 80);
+  return cleanString(
+    value,
+    80
+  );
 }
 
 export function isValidUsername(username) {
-  return /^[a-z0-9_]{3,32}$/.test(username);
+  return /^[a-z0-9_]{3,32}$/.test(
+    username
+  );
 }
 
 export function isValidPassword(password) {
@@ -76,69 +156,122 @@ export function isValidPassword(password) {
   );
 }
 
+export function parseInteger(
+  value,
+  options = {}
+) {
+  return integerFromValue(
+    value,
+    options
+  );
+}
+
 export function parsePositiveInteger(value) {
-  const number = Number(value);
-
-  if (!Number.isSafeInteger(number) || number <= 0) {
-    return null;
-  }
-
-  return number;
+  return integerFromValue(
+    value,
+    INTEGER_RULES.positive
+  );
 }
 
 export function parseNonNegativeInteger(value) {
-  const number = Number(value);
-
-  if (!Number.isSafeInteger(number) || number < 0) {
-    return null;
-  }
-
-  return number;
+  return integerFromValue(
+    value,
+    INTEGER_RULES.nonNegative
+  );
 }
 
 export function randomId(length = 16) {
-  const bytes = new Uint8Array(Math.ceil(length / 2));
+  const normalizedLength =
+    integerFromValue(
+      length,
+      {
+        min: 1,
+        max: 1024
+      }
+    ) || 16;
+
+  const bytes =
+    new Uint8Array(
+      Math.ceil(normalizedLength / 2)
+    );
+
   crypto.getRandomValues(bytes);
 
   return Array.from(bytes)
-    .map(byte => byte.toString(16).padStart(2, "0"))
+    .map(byte =>
+      byte
+        .toString(16)
+        .padStart(2, "0")
+    )
     .join("")
-    .slice(0, length);
+    .slice(0, normalizedLength);
 }
 
-export function randomToken(bytesLength = 32) {
-  const bytes = new Uint8Array(bytesLength);
+export function randomToken(
+  bytesLength = 32
+) {
+  const normalizedLength =
+    integerFromValue(
+      bytesLength,
+      {
+        min: 1,
+        max: 1024
+      }
+    ) || 32;
+
+  const bytes =
+    new Uint8Array(
+      normalizedLength
+    );
+
   crypto.getRandomValues(bytes);
 
   return Array.from(bytes)
-    .map(byte => byte.toString(16).padStart(2, "0"))
+    .map(byte =>
+      byte
+        .toString(16)
+        .padStart(2, "0")
+    )
     .join("");
 }
 
 export async function sha256(value) {
-  const data = new TextEncoder().encode(String(value));
+  const data =
+    new TextEncoder().encode(
+      String(value)
+    );
 
-  const hash = await crypto.subtle.digest(
-    "SHA-256",
-    data
-  );
+  const hash =
+    await crypto.subtle.digest(
+      "SHA-256",
+      data
+    );
 
-  return Array.from(new Uint8Array(hash))
-    .map(byte => byte.toString(16).padStart(2, "0"))
+  return Array.from(
+    new Uint8Array(hash)
+  )
+    .map(byte =>
+      byte
+        .toString(16)
+        .padStart(2, "0")
+    )
     .join("");
 }
 
-export async function hashPassword(password, salt = null) {
+export async function hashPassword(
+  password,
+  salt = null
+) {
   const actualSalt =
     salt ||
     randomToken(16);
 
-  const iterations = 120000;
-
   const keyMaterial =
     await crypto.subtle.importKey(
       "raw",
-      new TextEncoder().encode(password),
+      new TextEncoder().encode(
+        password
+      ),
       "PBKDF2",
       false,
       ["deriveBits"]
@@ -148,61 +281,86 @@ export async function hashPassword(password, salt = null) {
     await crypto.subtle.deriveBits(
       {
         name: "PBKDF2",
-        salt: new TextEncoder().encode(actualSalt),
-        iterations,
+        salt: new TextEncoder().encode(
+          actualSalt
+        ),
+        iterations:
+          PASSWORD_ITERATIONS,
         hash: "SHA-256"
       },
       keyMaterial,
-      256
+      PASSWORD_BITS
     );
 
   const hash =
-    Array.from(new Uint8Array(bits))
-      .map(byte =>
-        byte.toString(16).padStart(2, "0")
-      )
-      .join("");
+    bytesToHex(
+      new Uint8Array(bits)
+    );
 
   return [
-    "pbkdf2",
-    "sha256",
-    iterations,
+    PASSWORD_SCHEME,
+    PASSWORD_HASH,
+    PASSWORD_ITERATIONS,
     actualSalt,
     hash
   ].join("$");
 }
 
-export async function verifyPassword(password, stored) {
+export async function verifyPassword(
+  password,
+  stored
+) {
   if (
     typeof stored !== "string" ||
-    !stored.startsWith("pbkdf2$")
+    !stored.startsWith(
+      `${PASSWORD_SCHEME}$`
+    )
   ) {
     return false;
   }
 
-  const parts = stored.split("$");
+  const parts =
+    stored.split("$");
 
   if (parts.length !== 5) {
     return false;
   }
 
-  const iterations = Number(parts[2]);
-  const salt = parts[3];
-  const expected = parts[4];
+  const [
+    scheme,
+    hashAlgorithm,
+    iterationText,
+    salt,
+    expected
+  ] = parts;
 
   if (
-    !Number.isSafeInteger(iterations) ||
-    iterations <= 0 ||
+    scheme !== PASSWORD_SCHEME ||
+    hashAlgorithm !== PASSWORD_HASH ||
     !salt ||
     !expected
   ) {
     return false;
   }
 
+  const iterations =
+    integerFromValue(
+      iterationText,
+      {
+        min: 1
+      }
+    );
+
+  if (!iterations) {
+    return false;
+  }
+
   const keyMaterial =
     await crypto.subtle.importKey(
       "raw",
-      new TextEncoder().encode(password),
+      new TextEncoder().encode(
+        password
+      ),
       "PBKDF2",
       false,
       ["deriveBits"]
@@ -212,20 +370,20 @@ export async function verifyPassword(password, stored) {
     await crypto.subtle.deriveBits(
       {
         name: "PBKDF2",
-        salt: new TextEncoder().encode(salt),
+        salt: new TextEncoder().encode(
+          salt
+        ),
         iterations,
         hash: "SHA-256"
       },
       keyMaterial,
-      256
+      PASSWORD_BITS
     );
 
   const actual =
-    Array.from(new Uint8Array(bits))
-      .map(byte =>
-        byte.toString(16).padStart(2, "0")
-      )
-      .join("");
+    bytesToHex(
+      new Uint8Array(bits)
+    );
 
   return timingSafeEqual(
     actual,
@@ -233,20 +391,40 @@ export async function verifyPassword(password, stored) {
   );
 }
 
-export function timingSafeEqual(a, b) {
+function bytesToHex(bytes) {
+  return Array.from(bytes)
+    .map(byte =>
+      byte
+        .toString(16)
+        .padStart(2, "0")
+    )
+    .join("");
+}
+
+export function timingSafeEqual(
+  a,
+  b
+) {
   const left = String(a);
   const right = String(b);
 
-  if (left.length !== right.length) {
+  if (
+    left.length !==
+    right.length
+  ) {
     return false;
   }
 
   let result = 0;
 
-  for(let i = 0; i < left.length; i++){
+  for (
+    let index = 0;
+    index < left.length;
+    index++
+  ) {
     result |=
-      left.charCodeAt(i) ^
-      right.charCodeAt(i);
+      left.charCodeAt(index) ^
+      right.charCodeAt(index);
   }
 
   return result === 0;
@@ -261,13 +439,19 @@ export function setCookie(
     `${name}=${value}`
   ];
 
-  if(options.maxAge !== undefined){
-    parts.push(`Max-Age=${options.maxAge}`);
+  if (
+    options.maxAge !== undefined
+  ) {
+    parts.push(
+      `Max-Age=${options.maxAge}`
+    );
   }
 
-  if(options.expires){
+  if (options.expires) {
     parts.push(
-      `Expires=${new Date(options.expires).toUTCString()}`
+      `Expires=${new Date(
+        options.expires
+      ).toUTCString()}`
     );
   }
 
@@ -275,16 +459,30 @@ export function setCookie(
     `Path=${options.path || "/"}`
   );
 
-  if(options.httpOnly !== false){
+  if (
+    options.domain
+  ) {
+    parts.push(
+      `Domain=${options.domain}`
+    );
+  }
+
+  if (
+    options.httpOnly !== false
+  ) {
     parts.push("HttpOnly");
   }
 
-  if(options.secure !== false){
+  if (
+    options.secure !== false
+  ) {
     parts.push("Secure");
   }
 
   parts.push(
-    `SameSite=${options.sameSite || "Lax"}`
+    `SameSite=${
+      options.sameSite || "Lax"
+    }`
   );
 
   return parts.join("; ");
@@ -303,28 +501,38 @@ export function clearCookie(name) {
   );
 }
 
-export function getCookie(request, name) {
+export function getCookie(
+  request,
+  name
+) {
   const header =
-    request.headers.get("Cookie");
+    request.headers.get(
+      "Cookie"
+    );
 
-  if(!header){
+  if (!header) {
     return null;
   }
 
   const cookies =
     header.split(";");
 
-  for(const cookie of cookies){
-    const index = cookie.indexOf("=");
+  for (
+    const cookie of cookies
+  ) {
+    const index =
+      cookie.indexOf("=");
 
-    if(index === -1){
+    if (index === -1) {
       continue;
     }
 
     const key =
-      cookie.slice(0, index).trim();
+      cookie
+        .slice(0, index)
+        .trim();
 
-    if(key !== name){
+    if (key !== name) {
       continue;
     }
 
@@ -343,6 +551,9 @@ export function nowUnix() {
 }
 
 export function formatRupiah(value) {
+  const amount =
+    Number(value || 0);
+
   return new Intl.NumberFormat(
     "id-ID",
     {
@@ -351,7 +562,9 @@ export function formatRupiah(value) {
       maximumFractionDigits: 0
     }
   ).format(
-    Number(value || 0)
+    Number.isFinite(amount)
+      ? amount
+      : 0
   );
 }
 
@@ -361,18 +574,18 @@ export async function getSetting(
   fallback = null
 ) {
   const row =
-    await db.prepare(
-      `
-      SELECT value
-      FROM settings
-      WHERE key = ?
-      LIMIT 1
-      `
-    )
-    .bind(key)
-    .first();
+    await db
+      .prepare(`
+        SELECT value
+        FROM settings
+        WHERE key = ?
+        LIMIT 1
+      `)
+      .bind(key)
+      .first();
 
-  return row?.value ?? fallback;
+  return row?.value ??
+    fallback;
 }
 
 export async function getSettingInt(
@@ -388,11 +601,11 @@ export async function getSettingInt(
     );
 
   const number =
-    Number(value);
+    integerFromValue(value);
 
-  return Number.isSafeInteger(number)
-    ? number
-    : fallback;
+  return number === null
+    ? fallback
+    : number;
 }
 
 export function getPagination(
@@ -400,78 +613,129 @@ export function getPagination(
   defaultLimit = 20,
   maxLimit = 100
 ) {
+  const safeDefault =
+    integerFromValue(
+      defaultLimit,
+      {
+        min: 1
+      }
+    ) || 20;
+
+  const safeMax =
+    integerFromValue(
+      maxLimit,
+      {
+        min: 1
+      }
+    ) || 100;
+
   const page =
-    Math.max(
-      1,
-      Number(
-        url.searchParams.get("page") || 1
-      )
-    );
+    integerFromValue(
+      url.searchParams.get(
+        "page"
+      ),
+      {
+        min: 1
+      }
+    ) || 1;
 
   const requestedLimit =
-    Number(
-      url.searchParams.get("limit") ||
-      defaultLimit
-    );
+    integerFromValue(
+      url.searchParams.get(
+        "limit"
+      ),
+      {
+        min: 1
+      }
+    ) || safeDefault;
 
   const limit =
     Math.min(
-      maxLimit,
-      Math.max(
-        1,
-        Number.isSafeInteger(requestedLimit)
-          ? requestedLimit
-          : defaultLimit
-      )
+      safeMax,
+      requestedLimit
     );
 
   return {
     page,
     limit,
-    offset: (page - 1) * limit
+    offset:
+      (page - 1) * limit
   };
 }
 
-export function normalizeDepositCode(value) {
+export function normalizeDepositCode(
+  value
+) {
   return cleanString(
     value,
-    64
+    DEPOSIT_RULES.codeMaxLength
   ).toUpperCase();
 }
 
-export function isValidDepositCode(value) {
-  return /^[A-Z0-9_-]{6,64}$/.test(
-    normalizeDepositCode(value)
-  );
+export function isValidDepositCode(
+  value
+) {
+  return DEPOSIT_RULES
+    .codePattern
+    .test(
+      normalizeDepositCode(value)
+    );
 }
 
-export function generateOrderNumber() {
+export function generateOrderNumber(
+  prefix = "VDS"
+) {
+  const safePrefix =
+    cleanString(
+      prefix,
+      20
+    )
+      .toUpperCase()
+      .replace(
+        /[^A-Z0-9_-]/g,
+        ""
+      ) || "VDS";
+
   const timestamp =
     Date.now()
       .toString(36)
       .toUpperCase();
 
-  return `VDS-${timestamp}-${randomId(6).toUpperCase()}`;
+  return `${safePrefix}-${timestamp}-${randomId(6).toUpperCase()}`;
 }
 
-export function parseJson(value, fallback = null) {
-  if(value === null || value === undefined){
+export function parseJson(
+  value,
+  fallback = null
+) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
     return fallback;
   }
 
-  try{
+  if (
+    typeof value === "object"
+  ) {
+    return value;
+  }
+
+  try {
     return JSON.parse(value);
-  }catch{
+  } catch {
     return fallback;
   }
 }
 
-export function jsonText(value) {
-  try{
+export function jsonText(
+  value
+) {
+  try {
     return JSON.stringify(
       value ?? {}
     );
-  }catch{
+  } catch {
     return "{}";
   }
 }
