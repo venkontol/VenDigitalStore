@@ -2,10 +2,11 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#05070d">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#07090f">
   <meta name="description" content="Dashboard VenDigitalStore">
   <title>Dashboard — VenDigitalStore</title>
+
   <link rel="stylesheet" href="/CSS/base.css">
   <link rel="stylesheet" href="/CSS/components.css">
   <link rel="stylesheet" href="/CSS/dashboard.css">
@@ -23,68 +24,74 @@
       </div>
 
       <nav class="sidebar-nav" aria-label="Navigasi utama">
-        <a href="/dashboard" class="nav-item active">
-          <span class="nav-icon">01</span>
+        <a
+          href="/dashboard"
+          class="sidebar-link active"
+          data-page="dashboard"
+        >
+          <span class="sidebar-icon">DB</span>
           <span>Dashboard</span>
         </a>
 
-        <a href="/nokos" class="nav-item">
-          <span class="nav-icon">02</span>
+        <a
+          href="/nokos"
+          class="sidebar-link"
+          data-page="nokos"
+        >
+          <span class="sidebar-icon">NK</span>
           <span>NOKOS</span>
         </a>
 
-        <a href="/suntik-sosmed" class="nav-item">
-          <span class="nav-icon">03</span>
+        <a
+          href="/suntik-sosmed"
+          class="sidebar-link"
+          data-page="suntik-sosmed"
+        >
+          <span class="sidebar-icon">SS</span>
           <span>Suntik Sosmed</span>
         </a>
 
-        <a href="/deposit" class="nav-item">
-          <span class="nav-icon">04</span>
+        <a
+          href="/deposit"
+          class="sidebar-link"
+          data-page="deposit"
+        >
+          <span class="sidebar-icon">DP</span>
           <span>Deposit</span>
         </a>
 
-        <a href="/orders" class="nav-item">
-          <span class="nav-icon">05</span>
+        <a
+          href="/orders"
+          class="sidebar-link"
+          data-page="orders"
+        >
+          <span class="sidebar-icon">PS</span>
           <span>Pesanan</span>
         </a>
 
-        <a href="/account" class="nav-item">
-          <span class="nav-icon">06</span>
+        <a
+          href="/account"
+          class="sidebar-link"
+          data-page="account"
+        >
+          <span class="sidebar-icon">AK</span>
           <span>Akun</span>
         </a>
       </nav>
 
-      <div class="sidebar-bottom">
-        <div class="account-mini">
-          <div class="account-avatar" id="accountAvatar">
-            VD
-          </div>
+      <div class="sidebar-footer">
+        <a href="/account" class="account-mini">
+          <span class="account-avatar" id="sidebarAvatar">U</span>
 
-          <div class="account-mini-info">
-            <strong id="sidebarName">
-              Memuat...
-            </strong>
-
-            <span id="sidebarUsername">
-              @username
-            </span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          class="nav-item nav-button"
-          id="logoutButton"
-        >
-          <span class="nav-icon">07</span>
-          <span>Logout</span>
-        </button>
+          <span class="account-mini-info">
+            <strong id="sidebarName">Memuat...</strong>
+            <small id="sidebarUsername">@username</small>
+          </span>
+        </a>
       </div>
     </aside>
 
-    <div class="mobile-overlay" id="mobileOverlay"></div>
-
-    <main class="main-content">
+    <div class="main-shell">
 
       <header class="topbar">
         <button
@@ -92,6 +99,7 @@
           class="menu-button"
           id="menuButton"
           aria-label="Buka menu"
+          aria-controls="sidebar"
           aria-expanded="false"
         >
           <span></span>
@@ -101,66 +109,70 @@
 
         <div class="topbar-title">
           <span class="topbar-label">VenDigitalStore</span>
-          <strong>Dashboard</strong>
+          <h1>Dashboard</h1>
         </div>
 
-        <a
-          href="/account"
-          class="topbar-account"
-          aria-label="Akun"
-        >
-          <span id="topbarAvatar">VD</span>
-        </a>
+        <div class="topbar-actions">
+          <a
+            href="/account"
+            class="topbar-account"
+            aria-label="Akun"
+          >
+            <span
+              class="account-avatar"
+              id="topbarAvatar"
+            >
+              U
+            </span>
+          </a>
+        </div>
       </header>
 
-      <div class="dashboard-page">
+      <main class="dashboard-page">
 
-        <section class="welcome-section">
-          <div>
-            <span class="eyebrow">
-              ACCOUNT OVERVIEW
-            </span>
+        <section class="dashboard-hero">
+          <div class="dashboard-hero-content">
+            <span class="eyebrow">ACCOUNT OVERVIEW</span>
 
-            <h1>
+            <h2>
               Halo,
-              <span id="welcomeName">
-                Memuat...
-              </span>
-            </h1>
+              <span id="welcomeName">User</span>
+            </h2>
 
             <p>
-              Kelola saldo, layanan digital,
-              dan aktivitas pesanan kamu.
+              Kelola saldo, pesanan, NOKOS, dan layanan digital
+              kamu dari satu dashboard.
             </p>
           </div>
 
-          <div class="welcome-status">
-            <span class="status-dot"></span>
-            <span>Account Active</span>
+          <div class="dashboard-status">
+            <span class="status-indicator"></span>
+            <span>Sistem Online</span>
           </div>
         </section>
 
         <section class="balance-section">
-
           <div class="balance-card">
-            <div class="balance-top">
-              <span>Saldo tersedia</span>
+            <div class="balance-card-top">
+              <div>
+                <span class="card-label">Saldo tersedia</span>
 
-              <span class="balance-status">
-                WALLET
-              </span>
+                <div
+                  class="balance-value"
+                  id="balanceValue"
+                >
+                  Rp0
+                </div>
+              </div>
+
+              <div class="balance-symbol">
+                VD
+              </div>
             </div>
 
-            <div
-              class="balance-value"
-              id="balanceValue"
-            >
-              Memuat...
-            </div>
-
-            <div class="balance-bottom">
+            <div class="balance-card-bottom">
               <span id="balanceUpdated">
-                Saldo aktif
+                Saldo akun
               </span>
 
               <a
@@ -171,77 +183,92 @@
               </a>
             </div>
           </div>
+        </section>
 
-          <div class="quick-card">
-
-            <div class="quick-card-head">
-              <span>Akses cepat</span>
-            </div>
-
-            <div class="quick-grid">
-
-              <a
-                href="/nokos"
-                class="quick-item"
-              >
-                <span class="quick-number">01</span>
-                <strong>NOKOS</strong>
-                <small>
-                  Nomor virtual
-                </small>
-              </a>
-
-              <a
-                href="/suntik-sosmed"
-                class="quick-item"
-              >
-                <span class="quick-number">02</span>
-                <strong>Sosmed</strong>
-                <small>
-                  Layanan sosial media
-                </small>
-              </a>
-
-              <a
-                href="/orders"
-                class="quick-item"
-              >
-                <span class="quick-number">03</span>
-                <strong>Pesanan</strong>
-                <small>
-                  Riwayat transaksi
-                </small>
-              </a>
-
-              <a
-                href="/account"
-                class="quick-item"
-              >
-                <span class="quick-number">04</span>
-                <strong>Akun</strong>
-                <small>
-                  Pengaturan akun
-                </small>
-              </a>
-
+        <section class="quick-actions-section">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">QUICK ACCESS</span>
+              <h2>Akses cepat</h2>
             </div>
           </div>
 
+          <div class="quick-actions">
+
+            <a
+              href="/nokos"
+              class="quick-card"
+            >
+              <span class="quick-card-icon">NK</span>
+
+              <span class="quick-card-content">
+                <strong>NOKOS</strong>
+                <small>
+                  Nomor virtual untuk berbagai layanan
+                </small>
+              </span>
+
+              <span class="quick-arrow">→</span>
+            </a>
+
+            <a
+              href="/suntik-sosmed"
+              class="quick-card"
+            >
+              <span class="quick-card-icon">SS</span>
+
+              <span class="quick-card-content">
+                <strong>Suntik Sosmed</strong>
+                <small>
+                  Layanan sosial media digital
+                </small>
+              </span>
+
+              <span class="quick-arrow">→</span>
+            </a>
+
+            <a
+              href="/deposit"
+              class="quick-card"
+            >
+              <span class="quick-card-icon">DP</span>
+
+              <span class="quick-card-content">
+                <strong>Deposit</strong>
+                <small>
+                  Tambahkan saldo ke wallet
+                </small>
+              </span>
+
+              <span class="quick-arrow">→</span>
+            </a>
+
+            <a
+              href="/orders"
+              class="quick-card"
+            >
+              <span class="quick-card-icon">PS</span>
+
+              <span class="quick-card-content">
+                <strong>Pesanan</strong>
+                <small>
+                  Lihat seluruh riwayat pesanan
+                </small>
+              </span>
+
+              <span class="quick-arrow">→</span>
+            </a>
+
+          </div>
         </section>
 
         <section class="dashboard-grid">
 
-          <div class="dashboard-panel">
-
+          <div class="dashboard-panel transactions-panel">
             <div class="panel-header">
               <div>
-                <span class="panel-label">
-                  ACTIVITY
-                </span>
-
-                <h2>
-                  Transaksi terbaru
-                </h2>
+                <span class="eyebrow">WALLET</span>
+                <h2>Transaksi terbaru</h2>
               </div>
 
               <a
@@ -254,7 +281,7 @@
 
             <div
               class="transaction-list"
-              id="transactions"
+              id="transactionList"
             >
               <div class="loading-state">
                 <span class="loading-line"></span>
@@ -262,115 +289,97 @@
                 <span class="loading-line"></span>
               </div>
             </div>
-
           </div>
 
-          <div class="dashboard-panel">
-
+          <div class="dashboard-panel account-panel">
             <div class="panel-header">
               <div>
-                <span class="panel-label">
-                  ACCOUNT
-                </span>
-
-                <h2>
-                  Informasi akun
-                </h2>
+                <span class="eyebrow">ACCOUNT</span>
+                <h2>Status akun</h2>
               </div>
-
-              <a
-                href="/account"
-                class="panel-link"
-              >
-                Kelola
-              </a>
             </div>
 
-            <div class="account-details">
+            <div class="account-status-card">
 
-              <div class="detail-row">
-                <div class="detail-label">
-                  Nama
-                </div>
-
+              <div class="account-status-row">
+                <span>Nama</span>
                 <strong id="accountName">
                   Memuat...
                 </strong>
               </div>
 
-              <div class="detail-row">
-                <div class="detail-label">
-                  Username
-                </div>
-
+              <div class="account-status-row">
+                <span>Username</span>
                 <strong id="accountUsername">
-                  Memuat...
+                  @username
                 </strong>
               </div>
 
-              <div class="detail-row">
-                <div class="detail-label">
-                  Status
-                </div>
-
-                <span
-                  class="status-badge status-active"
+              <div class="account-status-row">
+                <span>Status</span>
+                <strong
+                  class="account-status-active"
                   id="accountStatus"
                 >
-                  ACTIVE
-                </span>
+                  Aktif
+                </strong>
               </div>
 
-              <div class="detail-row">
-                <div class="detail-label">
-                  Session
-                </div>
-
-                <strong id="sessionExpiry">
-                  Memuat...
+              <div class="account-status-row">
+                <span>Bergabung</span>
+                <strong id="accountCreated">
+                  -
                 </strong>
               </div>
 
             </div>
 
+            <a
+              href="/account"
+              class="button button-secondary account-button"
+            >
+              Kelola Akun
+            </a>
           </div>
 
         </section>
 
-        <section class="dashboard-panel announcement-panel">
+        <section class="announcement-section">
+          <div class="dashboard-panel announcement-panel">
 
-          <div class="panel-header">
-            <div>
-              <span class="panel-label">
-                INFORMATION
-              </span>
+            <div class="announcement-header">
+              <div class="announcement-icon">
+                VD
+              </div>
 
-              <h2>
-                Informasi layanan
-              </h2>
+              <div>
+                <span class="eyebrow">
+                  INFORMATION
+                </span>
+
+                <h2>Informasi</h2>
+              </div>
             </div>
-          </div>
 
-          <div
-            class="announcement-content"
-            id="announcementContent"
-          >
-            <div class="announcement-placeholder">
-              <strong>
-                VenDigitalStore
-              </strong>
+            <div
+              class="announcement-content"
+              id="announcementContent"
+            >
+              <h3>
+                Selamat datang di VenDigitalStore
+              </h3>
 
               <p>
-                Gunakan menu di samping untuk mengakses
-                layanan NOKOS, Suntik Sosmed, Deposit,
-                Pesanan, dan Akun.
+                Gunakan menu di sebelah kiri untuk mengakses
+                layanan digital, melakukan deposit, dan melihat
+                pesanan kamu.
               </p>
             </div>
-          </div>
 
+          </div>
         </section>
 
-      </div>
+      </main>
 
       <footer class="dashboard-footer">
         <span>
@@ -382,13 +391,15 @@
         </span>
       </footer>
 
-    </main>
-
+    </div>
   </div>
 
-  <script
-    type="module"
-    src="/javascript/dashboard-client.js"
-  ></script>
+  <div
+    class="sidebar-overlay"
+    id="sidebarOverlay"
+    aria-hidden="true"
+  ></div>
+
+  <script src="/javascript/dashboard.js" defer></script>
 </body>
 </html>
