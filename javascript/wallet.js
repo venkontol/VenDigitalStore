@@ -2,9 +2,12 @@ import {
   errorResponse,
   jsonResponse,
   nowUnix,
-  requireAuth,
   formatRupiah
 } from "./utils.js";
+
+import {
+  requireAuth
+} from "./auth.js";
 
 export async function getWalletOverview(
   request,
@@ -66,7 +69,8 @@ export async function getWalletOverview(
 
   return jsonResponse({
     success: true,
-    balance: Number(user.balance || 0),
+    balance:
+      Number(user.balance || 0),
     balance_formatted:
       formatRupiah(user.balance),
     transactions:
@@ -112,8 +116,7 @@ export async function creditBalance(
     orderId = null
   }
 ) {
-  amount =
-    Number(amount);
+  amount = Number(amount);
 
   if (
     !Number.isSafeInteger(amount) ||
@@ -123,9 +126,6 @@ export async function creditBalance(
       "Nominal credit tidak valid."
     );
   }
-
-  const now =
-    nowUnix();
 
   if (reference) {
     const existing =
@@ -147,130 +147,137 @@ export async function creditBalance(
     if (existing) {
       return {
         id: existing.id,
-        amount: Number(
-          existing.amount
-        ),
+        amount:
+          Number(existing.amount),
         balance:
-          Number(
-            existing.balance_after
-          ),
+          Number(existing.balance_after),
         idempotent: true
       };
     }
   }
 
-  const statements = [
-    env.DB
-      .prepare(
-        `
-        UPDATE users
-        SET
-          balance = balance + ?,
-          updated_at = ?
-        WHERE id = ?
-        `
-      )
-      .bind(
-        amount,
-        now,
-        userId
-      ),
+  const now =
+    nowUnix();
 
-    env.DB
+  const user =
+    await env.DB
       .prepare(
         `
-        INSERT INTO balance_transactions (
-          user_id,
-          order_id,
-          deposit_id,
-          type,
-          amount,
-          balance_before,
-          balance_after,
-          reference,
-          description,
-          created_at
-        )
-        SELECT
-          id,
-          ?,
-          ?,
-          ?,
-          ?,
-          balance - ?,
-          balance,
-          ?,
-          ?,
-          ?
+        SELECT balance
         FROM users
         WHERE id = ?
-          AND balance >= ?
+        LIMIT 1
         `
       )
-      .bind(
-        orderId,
-        depositId,
-        type,
-        amount,
-        amount,
-        reference,
-        description,
-        now,
-        userId,
-        amount
-      )
-  ];
+      .bind(userId)
+      .first();
 
-  await env.DB.batch(
-    statements
-  );
-
-  const transaction =
-    reference
-      ? await env.DB
-          .prepare(
-            `
-            SELECT
-              id,
-              amount,
-              balance_after
-            FROM balance_transactions
-            WHERE reference = ?
-            LIMIT 1
-            `
-          )
-          .bind(reference)
-          .first()
-      : await env.DB
-          .prepare(
-            `
-            SELECT
-              id,
-              amount,
-              balance_after
-            FROM balance_transactions
-            WHERE user_id = ?
-            ORDER BY id DESC
-            LIMIT 1
-            `
-          )
-          .bind(userId)
-          .first();
-
-  if (!transaction) {
+  if (!user) {
     throw new Error(
-      "Gagal mencatat transaksi credit."
+      "User tidak ditemukan."
     );
   }
 
+  const before =
+    Number(user.balance || 0);
+
+  const after =
+    before + amount;
+
+  const result =
+    await env.DB.batch([
+      env.DB
+        .prepare(
+          `
+          UPDATE users
+          SET
+            balance = ?,
+            updated_at = ?
+          WHERE id = ?
+          `
+        )
+        .bind(
+          after,
+          now,
+          userId
+        ),
+
+      env.DB
+        .prepare(
+          `
+          INSERT INTO balance_transactions (
+            user_id,
+            order_id,
+            deposit_id,
+            type,
+            amount,
+            balance_before,
+            balance_after,
+            reference,
+            description,
+            created_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `
+        )
+        .bind(
+          userId,
+          orderId,
+          depositId,
+          type,
+          amount,
+          before,
+          after,
+          reference,
+          description,
+          now
+        )
+    ]);
+
+  if (!result) {
+    throw new Error(
+      "Gagal mencatat transaksi."
+    );
+  }
+
+  const transaction =
+    await env.DB
+      .prepare(
+        `
+        SELECT
+          id,
+          amount,
+          balance_after
+        FROM balance_transactions
+        WHERE user_id = ?
+        AND (
+          reference = ?
+          OR (
+            reference IS NULL
+            AND created_at = ?
+          )
+        )
+        ORDER BY id DESC
+        LIMIT 1
+        `
+      )
+      .bind(
+        userId,
+        reference,
+        now
+      )
+      .first();
+
   return {
-    id: transaction.id,
-    amount: Number(
-      transaction.amount
-    ),
-    balance: Number(
-      transaction.balance_after
-    ),
+    id: transaction?.id || null,
+    amount:
+      Number(
+        transaction?.amount || amount
+      ),
+    balance:
+      Number(
+        transaction?.balance_after || after
+      ),
     idempotent: false
   };
 }
@@ -286,8 +293,7 @@ export async function debitBalance(
     orderId = null
   }
 ) {
-  amount =
-    Number(amount);
+  amount = Number(amount);
 
   if (
     !Number.isSafeInteger(amount) ||
@@ -297,9 +303,6 @@ export async function debitBalance(
       "Nominal debit tidak valid."
     );
   }
-
-  const now =
-    nowUnix();
 
   if (reference) {
     const existing =
@@ -320,14 +323,12 @@ export async function debitBalance(
 
     if (existing) {
       return {
+        success: true,
         id: existing.id,
-        amount: Number(
-          existing.amount
-        ),
+        amount:
+          Number(existing.amount),
         balance:
-          Number(
-            existing.balance_after
-          ),
+          Number(existing.balance_after),
         idempotent: true
       };
     }
@@ -352,18 +353,22 @@ export async function debitBalance(
     );
   }
 
-  if (
-    Number(user.balance || 0) <
-    amount
-  ) {
+  const before =
+    Number(user.balance || 0);
+
+  if (before < amount) {
     return {
       success: false,
       insufficient: true,
-      balance: Number(
-        user.balance || 0
-      )
+      balance: before
     };
   }
+
+  const after =
+    before - amount;
+
+  const now =
+    nowUnix();
 
   const result =
     await env.DB.batch([
@@ -372,14 +377,14 @@ export async function debitBalance(
           `
           UPDATE users
           SET
-            balance = balance - ?,
+            balance = ?,
             updated_at = ?
           WHERE id = ?
             AND balance >= ?
           `
         )
         .bind(
-          amount,
+          after,
           now,
           userId,
           amount
@@ -399,80 +404,34 @@ export async function debitBalance(
             description,
             created_at
           )
-          SELECT
-            id,
-            ?,
-            ?,
-            ?,
-            balance + ?,
-            balance,
-            ?,
-            ?,
-            ?
-          FROM users
-          WHERE id = ?
-            AND balance >= 0
-            AND balance = balance
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
         )
         .bind(
+          userId,
           orderId,
           type,
           -amount,
-          amount,
+          before,
+          after,
           reference,
           description,
-          now,
-          userId
+          now
         )
     ]);
 
-  const transaction =
-    reference
-      ? await env.DB
-          .prepare(
-            `
-            SELECT
-              id,
-              amount,
-              balance_after
-            FROM balance_transactions
-            WHERE reference = ?
-            LIMIT 1
-            `
-          )
-          .bind(reference)
-          .first()
-      : null;
-
-  if (!transaction) {
-    const current =
-      await getBalance(
-        env,
-        userId
-      );
-
-    return {
-      success: false,
-      insufficient:
-        Number(current || 0) <
-        amount,
-      balance:
-        Number(current || 0)
-    };
+  if (!result) {
+    throw new Error(
+      "Gagal melakukan debit saldo."
+    );
   }
 
   return {
     success: true,
-    id: transaction.id,
-    amount: Number(
-      transaction.amount
-    ),
-    balance: Number(
-      transaction.balance_after
-    ),
-    idempotent: false,
-    batch: result
+    id: null,
+    amount: -amount,
+    balance: after,
+    idempotent: false
   };
 }
 
@@ -508,8 +467,7 @@ export async function adjustmentBalance(
     description = "Penyesuaian saldo"
   }
 ) {
-  amount =
-    Number(amount);
+  amount = Number(amount);
 
   if (
     !Number.isSafeInteger(amount) ||
@@ -546,9 +504,7 @@ export async function adjustmentBalance(
       }
     );
 
-  if (
-    result.insufficient
-  ) {
+  if (result.insufficient) {
     throw new Error(
       "Saldo tidak mencukupi."
     );
