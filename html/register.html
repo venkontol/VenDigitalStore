@@ -2,17 +2,11 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, viewport-fit=cover"
-  >
-  <meta
-    name="theme-color"
-    content="#05070d"
-  >
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#05070d">
   <meta
     name="description"
-    content="Buat akun VenDigitalStore"
+    content="Daftar akun VenDigitalStore"
   >
   <title>Daftar — VenDigitalStore</title>
 
@@ -20,45 +14,48 @@
     rel="stylesheet"
     href="/CSS/base.css"
   >
-
   <link
     rel="stylesheet"
     href="/CSS/components.css"
   >
-
   <link
     rel="stylesheet"
     href="/CSS/login.css"
   >
 </head>
 
-<body>
+<body class="auth-body">
   <main class="auth-page">
-    <div class="auth-container">
+    <div class="auth-background"></div>
 
-      <section class="auth-box">
+    <section
+      class="auth-container"
+      aria-labelledby="register-title"
+    >
+      <div class="auth-brand">
         <a
-          class="auth-logo"
+          class="brand-logo"
           href="/"
           aria-label="VenDigitalStore"
         >
-          <span class="auth-logo-mark">VD</span>
+          <span class="brand-mark">VD</span>
           <span>VenDigitalStore</span>
         </a>
+      </div>
 
-        <div class="auth-head">
+      <div class="auth-card">
+        <div class="auth-header">
           <span class="auth-eyebrow">
             ACCOUNT
           </span>
 
-          <h1>
+          <h1 id="register-title">
             Buat akun
           </h1>
 
           <p>
             Daftar untuk mulai menggunakan
-            wallet dan layanan digital
-            VenDigitalStore.
+            layanan VenDigitalStore.
           </p>
         </div>
 
@@ -71,8 +68,9 @@
 
         <form
           id="registerForm"
+          class="auth-form"
           method="post"
-          autocomplete="on"
+          action="/api/auth/register"
         >
           <div class="form-group">
             <label
@@ -106,9 +104,6 @@
               name="username"
               autocomplete="username"
               maxlength="32"
-              minlength="3"
-              spellcheck="false"
-              autocapitalize="none"
               required
             >
           </div>
@@ -132,14 +127,14 @@
 
           <button
             id="registerButton"
-            class="btn btn-primary"
+            class="btn btn-primary auth-submit"
             type="submit"
           >
             Buat Akun
           </button>
         </form>
 
-        <div class="auth-foot">
+        <div class="auth-footer">
           <span>
             Sudah punya akun?
           </span>
@@ -148,9 +143,8 @@
             Login
           </a>
         </div>
-      </section>
-
-    </div>
+      </div>
+    </section>
   </main>
 
   <script
