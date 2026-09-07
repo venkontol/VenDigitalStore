@@ -41,10 +41,7 @@ import {
 } from "./suntik-sosmed.js";
 
 import {
-  getUserOrder,
-  listUserOrders,
-  listAdminOrders,
-  getOrderEvents
+  handleOrders
 } from "./orders.js";
 
 import {
@@ -82,399 +79,173 @@ import {
   getPath
 } from "./utils.js";
 
-function routeKey(
-  method,
-  path
-) {
+function routeKey(method, path) {
   return `${method} ${path}`;
 }
 
-async function handleRoute(
-  request,
-  env,
-  ctx
-) {
-  const method =
-    getMethod(request);
-
-  const path =
-    getPath(request);
-
-  const key =
-    routeKey(
-      method,
-      path
-    );
+async function handleRoute(request, env, ctx) {
+  const method = getMethod(request);
+  const path = getPath(request);
+  const key = routeKey(method, path);
 
   switch (key) {
     case "GET /api/auth/me":
-      return me(
-        request,
-        env,
-        ctx
-      );
+      return me(request, env, ctx);
 
     case "POST /api/auth/register":
-      return register(
-        request,
-        env,
-        ctx
-      );
+      return register(request, env, ctx);
 
     case "POST /api/auth/login":
-      return login(
-        request,
-        env,
-        ctx
-      );
+      return login(request, env, ctx);
 
     case "POST /api/auth/logout":
-      return logout(
-        request,
-        env,
-        ctx
-      );
+      return logout(request, env, ctx);
 
     case "POST /api/auth/logout-all":
-      return logoutAll(
-        request,
-        env,
-        ctx
-      );
+      return logoutAll(request, env, ctx);
 
     case "GET /api/wallet":
     case "GET /api/wallet/overview":
-      return getWalletOverview(
-        request,
-        env,
-        ctx
-      );
+      return getWalletOverview(request, env, ctx);
 
     case "GET /api/wallet/balance":
-      return getWalletBalance(
-        request,
-        env,
-        ctx
-      );
+      return getWalletBalance(request, env, ctx);
 
     case "GET /api/wallet/transactions":
-      return getWalletTransactions(
-        request,
-        env,
-        ctx
-      );
+      return getWalletTransactions(request, env, ctx);
 
     case "POST /api/deposit":
-      return createDeposit(
-        request,
-        env,
-        ctx
-      );
+      return createDeposit(request, env, ctx);
 
     case "GET /api/deposit":
-      return getDeposit(
-        request,
-        env,
-        ctx
-      );
+      return getDeposit(request, env, ctx);
 
     case "POST /api/deposit/check":
-      return checkDeposit(
-        request,
-        env,
-        ctx
-      );
+      return checkDeposit(request, env, ctx);
 
     case "POST /api/deposit/confirm":
-      return confirmDeposit(
-        request,
-        env,
-        ctx
-      );
+      return confirmDeposit(request, env, ctx);
 
     case "POST /api/deposit/cancel":
-      return cancelDeposit(
-        request,
-        env,
-        ctx
-      );
+      return cancelDeposit(request, env, ctx);
 
     case "POST /api/deposit/expire":
-      return expireDeposits(
-        request,
-        env,
-        ctx
-      );
+      return expireDeposits(request, env, ctx);
 
     case "GET /api/nokos/services":
     case "GET /api/nokos/products":
-      return listNokosProducts(
-        request,
-        env,
-        ctx
-      );
+      return listNokosProducts(request, env, ctx);
 
     case "POST /api/nokos/order":
-      return createNokosOrder(
-        request,
-        env,
-        ctx
-      );
+      return createNokosOrder(request, env, ctx);
 
     case "GET /api/nokos/order":
-      return getNokosOrder(
-        request,
-        env,
-        ctx
-      );
+      return getNokosOrder(request, env, ctx);
 
     case "POST /api/nokos/order/sync":
-      return syncNokosOrder(
-        request,
-        env,
-        ctx
-      );
+      return syncNokosOrder(request, env, ctx);
 
     case "POST /api/nokos/order/cancel":
-      return cancelNokosOrder(
-        request,
-        env,
-        ctx
-      );
+      return cancelNokosOrder(request, env, ctx);
 
     case "POST /api/nokos/order/finish":
-      return finishNokosOrder(
-        request,
-        env,
-        ctx
-      );
+      return finishNokosOrder(request, env, ctx);
 
     case "POST /api/nokos/order/resend":
-      return resendNokosOrder(
-        request,
-        env,
-        ctx
-      );
+      return resendNokosOrder(request, env, ctx);
 
     case "GET /api/suntik-sosmed/services":
-      return listSocialServices(
-        request,
-        env,
-        ctx
-      );
+      return listSocialServices(request, env, ctx);
 
     case "POST /api/suntik-sosmed/order":
-      return createSocialOrder(
-        request,
-        env,
-        ctx
-      );
+      return createSocialOrder(request, env, ctx);
 
     case "GET /api/suntik-sosmed/order":
-      return getSocialOrder(
-        request,
-        env,
-        ctx
-      );
+      return getSocialOrder(request, env, ctx);
 
     case "GET /api/suntik-sosmed/orders":
-      return listSocialOrders(
-        request,
-        env,
-        ctx
-      );
+      return listSocialOrders(request, env, ctx);
 
     case "POST /api/suntik-sosmed/order/sync":
-      return syncSocialOrder(
-        request,
-        env,
-        ctx
-      );
+      return syncSocialOrder(request, env, ctx);
 
     case "POST /api/suntik-sosmed/order/cancel":
-      return cancelSocialOrder(
-        request,
-        env,
-        ctx
-      );
+      return cancelSocialOrder(request, env, ctx);
 
     case "GET /api/orders":
-      return listUserOrders(
-        request,
-        env,
-        ctx
-      );
-
-    case "GET /api/orders/detail":
-      return getUserOrder(
-        request,
-        env,
-        ctx
-      );
-
-    case "GET /api/orders/events":
-      return getOrderEvents(
-        request,
-        env,
-        ctx
-      );
+    case "POST /api/orders":
+    case "GET /api/orders/order":
+    case "POST /api/orders/cancel":
+    case "GET /api/admin/orders":
+    case "POST /api/admin/orders/status":
+    case "POST /api/admin/orders/refund":
+      return handleOrders(request, env, ctx);
 
     case "POST /api/visitor/track":
-      return trackVisitor(
-        request,
-        env,
-        ctx
-      );
+      return trackVisitor(request, env, ctx);
 
     case "POST /api/visitor/pageview":
-      return trackPageView(
-        request,
-        env,
-        ctx
-      );
+      return trackPageView(request, env, ctx);
 
     case "GET /api/settings":
-      return getPublicSettings(
-        request,
-        env,
-        ctx
-      );
+      return getPublicSettings(request, env, ctx);
 
     case "GET /api/settings/public":
-      return getPublicSettings(
-        request,
-        env,
-        ctx
-      );
+      return getPublicSettings(request, env, ctx);
 
     case "GET /api/settings/value":
-      return getPublicSetting(
-        request,
-        env,
-        ctx
-      );
+      return getPublicSetting(request, env, ctx);
 
     case "GET /api/admin/dashboard":
-      return adminDashboard(
-        request,
-        env,
-        ctx
-      );
+      return adminDashboard(request, env, ctx);
 
     case "GET /api/admin/users":
-      return adminListUsers(
-        request,
-        env,
-        ctx
-      );
+      return adminListUsers(request, env, ctx);
 
     case "GET /api/admin/user":
-      return adminGetUser(
-        request,
-        env,
-        ctx
-      );
+      return adminGetUser(request, env, ctx);
 
     case "PATCH /api/admin/user":
     case "PUT /api/admin/user":
-      return adminUpdateUser(
-        request,
-        env,
-        ctx
-      );
+      return adminUpdateUser(request, env, ctx);
 
     case "POST /api/admin/user/balance":
-      return adminAdjustUserBalance(
-        request,
-        env,
-        ctx
-      );
+      return adminAdjustUserBalance(request, env, ctx);
 
     case "GET /api/admin/activity":
-      return adminListRecentActivity(
-        request,
-        env,
-        ctx
-      );
+      return adminListRecentActivity(request, env, ctx);
 
     case "DELETE /api/admin/user":
-      return adminDeleteUser(
-        request,
-        env,
-        ctx
-      );
+      return adminDeleteUser(request, env, ctx);
 
     case "GET /api/admin/counts":
-      return adminGetSystemCounts(
-        request,
-        env,
-        ctx
-      );
-
-    case "GET /api/admin/orders":
-      return listAdminOrders(
-        request,
-        env,
-        ctx
-      );
+      return adminGetSystemCounts(request, env, ctx);
 
     case "GET /api/admin/visitors":
-      return getVisitorOverview(
-        request,
-        env,
-        ctx
-      );
+      return getVisitorOverview(request, env, ctx);
 
     case "GET /api/admin/visitor-stats":
-      return getVisitorStats(
-        request,
-        env,
-        ctx
-      );
+      return getVisitorStats(request, env, ctx);
 
     case "POST /api/admin/visitor/cleanup":
-      return cleanupVisitorSessions(
-        request,
-        env,
-        ctx
-      );
+      return cleanupVisitorSessions(request, env, ctx);
 
     case "GET /api/admin/settings":
-      return adminGetSettings(
-        request,
-        env,
-        ctx
-      );
+      return adminGetSettings(request, env, ctx);
 
     case "GET /api/admin/settings/value":
-      return adminGetSetting(
-        request,
-        env,
-        ctx
-      );
+      return adminGetSetting(request, env, ctx);
 
     case "PUT /api/admin/settings":
     case "PATCH /api/admin/settings":
-      return adminUpdateSettings(
-        request,
-        env,
-        ctx
-      );
+      return adminUpdateSettings(request, env, ctx);
 
     case "PUT /api/admin/setting":
     case "PATCH /api/admin/setting":
-      return adminUpdateSetting(
-        request,
-        env,
-        ctx
-      );
+      return adminUpdateSetting(request, env, ctx);
 
     case "POST /api/admin/settings/reset":
-      return adminResetSettings(
-        request,
-        env,
-        ctx
-      );
+      return adminResetSettings(request, env, ctx);
 
     case "OPTIONS /api":
     case "OPTIONS /api/auth/me":
@@ -504,8 +275,11 @@ async function handleRoute(
     case "OPTIONS /api/suntik-sosmed/order/sync":
     case "OPTIONS /api/suntik-sosmed/order/cancel":
     case "OPTIONS /api/orders":
-    case "OPTIONS /api/orders/detail":
-    case "OPTIONS /api/orders/events":
+    case "OPTIONS /api/orders/order":
+    case "OPTIONS /api/orders/cancel":
+    case "OPTIONS /api/admin/orders":
+    case "OPTIONS /api/admin/orders/status":
+    case "OPTIONS /api/admin/orders/refund":
     case "OPTIONS /api/visitor/track":
     case "OPTIONS /api/visitor/pageview":
     case "OPTIONS /api/settings":
@@ -524,12 +298,9 @@ async function handleRoute(
     case "OPTIONS /api/admin/settings/value":
     case "OPTIONS /api/admin/setting":
     case "OPTIONS /api/admin/settings/reset":
-      return new Response(
-        null,
-        {
-          status: 204
-        }
-      );
+      return new Response(null, {
+        status: 204
+      });
 
     default:
       return errorResponse(
@@ -539,11 +310,7 @@ async function handleRoute(
   }
 }
 
-export default async function router(
-  request,
-  env,
-  ctx
-) {
+export default async function router(request, env, ctx) {
   try {
     return await handleRoute(
       request,
