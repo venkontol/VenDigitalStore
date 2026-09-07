@@ -1,1083 +1,853 @@
 import {
   cleanString,
-  generateOrderNumber,
-  getPagination,
-  jsonText,
+  parsePositiveInteger,
   nowUnix,
-  parseInteger,
-  parseJson,
+  readJson,
   successResponse,
-  errorResponse
+  errorResponse,
+  generateOrderNumber
 } from "./utils.js";
 
-const ORDER_TYPES = Object.freeze({
-  NOKOS: "NOKOS",
-  SOCIAL: "SOCIAL"
-});
+import {
+  requireAuth,
+  requireAdmin
+} from "./auth.js";
 
-const ORDER_PROVIDERS = Object.freeze({
-  SMSCODE: "SMSCODE",
-  BUZZERPANEL: "BUZZERPANEL"
-});
+import {
+  debitBalance,
+  refundBalance
+} from "./wallet.js";
 
-const ORDER_STATUSES = Object.freeze({
-  CREATING: "CREATING",
-  PENDING: "PENDING",
-  PROCESSING: "PROCESSING",
-  OTP_RECEIVED: "OTP_RECEIVED",
-  COMPLETED: "COMPLETED",
-  PARTIAL: "PARTIAL",
-  CANCELLED: "CANCELLED",
-  EXPIRED: "EXPIRED",
-  REFUNDED: "REFUNDED",
-  FAILED: "FAILED",
-  UNKNOWN: "UNKNOWN"
-});
+const ORDER_TYPES = new Set([
+  "NOKOS",
+  "SOSMED",
+  "DEPOSIT",
+  "PRODUCT",
+  "OTHER"
+]);
+
+const ORDER_STATUSES = new Set([
+  "CREATING",
+  "PENDING",
+  "PROCESSING",
+  "OTP_RECEIVED",
+  "COMPLETED",
+  "CANCELLED",
+  "EXPIRED",
+  "REFUNDED",
+  "FAILED",
+  "UNKNOWN"
+]);
 
 const FINAL_STATUSES = new Set([
-  ORDER_STATUSES.COMPLETED,
-  ORDER_STATUSES.CANCELLED,
-  ORDER_STATUSES.EXPIRED,
-  ORDER_STATUSES.REFUNDED,
-  ORDER_STATUSES.FAILED
+  "COMPLETED",
+  "CANCELLED",
+  "EXPIRED",
+  "REFUNDED",
+  "FAILED"
 ]);
 
-const ACTIVE_STATUSES = new Set([
-  ORDER_STATUSES.CREATING,
-  ORDER_STATUSES.PENDING,
-  ORDER_STATUSES.PROCESSING,
-  ORDER_STATUSES.OTP_RECEIVED,
-  ORDER_STATUSES.PARTIAL,
-  ORDER_STATUSES.UNKNOWN
-]);
-
-const RATE_UNITS = Object.freeze({
-  FIXED: "FIXED",
-  PER_1000: "PER_1000"
-});
-
-const ALLOWED_ORDER_TYPES =
-  new Set(Object.values(ORDER_TYPES));
-
-const ALLOWED_PROVIDERS =
-  new Set(Object.values(ORDER_PROVIDERS));
-
-const ALLOWED_STATUSES =
-  new Set(Object.values(ORDER_STATUSES));
-
-const ALLOWED_RATE_UNITS =
-  new Set(Object.values(RATE_UNITS));
-
-const ORDER_SELECT = `
-  SELECT
-    id,
-    user_id,
-    order_number,
-    type,
-    provider,
-    external_order_id,
-    service_id,
-    service_name,
-    target,
-    quantity,
-    rate_unit,
-    provider_rate,
-    selling_rate,
-    provider_amount,
-    customer_amount,
-    provider_charge,
-    provider_currency,
-    status,
-    provider_status,
-    provider_data,
-    request_data,
-    idempotency_key,
-    failure_reason,
-    phone_number,
-    otp_code,
-    otp_message,
-    otp_received_at,
-    provider_expires_at,
-    start_count,
-    remains,
-    created_at,
-    updated_at,
-    completed_at,
-    cancelled_at
-  FROM orders
-`;
-
-const EVENT_SELECT = `
-  SELECT
-    id,
-    order_id,
-    status,
-    provider_status,
-    message,
-    provider_data,
-    created_at
-  FROM order_events
-`;
-
-function validEnum(
-  value,
-  allowed
-) {
-  return allowed.has(
-    String(value || "").toUpperCase()
-  );
-}
-
-function normalizeOrderRow(row) {
-  if (!row) {
-    return null;
-  }
-
-  return {
-    id: row.id,
-    user_id: row.user_id,
-    order_number: row.order_number,
-    type: row.type,
-    provider: row.provider,
-    external_order_id:
-      row.external_order_id ?? null,
-    service_id:
-      row.service_id ?? null,
-    service_name:
-      row.service_name ?? null,
-    target:
-      row.target ?? null,
-    quantity:
-      Number(row.quantity || 0),
-    rate_unit:
-      row.rate_unit,
-    provider_rate:
-      Number(row.provider_rate || 0),
-    selling_rate:
-      Number(row.selling_rate || 0),
-    provider_amount:
-      Number(row.provider_amount || 0),
-    customer_amount:
-      Number(row.customer_amount || 0),
-    provider_charge:
-      row.provider_charge === null ||
-      row.provider_charge === undefined
-        ? null
-        : Number(row.provider_charge),
-    provider_currency:
-      row.provider_currency ?? "IDR",
-    status:
-      row.status,
-    provider_status:
-      row.provider_status ?? null,
-    provider_data:
-      parseJson(row.provider_data, null),
-    request_data:
-      parseJson(row.request_data, null),
-    idempotency_key:
-      row.idempotency_key ?? null,
-    failure_reason:
-      row.failure_reason ?? null,
-    phone_number:
-      row.phone_number ?? null,
-    otp_code:
-      row.otp_code ?? null,
-    otp_message:
-      row.otp_message ?? null,
-    otp_received_at:
-      row.otp_received_at ?? null,
-    provider_expires_at:
-      row.provider_expires_at ?? null,
-    start_count:
-      row.start_count === null ||
-      row.start_count === undefined
-        ? null
-        : Number(row.start_count),
-    remains:
-      row.remains === null ||
-      row.remains === undefined
-        ? null
-        : Number(row.remains),
-    created_at:
-      row.created_at,
-    updated_at:
-      row.updated_at,
-    completed_at:
-      row.completed_at ?? null,
-    cancelled_at:
-      row.cancelled_at ?? null
-  };
-}
-
-function normalizeEventRow(row) {
-  if (!row) {
-    return null;
-  }
-
-  return {
-    id: row.id,
-    order_id: row.order_id,
-    status: row.status,
-    provider_status:
-      row.provider_status ?? null,
-    message:
-      row.message ?? null,
-    provider_data:
-      parseJson(row.provider_data, null),
-    created_at:
-      row.created_at
-  };
-}
-
-function normalizeOrderInput(input = {}) {
-  const userId =
-    parseInteger(input.userId, {
-      min: 1
-    });
-
-  if (!userId) {
-    return {
-      error: "User tidak valid."
-    };
-  }
-
-  const type =
-    String(input.type || "")
-      .trim()
-      .toUpperCase();
-
-  if (!validEnum(type, ALLOWED_ORDER_TYPES)) {
-    return {
-      error: "Tipe order tidak valid."
-    };
-  }
-
-  const provider =
-    String(input.provider || "")
-      .trim()
-      .toUpperCase();
-
-  if (!validEnum(provider, ALLOWED_PROVIDERS)) {
-    return {
-      error: "Provider order tidak valid."
-    };
-  }
-
-  const quantity =
-    parseInteger(
-      input.quantity ?? 1,
-      {
-        min: 1
-      }
-    );
-
-  if (!quantity) {
-    return {
-      error: "Quantity tidak valid."
-    };
-  }
-
-  const providerRate =
-    parseInteger(
-      input.providerRate ?? 0,
-      {
-        min: 0
-      }
-    );
-
-  const sellingRate =
-    parseInteger(
-      input.sellingRate ?? 0,
-      {
-        min: 0
-      }
-    );
-
-  const providerAmount =
-    parseInteger(
-      input.providerAmount ?? 0,
-      {
-        min: 0
-      }
-    );
-
-  const customerAmount =
-    parseInteger(
-      input.customerAmount ?? 0,
-      {
-        min: 0
-      }
-    );
-
-  if (
-    providerRate === null ||
-    sellingRate === null ||
-    providerAmount === null ||
-    customerAmount === null
-  ) {
-    return {
-      error: "Nilai harga order tidak valid."
-    };
-  }
-
-  const rateUnit =
-    String(
-      input.rateUnit || RATE_UNITS.FIXED
-    )
-      .trim()
-      .toUpperCase();
-
-  if (
-    !validEnum(
-      rateUnit,
-      ALLOWED_RATE_UNITS
-    )
-  ) {
-    return {
-      error: "Satuan harga order tidak valid."
-    };
-  }
-
-  const idempotencyKey =
-    input.idempotencyKey
-      ? cleanString(
-          input.idempotencyKey,
-          128
-        )
-      : null;
-
-  return {
-    value: {
-      userId,
-      type,
-      provider,
-      externalOrderId:
-        input.externalOrderId
-          ? cleanString(
-              input.externalOrderId,
-              128
-            )
-          : null,
-      serviceId:
-        input.serviceId
-          ? cleanString(
-              input.serviceId,
-              128
-            )
-          : null,
-      serviceName:
-        input.serviceName
-          ? cleanString(
-              input.serviceName,
-              255
-            )
-          : null,
-      target:
-        input.target
-          ? cleanString(
-              input.target,
-              2048
-            )
-          : null,
-      quantity,
-      rateUnit,
-      providerRate,
-      sellingRate,
-      providerAmount,
-      customerAmount,
-      providerCharge:
-        input.providerCharge === null ||
-        input.providerCharge === undefined
-          ? null
-          : parseInteger(
-              input.providerCharge,
-              {
-                min: 0
-              }
-            ),
-      providerCurrency:
-        cleanString(
-          input.providerCurrency || "IDR",
-          16
-        ).toUpperCase(),
-      status:
-        String(
-          input.status ||
-          ORDER_STATUSES.CREATING
-        )
-          .trim()
-          .toUpperCase(),
-      providerStatus:
-        input.providerStatus
-          ? cleanString(
-              input.providerStatus,
-              128
-            )
-          : null,
-      providerData:
-        input.providerData ?? null,
-      requestData:
-        input.requestData ?? null,
-      idempotencyKey,
-      failureReason:
-        input.failureReason
-          ? cleanString(
-              input.failureReason,
-              1000
-            )
-          : null,
-      phoneNumber:
-        input.phoneNumber
-          ? cleanString(
-              input.phoneNumber,
-              64
-            )
-          : null,
-      otpCode:
-        input.otpCode
-          ? cleanString(
-              input.otpCode,
-              128
-            )
-          : null,
-      otpMessage:
-        input.otpMessage
-          ? cleanString(
-              input.otpMessage,
-              2048
-            )
-          : null,
-      otpReceivedAt:
-        input.otpReceivedAt ?? null,
-      providerExpiresAt:
-        input.providerExpiresAt ?? null,
-      startCount:
-        input.startCount ?? null,
-      remains:
-        input.remains ?? null
-    }
-  };
-}
-
-function normalizeStatus(status) {
+function normalizeStatus(value) {
   return String(
-    status || ""
+    value || ""
   )
     .trim()
     .toUpperCase();
 }
 
-function normalizeProviderStatus(status) {
-  if (
-    status === null ||
-    status === undefined
-  ) {
-    return null;
-  }
-
-  return cleanString(
-    status,
-    128
-  );
-}
-
-function orderIsFinal(status) {
-  return FINAL_STATUSES.has(
-    normalizeStatus(status)
-  );
-}
-
-function orderIsActive(status) {
-  return ACTIVE_STATUSES.has(
-    normalizeStatus(status)
-  );
-}
-
-export function isFinalOrderStatus(status) {
-  return orderIsFinal(status);
-}
-
-export function isActiveOrderStatus(status) {
-  return orderIsActive(status);
-}
-
-export function getOrderStatuses() {
-  return Object.freeze({
-    ...ORDER_STATUSES
-  });
-}
-
-export function getOrderTypes() {
-  return Object.freeze({
-    ...ORDER_TYPES
-  });
-}
-
-export function getOrderProviders() {
-  return Object.freeze({
-    ...ORDER_PROVIDERS
-  });
-}
-
-export async function getOrderById(
-  db,
-  orderId
-) {
-  const id =
-    parseInteger(orderId, {
-      min: 1
-    });
-
-  if (!id) {
-    return null;
-  }
-
-  const row =
-    await db
-      .prepare(`
-        ${ORDER_SELECT}
-        WHERE id = ?
-        LIMIT 1
-      `)
-      .bind(id)
-      .first();
-
-  return normalizeOrderRow(row);
-}
-
-export async function getOrderByNumber(
-  db,
-  orderNumber
-) {
-  const value =
-    cleanString(
-      orderNumber,
-      128
-    );
-
-  if (!value) {
-    return null;
-  }
-
-  const row =
-    await db
-      .prepare(`
-        ${ORDER_SELECT}
-        WHERE order_number = ?
-        LIMIT 1
-      `)
-      .bind(value)
-      .first();
-
-  return normalizeOrderRow(row);
-}
-
-export async function getOrderByExternalId(
-  db,
-  provider,
-  externalOrderId
-) {
-  const normalizedProvider =
-    String(provider || "")
+function normalizeOrderType(value) {
+  const type =
+    String(
+      value || "OTHER"
+    )
       .trim()
       .toUpperCase();
 
-  const externalId =
-    cleanString(
-      externalOrderId,
-      128
-    );
+  return ORDER_TYPES.has(type)
+    ? type
+    : "OTHER";
+}
+
+function validStatus(value) {
+  return ORDER_STATUSES.has(
+    normalizeStatus(value)
+  );
+}
+
+function isFinalStatus(value) {
+  return FINAL_STATUSES.has(
+    normalizeStatus(value)
+  );
+}
+
+function safeMoney(value) {
+  const amount =
+    Number(value);
 
   if (
-    !validEnum(
-      normalizedProvider,
-      ALLOWED_PROVIDERS
+    !Number.isSafeInteger(
+      amount
     ) ||
-    !externalId
+    amount < 0
   ) {
     return null;
   }
 
-  const row =
-    await db
-      .prepare(`
-        ${ORDER_SELECT}
-        WHERE provider = ?
-          AND external_order_id = ?
-        LIMIT 1
-      `)
-      .bind(
-        normalizedProvider,
-        externalId
-      )
-      .first();
-
-  return normalizeOrderRow(row);
+  return amount;
 }
 
-export async function getOrderByIdempotencyKey(
-  db,
-  userId,
-  idempotencyKey
-) {
-  const normalizedUserId =
-    parseInteger(userId, {
-      min: 1
-    });
-
-  const key =
-    cleanString(
-      idempotencyKey,
-      128
+function safeQuantity(value) {
+  const quantity =
+    parsePositiveInteger(
+      value
     );
 
   if (
-    !normalizedUserId ||
-    !key
+    !quantity ||
+    quantity > 100000
   ) {
     return null;
   }
 
-  const row =
-    await db
-      .prepare(`
-        ${ORDER_SELECT}
-        WHERE user_id = ?
-          AND idempotency_key = ?
-        LIMIT 1
-      `)
-      .bind(
-        normalizedUserId,
-        key
-      )
-      .first();
-
-  return normalizeOrderRow(row);
+  return quantity;
 }
 
-export async function getUserOrder(
-  db,
-  userId,
+function formatOrder(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id:
+      Number(row.id),
+    user_id:
+      row.user_id === null ||
+      row.user_id === undefined
+        ? null
+        : Number(row.user_id),
+    order_number:
+      row.order_number,
+    type:
+      row.type,
+    provider:
+      row.provider,
+    external_order_id:
+      row.external_order_id,
+    service_id:
+      row.service_id,
+    service_name:
+      row.service_name,
+    target:
+      row.target,
+    quantity:
+      Number(
+        row.quantity || 0
+      ),
+    rate_unit:
+      row.rate_unit,
+    provider_rate:
+      Number(
+        row.provider_rate || 0
+      ),
+    selling_rate:
+      Number(
+        row.selling_rate || 0
+      ),
+    provider_amount:
+      Number(
+        row.provider_amount || 0
+      ),
+    customer_amount:
+      Number(
+        row.customer_amount || 0
+      ),
+    provider_charge:
+      row.provider_charge === null ||
+      row.provider_charge === undefined
+        ? null
+        : Number(
+            row.provider_charge
+          ),
+    provider_currency:
+      row.provider_currency,
+    status:
+      row.status,
+    provider_status:
+      row.provider_status,
+    provider_data:
+      row.provider_data,
+    request_data:
+      row.request_data,
+    idempotency_key:
+      row.idempotency_key,
+    failure_reason:
+      row.failure_reason,
+    phone_number:
+      row.phone_number,
+    otp_code:
+      row.otp_code,
+    otp_message:
+      row.otp_message,
+    otp_received_at:
+      row.otp_received_at,
+    provider_expires_at:
+      row.provider_expires_at,
+    start_count:
+      row.start_count,
+    remains:
+      row.remains,
+    created_at:
+      row.created_at,
+    updated_at:
+      row.updated_at,
+    completed_at:
+      row.completed_at,
+    cancelled_at:
+      row.cancelled_at
+  };
+}
+
+function formatEvent(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id:
+      Number(row.id),
+    order_id:
+      Number(row.order_id),
+    status:
+      row.status,
+    provider_status:
+      row.provider_status,
+    message:
+      row.message,
+    provider_data:
+      row.provider_data,
+    created_at:
+      row.created_at
+  };
+}
+
+function getOrderIdentifier(
+  request,
+  body = null
+) {
+  const url =
+    new URL(
+      request.url
+    );
+
+  const path =
+    url.pathname
+      .split("/")
+      .filter(Boolean);
+
+  const queryId =
+    parsePositiveInteger(
+      url.searchParams.get(
+        "id"
+      )
+    );
+
+  const bodyId =
+    parsePositiveInteger(
+      body?.id ??
+      body?.order_id ??
+      body?.orderId
+    );
+
+  const queryNumber =
+    cleanString(
+      url.searchParams.get(
+        "order_number"
+      ),
+      120
+    );
+
+  const bodyNumber =
+    cleanString(
+      body?.order_number ??
+      body?.orderNumber,
+      120
+    );
+
+  let pathIdentifier =
+    null;
+
+  if (
+    path[0] === "api" &&
+    path[1] === "orders" &&
+    path[2]
+  ) {
+    pathIdentifier =
+      path[2];
+  }
+
+  const pathId =
+    pathIdentifier &&
+    /^\d+$/.test(
+      pathIdentifier
+    )
+      ? parsePositiveInteger(
+          pathIdentifier
+        )
+      : null;
+
+  const pathNumber =
+    pathIdentifier &&
+    !/^\d+$/.test(
+      pathIdentifier
+    )
+      ? cleanString(
+          pathIdentifier,
+          120
+        )
+      : "";
+
+  return {
+    id:
+      queryId ||
+      bodyId ||
+      pathId ||
+      null,
+    orderNumber:
+      queryNumber ||
+      bodyNumber ||
+      pathNumber ||
+      ""
+  };
+}
+
+async function getOrderRowById(
+  env,
   orderId
 ) {
-  const normalizedUserId =
-    parseInteger(userId, {
-      min: 1
-    });
-
-  const normalizedOrderId =
-    parseInteger(orderId, {
-      min: 1
-    });
-
-  if (
-    !normalizedUserId ||
-    !normalizedOrderId
-  ) {
+  if (!orderId) {
     return null;
   }
 
-  const row =
-    await db
+  return env.DB
+    .prepare(`
+      SELECT *
+      FROM orders
+      WHERE id = ?
+      LIMIT 1
+    `)
+    .bind(
+      orderId
+    )
+    .first();
+}
+
+async function getOrderRowByNumber(
+  env,
+  orderNumber
+) {
+  if (!orderNumber) {
+    return null;
+  }
+
+  return env.DB
+    .prepare(`
+      SELECT *
+      FROM orders
+      WHERE order_number = ?
+      LIMIT 1
+    `)
+    .bind(
+      orderNumber
+    )
+    .first();
+}
+
+async function getUserOrderRow(
+  env,
+  userId,
+  {
+    id = null,
+    orderNumber = ""
+  } = {}
+) {
+  if (
+    id
+  ) {
+    return env.DB
       .prepare(`
-        ${ORDER_SELECT}
+        SELECT *
+        FROM orders
         WHERE id = ?
           AND user_id = ?
         LIMIT 1
       `)
       .bind(
-        normalizedOrderId,
-        normalizedUserId
+        id,
+        userId
       )
       .first();
-
-  return normalizeOrderRow(row);
-}
-
-export async function listUserOrders(
-  db,
-  userId,
-  options = {}
-) {
-  const normalizedUserId =
-    parseInteger(userId, {
-      min: 1
-    });
-
-  if (!normalizedUserId) {
-    return {
-      success: false,
-      error: "User tidak valid."
-    };
   }
 
-  const url =
-    options.url instanceof URL
-      ? options.url
-      : new URL(
-          options.url ||
-          "https://local.invalid/orders"
-        );
-
-  const pagination =
-    getPagination(
-      url,
-      options.defaultLimit || 20,
-      options.maxLimit || 100
-    );
-
-  const filters = [
-    "user_id = ?"
-  ];
-
-  const binds = [
-    normalizedUserId
-  ];
-
-  if (options.type) {
-    const type =
-      String(options.type)
-        .trim()
-        .toUpperCase();
-
-    if (
-      validEnum(
-        type,
-        ALLOWED_ORDER_TYPES
-      )
-    ) {
-      filters.push(
-        "type = ?"
-      );
-
-      binds.push(type);
-    }
-  }
-
-  if (options.status) {
-    const status =
-      normalizeStatus(
-        options.status
-      );
-
-    if (
-      validEnum(
-        status,
-        ALLOWED_STATUSES
-      )
-    ) {
-      filters.push(
-        "status = ?"
-      );
-
-      binds.push(status);
-    }
-  }
-
-  const where =
-    filters.join(" AND ");
-
-  const countRow =
-    await db
+  if (
+    orderNumber
+  ) {
+    return env.DB
       .prepare(`
-        SELECT COUNT(*) AS total
+        SELECT *
         FROM orders
-        WHERE ${where}
-      `)
-      .bind(...binds)
-      .first();
-
-  const rows =
-    await db
-      .prepare(`
-        ${ORDER_SELECT}
-        WHERE ${where}
-        ORDER BY created_at DESC, id DESC
-        LIMIT ?
-        OFFSET ?
+        WHERE order_number = ?
+          AND user_id = ?
+        LIMIT 1
       `)
       .bind(
-        ...binds,
-        pagination.limit,
-        pagination.offset
+        orderNumber,
+        userId
       )
-      .all();
+      .first();
+  }
 
-  const total =
-    Number(
-      countRow?.total || 0
-    );
-
-  return {
-    success: true,
-    orders:
-      (rows.results || [])
-        .map(normalizeOrderRow),
-    pagination: {
-      page:
-        pagination.page,
-      limit:
-        pagination.limit,
-      total,
-      totalPages:
-        Math.ceil(
-          total /
-          pagination.limit
-        )
-    }
-  };
+  return null;
 }
 
-export async function listAdminOrders(
-  db,
-  options = {}
+async function getOrderByIdempotencyKey(
+  env,
+  userId,
+  idempotencyKey
 ) {
-  const url =
-    options.url instanceof URL
-      ? options.url
-      : new URL(
-          options.url ||
-          "https://local.invalid/orders"
-        );
-
-  const pagination =
-    getPagination(
-      url,
-      options.defaultLimit || 30,
-      options.maxLimit || 100
-    );
-
-  const filters = [];
-  const binds = [];
-
-  if (options.userId) {
-    const userId =
-      parseInteger(
-        options.userId,
-        {
-          min: 1
-        }
-      );
-
-    if (userId) {
-      filters.push(
-        "o.user_id = ?"
-      );
-
-      binds.push(userId);
-    }
+  if (
+    !idempotencyKey
+  ) {
+    return null;
   }
 
-  if (options.type) {
-    const type =
-      String(options.type)
-        .trim()
-        .toUpperCase();
+  return env.DB
+    .prepare(`
+      SELECT *
+      FROM orders
+      WHERE user_id = ?
+        AND idempotency_key = ?
+      LIMIT 1
+    `)
+    .bind(
+      userId,
+      idempotencyKey
+    )
+    .first();
+}
 
-    if (
-      validEnum(
-        type,
-        ALLOWED_ORDER_TYPES
-      )
-    ) {
-      filters.push(
-        "o.type = ?"
-      );
-
-      binds.push(type);
-    }
-  }
-
-  if (options.provider) {
-    const provider =
-      String(options.provider)
-        .trim()
-        .toUpperCase();
-
-    if (
-      validEnum(
-        provider,
-        ALLOWED_PROVIDERS
-      )
-    ) {
-      filters.push(
-        "o.provider = ?"
-      );
-
-      binds.push(provider);
-    }
-  }
-
-  if (options.status) {
-    const status =
-      normalizeStatus(
-        options.status
-      );
-
-    if (
-      validEnum(
-        status,
-        ALLOWED_STATUSES
-      )
-    ) {
-      filters.push(
-        "o.status = ?"
-      );
-
-      binds.push(status);
-    }
-  }
-
-  const where =
-    filters.length
-      ? `WHERE ${filters.join(" AND ")}`
-      : "";
-
-  const countRow =
-    await db
+async function getOrderEvents(
+  env,
+  orderId
+) {
+  const result =
+    await env.DB
       .prepare(`
-        SELECT COUNT(*) AS total
-        FROM orders o
-        ${where}
-      `)
-      .bind(...binds)
-      .first();
-
-  const rows =
-    await db
-      .prepare(`
-        ${ORDER_SELECT.replace(
-          "  FROM orders",
-          "  FROM orders o"
-        )}
-        ${where}
-        ORDER BY o.created_at DESC, o.id DESC
-        LIMIT ?
-        OFFSET ?
+        SELECT
+          id,
+          order_id,
+          status,
+          provider_status,
+          message,
+          provider_data,
+          created_at
+        FROM order_events
+        WHERE order_id = ?
+        ORDER BY id ASC
       `)
       .bind(
-        ...binds,
-        pagination.limit,
-        pagination.offset
+        orderId
       )
       .all();
 
-  const total =
-    Number(
-      countRow?.total || 0
-    );
-
-  return {
-    success: true,
-    orders:
-      (rows.results || [])
-        .map(normalizeOrderRow),
-    pagination: {
-      page:
-        pagination.page,
-      limit:
-        pagination.limit,
-      total,
-      totalPages:
-        Math.ceil(
-          total /
-          pagination.limit
-        )
-    }
-  };
+  return Array.isArray(
+    result?.results
+  )
+    ? result.results
+    : [];
 }
 
-export async function createOrder(
-  db,
-  input = {}
+async function addOrderEvent(
+  env,
+  {
+    orderId,
+    status,
+    providerStatus = null,
+    message = null,
+    providerData = null
+  }
 ) {
   const normalized =
-    normalizeOrderInput(input);
+    normalizeStatus(
+      status
+    );
 
-  if (normalized.error) {
-    return errorResponse(
-      normalized.error,
-      400
+  if (
+    !normalized
+  ) {
+    return null;
+  }
+
+  const result =
+    await env.DB
+      .prepare(`
+        INSERT INTO order_events (
+          order_id,
+          status,
+          provider_status,
+          message,
+          provider_data,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      .bind(
+        orderId,
+        normalized,
+        providerStatus
+          ? String(
+              providerStatus
+            )
+          : null,
+        message
+          ? String(
+              message
+            )
+          : null,
+        providerData
+          ? String(
+              providerData
+            )
+          : null,
+        nowUnix()
+      )
+      .run();
+
+  return result;
+}
+
+async function updateOrderRow(
+  env,
+  orderId,
+  {
+    status,
+    providerStatus,
+    providerData,
+    failureReason,
+    externalOrderId,
+    providerAmount,
+    providerCharge,
+    phoneNumber,
+    otpCode,
+    otpMessage,
+    otpReceivedAt,
+    providerExpiresAt,
+    startCount,
+    remains,
+    completedAt,
+    cancelledAt
+  } = {}
+) {
+  const current =
+    await getOrderRowById(
+      env,
+      orderId
+    );
+
+  if (!current) {
+    throw new Error(
+      "Order tidak ditemukan."
     );
   }
 
-  const data =
-    normalized.value;
+  const nextStatus =
+    status !== undefined
+      ? normalizeStatus(
+          status
+        )
+      : normalizeStatus(
+          current.status
+        );
 
   if (
-    !validEnum(
-      data.status,
-      ALLOWED_STATUSES
+    !validStatus(
+      nextStatus
     )
   ) {
-    return errorResponse(
-      "Status order tidak valid.",
-      400
+    throw new Error(
+      "Status order tidak valid."
     );
   }
 
-  if (
-    data.providerCharge !== null &&
-    data.providerCharge === null
-  ) {
-    return errorResponse(
-      "Provider charge tidak valid.",
-      400
-    );
-  }
+  const values = {
+    externalOrderId:
+      externalOrderId !== undefined
+        ? externalOrderId
+        : current.external_order_id,
 
-  const now =
+    providerStatus:
+      providerStatus !== undefined
+        ? providerStatus
+        : current.provider_status,
+
+    providerData:
+      providerData !== undefined
+        ? providerData
+        : current.provider_data,
+
+    failureReason:
+      failureReason !== undefined
+        ? failureReason
+        : current.failure_reason,
+
+    providerAmount:
+      providerAmount !== undefined
+        ? providerAmount
+        : current.provider_amount,
+
+    providerCharge:
+      providerCharge !== undefined
+        ? providerCharge
+        : current.provider_charge,
+
+    phoneNumber:
+      phoneNumber !== undefined
+        ? phoneNumber
+        : current.phone_number,
+
+    otpCode:
+      otpCode !== undefined
+        ? otpCode
+        : current.otp_code,
+
+    otpMessage:
+      otpMessage !== undefined
+        ? otpMessage
+        : current.otp_message,
+
+    otpReceivedAt:
+      otpReceivedAt !== undefined
+        ? otpReceivedAt
+        : current.otp_received_at,
+
+    providerExpiresAt:
+      providerExpiresAt !== undefined
+        ? providerExpiresAt
+        : current.provider_expires_at,
+
+    startCount:
+      startCount !== undefined
+        ? startCount
+        : current.start_count,
+
+    remains:
+      remains !== undefined
+        ? remains
+        : current.remains,
+
+    completedAt:
+      completedAt !== undefined
+        ? completedAt
+        : current.completed_at,
+
+    cancelledAt:
+      cancelledAt !== undefined
+        ? cancelledAt
+        : current.cancelled_at
+  };
+
+  const timestamp =
     nowUnix();
 
-  const orderNumber =
-    cleanString(
-      input.orderNumber,
-      128
-    ) ||
-    generateOrderNumber(
-      "VDS"
+  const result =
+    await env.DB
+      .prepare(`
+        UPDATE orders
+        SET
+          external_order_id = ?,
+          status = ?,
+          provider_status = ?,
+          provider_data = ?,
+          failure_reason = ?,
+          provider_amount = ?,
+          provider_charge = ?,
+          phone_number = ?,
+          otp_code = ?,
+          otp_message = ?,
+          otp_received_at = ?,
+          provider_expires_at = ?,
+          start_count = ?,
+          remains = ?,
+          completed_at = ?,
+          cancelled_at = ?,
+          updated_at = ?
+        WHERE id = ?
+      `)
+      .bind(
+        values.externalOrderId,
+        nextStatus,
+        values.providerStatus,
+        values.providerData,
+        values.failureReason,
+        values.providerAmount,
+        values.providerCharge,
+        values.phoneNumber,
+        values.otpCode,
+        values.otpMessage,
+        values.otpReceivedAt,
+        values.providerExpiresAt,
+        values.startCount,
+        values.remains,
+        values.completedAt,
+        values.cancelledAt,
+        timestamp,
+        orderId
+      )
+      .run();
+
+  if (
+    Number(
+      result?.meta?.changes || 0
+    ) !== 1
+  ) {
+    throw new Error(
+      "Order gagal diperbarui."
+    );
+  }
+
+  await addOrderEvent(
+    env,
+    {
+      orderId,
+      status:
+        nextStatus,
+      providerStatus:
+        values.providerStatus,
+      message:
+        values.failureReason ||
+        `Status order menjadi ${nextStatus}.`,
+      providerData:
+        values.providerData
+    }
+  );
+
+  return getOrderRowById(
+    env,
+    orderId
+  );
+}
+
+async function createOrderRecord(
+  env,
+  {
+    userId,
+    orderNumber = null,
+    type = "OTHER",
+    provider = null,
+    externalOrderId = null,
+    serviceId = null,
+    serviceName = null,
+    target = null,
+    quantity = 1,
+    rateUnit = "FIXED",
+    providerRate = 0,
+    sellingRate = 0,
+    providerAmount = 0,
+    customerAmount = 0,
+    providerCharge = null,
+    providerCurrency = "IDR",
+    status = "PENDING",
+    providerStatus = null,
+    providerData = null,
+    requestData = null,
+    idempotencyKey = null
+  }
+) {
+  const normalizedType =
+    normalizeOrderType(
+      type
+    );
+
+  const normalizedStatus =
+    normalizeStatus(
+      status
+    );
+
+  const parsedQuantity =
+    safeQuantity(
+      quantity
+    );
+
+  const parsedProviderRate =
+    safeMoney(
+      providerRate
+    );
+
+  const parsedSellingRate =
+    safeMoney(
+      sellingRate
+    );
+
+  const parsedProviderAmount =
+    safeMoney(
+      providerAmount
+    );
+
+  const parsedCustomerAmount =
+    safeMoney(
+      customerAmount
     );
 
   if (
-    data.idempotencyKey
+    !userId
   ) {
-    const existing =
-      await getOrderByIdempotencyKey(
-        db,
-        data.userId,
-        data.idempotencyKey
-      );
-
-    if (existing) {
-      return successResponse({
-        order: existing,
-        created: false,
-        idempotent: true
-      });
-    }
+    throw new Error(
+      "userId wajib diisi."
+    );
   }
 
   if (
-    data.externalOrderId
+    !parsedQuantity
   ) {
-    const existing =
-      await getOrderByExternalId(
-        db,
-        data.provider,
-        data.externalOrderId
-      );
-
-    if (existing) {
-      return successResponse({
-        order: existing,
-        created: false,
-        idempotent: true
-      });
-    }
+    throw new Error(
+      "Quantity order tidak valid."
+    );
   }
 
-  const statements = [
-    db
+  if (
+    parsedProviderRate === null ||
+    parsedSellingRate === null ||
+    parsedProviderAmount === null ||
+    parsedCustomerAmount === null
+  ) {
+    throw new Error(
+      "Nilai harga order tidak valid."
+    );
+  }
+
+  if (
+    !validStatus(
+      normalizedStatus
+    )
+  ) {
+    throw new Error(
+      "Status order tidak valid."
+    );
+  }
+
+  const finalOrderNumber =
+    cleanString(
+      orderNumber,
+      120
+    ) ||
+    generateOrderNumber(
+      "ORD"
+    );
+
+  const timestamp =
+    nowUnix();
+
+  const result =
+    await env.DB
       .prepare(`
         INSERT INTO orders (
           user_id,
@@ -1110,964 +880,1711 @@ export async function createOrder(
           start_count,
           remains,
           created_at,
-          updated_at
+          updated_at,
+          completed_at,
+          cancelled_at
         )
         VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL,
+          NULL, NULL, ?, ?, NULL, NULL
         )
       `)
       .bind(
-        data.userId,
-        orderNumber,
-        data.type,
-        data.provider,
-        data.externalOrderId,
-        data.serviceId,
-        data.serviceName,
-        data.target,
-        data.quantity,
-        data.rateUnit,
-        data.providerRate,
-        data.sellingRate,
-        data.providerAmount,
-        data.customerAmount,
-        data.providerCharge,
-        data.providerCurrency,
-        data.status,
-        data.providerStatus,
-        jsonText(data.providerData),
-        jsonText(data.requestData),
-        data.idempotencyKey,
-        data.failureReason,
-        data.phoneNumber,
-        data.otpCode,
-        data.otpMessage,
-        data.otpReceivedAt,
-        data.providerExpiresAt,
-        data.startCount,
-        data.remains,
-        now,
-        now
-      ),
-    db
-      .prepare(`
-        INSERT INTO order_events (
-          order_id,
-          status,
-          provider_status,
-          message,
-          provider_data,
-          created_at
-        )
-        SELECT
-          id,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?
-        FROM orders
-        WHERE order_number = ?
-        LIMIT 1
-      `)
-      .bind(
-        data.status,
-        data.providerStatus,
-        "Order dibuat.",
-        jsonText(
-          data.providerData
-        ),
-        now,
-        orderNumber
+        Number(userId),
+        finalOrderNumber,
+        normalizedType,
+        provider
+          ? String(
+              provider
+            )
+          : null,
+        externalOrderId !== null
+          ? String(
+              externalOrderId
+            )
+          : null,
+        serviceId !== null
+          ? String(
+              serviceId
+            )
+          : null,
+        serviceName !== null
+          ? String(
+              serviceName
+            )
+          : null,
+        target !== null
+          ? String(
+              target
+            )
+          : null,
+        parsedQuantity,
+        rateUnit
+          ? String(
+              rateUnit
+            )
+          : "FIXED",
+        parsedProviderRate,
+        parsedSellingRate,
+        parsedProviderAmount,
+        parsedCustomerAmount,
+        providerCharge === null ||
+        providerCharge === undefined
+          ? null
+          : safeMoney(
+              providerCharge
+            ),
+        providerCurrency
+          ? String(
+              providerCurrency
+            ).toUpperCase()
+          : "IDR",
+        normalizedStatus,
+        providerStatus !== null
+          ? String(
+              providerStatus
+            )
+          : null,
+        providerData !== null
+          ? String(
+              providerData
+            )
+          : null,
+        requestData !== null
+          ? String(
+              requestData
+            )
+          : null,
+        idempotencyKey !== null
+          ? String(
+              idempotencyKey
+            )
+          : null,
+        timestamp,
+        timestamp
       )
+      .run();
+
+  const id =
+    Number(
+      result?.meta?.last_row_id
+    );
+
+  if (
+    !id
+  ) {
+    throw new Error(
+      "Gagal membuat order."
+    );
+  }
+
+  await addOrderEvent(
+    env,
+    {
+      orderId:
+        id,
+      status:
+        normalizedStatus,
+      message:
+        "Order berhasil dibuat."
+    }
+  );
+
+  return getOrderRowById(
+    env,
+    id
+  );
+}
+
+export async function createOrderRecordPublic(
+  env,
+  options
+) {
+  return createOrderRecord(
+    env,
+    options
+  );
+}
+
+export async function getOrderById(
+  env,
+  orderId
+) {
+  return getOrderRowById(
+    env,
+    orderId
+  );
+}
+
+export async function getOrderByNumber(
+  env,
+  orderNumber
+) {
+  return getOrderRowByNumber(
+    env,
+    orderNumber
+  );
+}
+
+export async function getUserOrder(
+  env,
+  userId,
+  {
+    id = null,
+    orderNumber = ""
+  } = {}
+) {
+  return getUserOrderRow(
+    env,
+    userId,
+    {
+      id,
+      orderNumber
+    }
+  );
+}
+
+export async function updateOrderStatus(
+  env,
+  orderId,
+  status,
+  options = {}
+) {
+  return updateOrderRow(
+    env,
+    orderId,
+    {
+      ...options,
+      status
+    }
+  );
+}
+
+export async function listOrdersByUser(
+  env,
+  userId,
+  {
+    status = "",
+    type = "",
+    limit = 20,
+    offset = 0
+  } = {}
+) {
+  const safeLimit =
+    Math.min(
+      Math.max(
+        parsePositiveInteger(
+          limit
+        ) || 20,
+        1
+      ),
+      100
+    );
+
+  const safeOffset =
+    Math.max(
+      Number(
+        offset
+      ) || 0,
+      0
+    );
+
+  let query = `
+    SELECT *
+    FROM orders
+    WHERE user_id = ?
+  `;
+
+  const params = [
+    userId
   ];
 
-  try {
-    await db.batch(
-      statements
+  const normalizedStatus =
+    normalizeStatus(
+      status
     );
-  } catch (error) {
+
+  if (
+    normalizedStatus
+  ) {
     if (
-      data.idempotencyKey
+      !validStatus(
+        normalizedStatus
+      )
+    ) {
+      throw new Error(
+        "Status order tidak valid."
+      );
+    }
+
+    query +=
+      " AND status = ?";
+
+    params.push(
+      normalizedStatus
+    );
+  }
+
+  const normalizedType =
+    String(
+      type || ""
+    )
+      .trim()
+      .toUpperCase();
+
+  if (
+    normalizedType
+  ) {
+    query +=
+      " AND type = ?";
+
+    params.push(
+      normalizedType
+    );
+  }
+
+  query += `
+    ORDER BY id DESC
+    LIMIT ? OFFSET ?
+  `;
+
+  params.push(
+    safeLimit,
+    safeOffset
+  );
+
+  const rows =
+    await env.DB
+      .prepare(query)
+      .bind(
+        ...params
+      )
+      .all();
+
+  let countQuery = `
+    SELECT COUNT(*) AS total
+    FROM orders
+    WHERE user_id = ?
+  `;
+
+  const countParams = [
+    userId
+  ];
+
+  if (
+    normalizedStatus
+  ) {
+    countQuery +=
+      " AND status = ?";
+
+    countParams.push(
+      normalizedStatus
+    );
+  }
+
+  if (
+    normalizedType
+  ) {
+    countQuery +=
+      " AND type = ?";
+
+    countParams.push(
+      normalizedType
+    );
+  }
+
+  const count =
+    await env.DB
+      .prepare(
+        countQuery
+      )
+      .bind(
+        ...countParams
+      )
+      .first();
+
+  return {
+    orders:
+      Array.isArray(
+        rows?.results
+      )
+        ? rows.results
+        : [],
+    pagination: {
+      limit:
+        safeLimit,
+      offset:
+        safeOffset,
+      total:
+        Number(
+          count?.total || 0
+        )
+    }
+  };
+}
+
+export async function getOrders(
+  request,
+  env
+) {
+  try {
+    const auth =
+      await requireAuth(
+        request,
+        env
+      );
+
+    if (
+      auth?.response
+    ) {
+      return auth.response;
+    }
+
+    const url =
+      new URL(
+        request.url
+      );
+
+    const limit =
+      Math.min(
+        Math.max(
+          parsePositiveInteger(
+            url.searchParams.get(
+              "limit"
+            )
+          ) || 20,
+          1
+        ),
+        100
+      );
+
+    const offset =
+      Math.max(
+        Number(
+          url.searchParams.get(
+            "offset"
+          )
+        ) || 0,
+        0
+      );
+
+    const result =
+      await listOrdersByUser(
+        env,
+        auth.user.id,
+        {
+          status:
+            url.searchParams.get(
+              "status"
+            ),
+          type:
+            url.searchParams.get(
+              "type"
+            ),
+          limit,
+          offset
+        }
+      );
+
+    return successResponse({
+      orders:
+        result.orders.map(
+          formatOrder
+        ),
+      pagination:
+        result.pagination
+    });
+  } catch (error) {
+    return errorResponse(
+      error?.message ||
+        "Gagal mengambil order.",
+      error?.status || 500
+    );
+  }
+}
+
+export async function getOrder(
+  request,
+  env
+) {
+  try {
+    const auth =
+      await requireAuth(
+        request,
+        env
+      );
+
+    if (
+      auth?.response
+    ) {
+      return auth.response;
+    }
+
+    const identifier =
+      getOrderIdentifier(
+        request
+      );
+
+    if (
+      !identifier.id &&
+      !identifier.orderNumber
+    ) {
+      return errorResponse(
+        "ID atau nomor order wajib diisi.",
+        400
+      );
+    }
+
+    const order =
+      await getUserOrderRow(
+        env,
+        auth.user.id,
+        identifier
+      );
+
+    if (!order) {
+      return errorResponse(
+        "Order tidak ditemukan.",
+        404
+      );
+    }
+
+    const events =
+      await getOrderEvents(
+        env,
+        order.id
+      );
+
+    return successResponse({
+      order:
+        formatOrder(
+          order
+        ),
+      events:
+        events.map(
+          formatEvent
+        )
+    });
+  } catch (error) {
+    return errorResponse(
+      error?.message ||
+        "Gagal mengambil detail order.",
+      error?.status || 500
+    );
+  }
+}
+
+export async function createOrder(
+  request,
+  env
+) {
+  try {
+    const auth =
+      await requireAuth(
+        request,
+        env
+      );
+
+    if (
+      auth?.response
+    ) {
+      return auth.response;
+    }
+
+    const body =
+      await readJson(
+        request
+      );
+
+    const type =
+      normalizeOrderType(
+        body?.type ??
+        body?.order_type
+      );
+
+    const provider =
+      cleanString(
+        body?.provider,
+        100
+      ) || null;
+
+    const serviceId =
+      body?.service_id ??
+      body?.serviceId ??
+      body?.product_id ??
+      null;
+
+    const serviceName =
+      cleanString(
+        body?.service_name ??
+        body?.serviceName ??
+        body?.name ??
+        "",
+        255
+      ) || null;
+
+    const target =
+      cleanString(
+        body?.target ??
+        body?.data ??
+        "",
+        1000
+      ) || null;
+
+    const quantity =
+      safeQuantity(
+        body?.quantity ??
+        1
+      );
+
+    if (
+      !quantity
+    ) {
+      return errorResponse(
+        "Quantity order tidak valid.",
+        400
+      );
+    }
+
+    const providerRate =
+      safeMoney(
+        body?.provider_rate ??
+        body?.providerRate ??
+        body?.provider_cost ??
+        0
+      );
+
+    const sellingRate =
+      safeMoney(
+        body?.selling_rate ??
+        body?.sellingRate ??
+        body?.price ??
+        body?.unit_price ??
+        0
+      );
+
+    if (
+      providerRate === null ||
+      sellingRate === null
+    ) {
+      return errorResponse(
+        "Harga order tidak valid.",
+        400
+      );
+    }
+
+    const providerAmount =
+      safeMoney(
+        body?.provider_amount ??
+        body?.providerAmount ??
+        providerRate *
+          quantity
+      );
+
+    const customerAmount =
+      safeMoney(
+        body?.customer_amount ??
+        body?.customerAmount ??
+        sellingRate *
+          quantity
+      );
+
+    if (
+      providerAmount === null ||
+      customerAmount === null ||
+      customerAmount <= 0
+    ) {
+      return errorResponse(
+        "Total order tidak valid.",
+        400
+      );
+    }
+
+    const idempotencyKey =
+      cleanString(
+        body?.idempotency_key ??
+        body?.idempotencyKey ??
+        "",
+        150
+      ) || null;
+
+    if (
+      idempotencyKey
     ) {
       const existing =
         await getOrderByIdempotencyKey(
-          db,
-          data.userId,
-          data.idempotencyKey
+          env,
+          auth.user.id,
+          idempotencyKey
         );
 
-      if (existing) {
+      if (
+        existing
+      ) {
         return successResponse({
-          order: existing,
-          created: false,
-          idempotent: true
+          idempotent:
+            true,
+          order:
+            formatOrder(
+              existing
+            )
         });
       }
     }
 
-    if (
-      data.externalOrderId
-    ) {
-      const existing =
-        await getOrderByExternalId(
-          db,
-          data.provider,
-          data.externalOrderId
+    const order =
+      await createOrderRecord(
+        env,
+        {
+          userId:
+            auth.user.id,
+          type,
+          provider,
+          externalOrderId:
+            body?.external_order_id ??
+            null,
+          serviceId,
+          serviceName,
+          target,
+          quantity,
+          rateUnit:
+            cleanString(
+              body?.rate_unit ??
+              body?.rateUnit ??
+              "FIXED",
+              50
+            ),
+          providerRate,
+          sellingRate,
+          providerAmount,
+          customerAmount,
+          providerCharge:
+            body?.provider_charge ??
+            body?.providerCharge ??
+            null,
+          providerCurrency:
+            body?.provider_currency ??
+            body?.providerCurrency ??
+            "IDR",
+          status:
+            normalizeStatus(
+              body?.status ||
+              "PENDING"
+            ),
+          providerStatus:
+            body?.provider_status ??
+            body?.providerStatus ??
+            null,
+          providerData:
+            body?.provider_data ??
+            body?.providerData ??
+            null,
+          requestData:
+            JSON.stringify(
+              body
+            ),
+          idempotencyKey
+        }
+      );
+
+    let debit;
+
+    try {
+      debit =
+        await debitBalance(
+          env,
+          {
+            userId:
+              auth.user.id,
+            amount:
+              customerAmount,
+            type:
+              "PURCHASE",
+            reference:
+              `ORDER:${order.order_number}`,
+            description:
+              `Pembelian ${order.order_number}`,
+            orderId:
+              order.id
+          }
         );
-
-      if (existing) {
-        return successResponse({
-          order: existing,
-          created: false,
-          idempotent: true
-        });
-      }
-    }
-
-    return errorResponse(
-      error?.message ||
-        "Gagal membuat order.",
-      500
-    );
-  }
-
-  const order =
-    await getOrderByNumber(
-      db,
-      orderNumber
-    );
-
-  if (!order) {
-    return errorResponse(
-      "Order berhasil dibuat tetapi tidak dapat dibaca kembali.",
-      500
-    );
-  }
-
-  return successResponse({
-    order,
-    created: true,
-    idempotent: false
-  }, 201);
-}
-
-const ORDER_UPDATE_FIELDS =
-  Object.freeze({
-    externalOrderId:
-      "external_order_id",
-    serviceId:
-      "service_id",
-    serviceName:
-      "service_name",
-    target:
-      "target",
-    quantity:
-      "quantity",
-    rateUnit:
-      "rate_unit",
-    providerRate:
-      "provider_rate",
-    sellingRate:
-      "selling_rate",
-    providerAmount:
-      "provider_amount",
-    customerAmount:
-      "customer_amount",
-    providerCharge:
-      "provider_charge",
-    providerCurrency:
-      "provider_currency",
-    status:
-      "status",
-    providerStatus:
-      "provider_status",
-    providerData:
-      "provider_data",
-    requestData:
-      "request_data",
-    failureReason:
-      "failure_reason",
-    phoneNumber:
-      "phone_number",
-    otpCode:
-      "otp_code",
-    otpMessage:
-      "otp_message",
-    otpReceivedAt:
-      "otp_received_at",
-    providerExpiresAt:
-      "provider_expires_at",
-    startCount:
-      "start_count",
-    remains:
-      "remains",
-    completedAt:
-      "completed_at",
-    cancelledAt:
-      "cancelled_at"
-  });
-
-function normalizeUpdateValue(
-  key,
-  value
-) {
-  if (
-    key === "status"
-  ) {
-    const status =
-      normalizeStatus(value);
-
-    return validEnum(
-      status,
-      ALLOWED_STATUSES
-    )
-      ? status
-      : null;
-  }
-
-  if (
-    key === "rateUnit"
-  ) {
-    const rateUnit =
-      String(value || "")
-        .trim()
-        .toUpperCase();
-
-    return validEnum(
-      rateUnit,
-      ALLOWED_RATE_UNITS
-    )
-      ? rateUnit
-      : null;
-  }
-
-  if (
-    key === "quantity" ||
-    key === "providerRate" ||
-    key === "sellingRate" ||
-    key === "providerAmount" ||
-    key === "customerAmount" ||
-    key === "providerCharge" ||
-    key === "otpReceivedAt" ||
-    key === "providerExpiresAt" ||
-    key === "startCount" ||
-    key === "remains" ||
-    key === "completedAt" ||
-    key === "cancelledAt"
-  ) {
-    if (
-      value === null &&
-      key !== "quantity"
-    ) {
-      return null;
-    }
-
-    const minimum =
-      key === "quantity"
-        ? 1
-        : 0;
-
-    return parseInteger(
-      value,
-      {
-        min: minimum
-      }
-    );
-  }
-
-  if (
-    key === "providerData" ||
-    key === "requestData"
-  ) {
-    return jsonText(value);
-  }
-
-  if (
-    key === "externalOrderId" ||
-    key === "serviceId" ||
-    key === "serviceName" ||
-    key === "target" ||
-    key === "providerStatus" ||
-    key === "providerCurrency" ||
-    key === "failureReason" ||
-    key === "phoneNumber" ||
-    key === "otpCode" ||
-    key === "otpMessage"
-  ) {
-    if (value === null) {
-      return null;
-    }
-
-    return cleanString(
-      value,
-      key === "target"
-        ? 2048
-        : key === "failureReason"
-          ? 1000
-          : key === "otpMessage"
-            ? 2048
-            : 255
-    );
-  }
-
-  return undefined;
-}
-
-export async function updateOrder(
-  db,
-  orderId,
-  updates = {}
-) {
-  const normalizedOrderId =
-    parseInteger(orderId, {
-      min: 1
-    });
-
-  if (!normalizedOrderId) {
-    return errorResponse(
-      "Order tidak valid.",
-      400
-    );
-  }
-
-  const current =
-    await getOrderById(
-      db,
-      normalizedOrderId
-    );
-
-  if (!current) {
-    return errorResponse(
-      "Order tidak ditemukan.",
-      404
-    );
-  }
-
-  const assignments = [];
-  const values = [];
-
-  for (
-    const [
-      key,
-      column
-    ] of Object.entries(
-      ORDER_UPDATE_FIELDS
-    )
-  ) {
-    if (
-      !Object.prototype.hasOwnProperty.call(
-        updates,
-        key
-      )
-    ) {
-      continue;
-    }
-
-    const value =
-      normalizeUpdateValue(
-        key,
-        updates[key]
+    } catch (error) {
+      await updateOrderRow(
+        env,
+        order.id,
+        {
+          status:
+            "FAILED",
+          failureReason:
+            error?.message ||
+            "Pembayaran order gagal."
+        }
       );
 
-    if (
-      value === undefined
-    ) {
-      continue;
+      throw error;
     }
 
     if (
-      value === null &&
-      key === "quantity"
+      debit?.insufficient ||
+      debit?.success === false
     ) {
+      await updateOrderRow(
+        env,
+        order.id,
+        {
+          status:
+            "FAILED",
+          failureReason:
+            "Saldo tidak mencukupi."
+        }
+      );
+
       return errorResponse(
-        "Quantity tidak valid.",
-        400
+        "Saldo tidak mencukupi.",
+        402
       );
     }
 
-    if (
-      (
-        key === "status" ||
-        key === "rateUnit"
-      ) &&
-      value === null
-    ) {
-      return errorResponse(
-        "Nilai order tidak valid.",
-        400
+    const updated =
+      await updateOrderRow(
+        env,
+        order.id,
+        {
+          status:
+            "PROCESSING"
+        }
       );
-    }
 
-    assignments.push(
-      `${column} = ?`
-    );
-
-    values.push(value);
-  }
-
-  if (!assignments.length) {
     return successResponse({
-      order: current,
-      updated: false
-    });
-  }
-
-  assignments.push(
-    "updated_at = ?"
-  );
-
-  values.push(
-    nowUnix()
-  );
-
-  values.push(
-    normalizedOrderId
-  );
-
-  try {
-    await db
-      .prepare(`
-        UPDATE orders
-        SET ${assignments.join(", ")}
-        WHERE id = ?
-      `)
-      .bind(...values)
-      .run();
+      order:
+        formatOrder(
+          updated
+        )
+    }, 201);
   } catch (error) {
     return errorResponse(
       error?.message ||
-        "Gagal memperbarui order.",
-      500
+        "Gagal membuat order.",
+      error?.status || 500
+    );
+  }
+}
+
+export async function cancelOrder(
+  request,
+  env
+) {
+  try {
+    const auth =
+      await requireAuth(
+        request,
+        env
+      );
+
+    if (
+      auth?.response
+    ) {
+      return auth.response;
+    }
+
+    const body =
+      await readJson(
+        request
+      );
+
+    const identifier =
+      getOrderIdentifier(
+        request,
+        body
+      );
+
+    if (
+      !identifier.id &&
+      !identifier.orderNumber
+    ) {
+      return errorResponse(
+        "ID atau nomor order wajib diisi.",
+        400
+      );
+    }
+
+    const order =
+      await getUserOrderRow(
+        env,
+        auth.user.id,
+        identifier
+      );
+
+    if (!order) {
+      return errorResponse(
+        "Order tidak ditemukan.",
+        404
+      );
+    }
+
+    const currentStatus =
+      normalizeStatus(
+        order.status
+      );
+
+    if (
+      currentStatus ===
+      "CANCELLED"
+    ) {
+      return successResponse({
+        order:
+          formatOrder(
+            order
+          ),
+        message:
+          "Order sudah dibatalkan."
+      });
+    }
+
+    if (
+      isFinalStatus(
+        currentStatus
+      )
+    ) {
+      return errorResponse(
+        "Order sudah berada pada status akhir.",
+        400
+      );
+    }
+
+    const amount =
+      Number(
+        order.customer_amount || 0
+      );
+
+    const refund =
+      await refundBalance(
+        env,
+        {
+          userId:
+            auth.user.id,
+          amount,
+          reference:
+            `REFUND:${order.order_number}`,
+          description:
+            `Refund ${order.order_number}`,
+          orderId:
+            order.id
+        }
+      );
+
+    if (
+      refund?.success === false
+    ) {
+      return errorResponse(
+        "Order belum dibatalkan karena refund saldo gagal.",
+        500
+      );
+    }
+
+    const updated =
+      await updateOrderRow(
+        env,
+        order.id,
+        {
+          status:
+            "CANCELLED",
+          failureReason:
+            null,
+          cancelledAt:
+            nowUnix()
+        }
+      );
+
+    return successResponse({
+      order:
+        formatOrder(
+          updated
+        ),
+      refunded:
+        true,
+      message:
+        "Order berhasil dibatalkan dan saldo dikembalikan."
+    });
+  } catch (error) {
+    return errorResponse(
+      error?.message ||
+        "Gagal membatalkan order.",
+      error?.status || 500
+    );
+  }
+}
+
+async function refundOrderRow(
+  env,
+  order,
+  message
+) {
+  const status =
+    normalizeStatus(
+      order.status
+    );
+
+  if (
+    status ===
+    "REFUNDED"
+  ) {
+    return {
+      order,
+      refunded:
+        false,
+      alreadyRefunded:
+        true
+    };
+  }
+
+  if (
+    status !==
+    "COMPLETED"
+  ) {
+    throw new Error(
+      "Hanya order COMPLETED yang dapat direfund."
+    );
+  }
+
+  const amount =
+    Number(
+      order.customer_amount || 0
+    );
+
+  if (
+    !Number.isSafeInteger(
+      amount
+    ) ||
+    amount <= 0
+  ) {
+    throw new Error(
+      "Nominal refund tidak valid."
+    );
+  }
+
+  const refund =
+    await refundBalance(
+      env,
+      {
+        userId:
+          order.user_id,
+        amount,
+        reference:
+          `REFUND:${order.order_number}`,
+        description:
+          message ||
+          `Refund ${order.order_number}`,
+        orderId:
+          order.id
+      }
+    );
+
+  if (
+    refund?.success === false
+  ) {
+    throw new Error(
+      "Refund saldo gagal."
     );
   }
 
   const updated =
-    await getOrderById(
-      db,
-      normalizedOrderId
+    await updateOrderRow(
+      env,
+      order.id,
+      {
+        status:
+          "REFUNDED",
+        failureReason:
+          null
+      }
     );
 
-  return successResponse({
-    order: updated,
-    updated: true
-  });
+  return {
+    order:
+      updated,
+    refunded:
+      true,
+    alreadyRefunded:
+      false
+  };
 }
 
-export async function updateOrderStatus(
-  db,
-  orderId,
-  {
-    status,
-    providerStatus = null,
-    message = null,
-    providerData = null,
-    failureReason = null,
-    completedAt = undefined,
-    cancelledAt = undefined
-  } = {}
+const STATUS_TRANSITIONS = {
+  CREATING: [
+    "PENDING",
+    "PROCESSING",
+    "FAILED",
+    "CANCELLED"
+  ],
+  PENDING: [
+    "PROCESSING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED"
+  ],
+  PROCESSING: [
+    "OTP_RECEIVED",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+    "EXPIRED"
+  ],
+  OTP_RECEIVED: [
+    "PROCESSING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+    "EXPIRED"
+  ],
+  COMPLETED: [
+    "REFUNDED"
+  ],
+  CANCELLED: [],
+  EXPIRED: [],
+  REFUNDED: [],
+  FAILED: [],
+  UNKNOWN: [
+    "PROCESSING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+    "EXPIRED"
+  ]
+};
+
+export async function adminGetOrders(
+  request,
+  env
 ) {
-  const normalizedStatus =
-    normalizeStatus(status);
-
-  if (
-    !validEnum(
-      normalizedStatus,
-      ALLOWED_STATUSES
-    )
-  ) {
-    return errorResponse(
-      "Status order tidak valid.",
-      400
-    );
-  }
-
-  const order =
-    await getOrderById(
-      db,
-      orderId
-    );
-
-  if (!order) {
-    return errorResponse(
-      "Order tidak ditemukan.",
-      404
-    );
-  }
-
-  const now =
-    nowUnix();
-
-  const finalCompletedAt =
-    completedAt !== undefined
-      ? completedAt
-      : normalizedStatus ===
-          ORDER_STATUSES.COMPLETED
-        ? now
-        : undefined;
-
-  const finalCancelledAt =
-    cancelledAt !== undefined
-      ? cancelledAt
-      : (
-          normalizedStatus ===
-            ORDER_STATUSES.CANCELLED ||
-          normalizedStatus ===
-            ORDER_STATUSES.EXPIRED
-        )
-          ? now
-          : undefined;
-
-  const updates = {
-    status:
-      normalizedStatus,
-    providerStatus:
-      normalizeProviderStatus(
-        providerStatus
-      ),
-    providerData:
-      providerData,
-    failureReason:
-      failureReason
-        ? cleanString(
-            failureReason,
-            1000
-          )
-        : null
-  };
-
-  if (
-    finalCompletedAt !== undefined
-  ) {
-    updates.completedAt =
-      finalCompletedAt;
-  }
-
-  if (
-    finalCancelledAt !== undefined
-  ) {
-    updates.cancelledAt =
-      finalCancelledAt;
-  }
-
-  const statements = [
-    db
-      .prepare(`
-        UPDATE orders
-        SET
-          status = ?,
-          provider_status = ?,
-          provider_data = ?,
-          failure_reason = ?,
-          ${
-            finalCompletedAt !== undefined
-              ? "completed_at = ?,"
-              : ""
-          }
-          ${
-            finalCancelledAt !== undefined
-              ? "cancelled_at = ?,"
-              : ""
-          }
-          updated_at = ?
-        WHERE id = ?
-      `)
-      .bind(
-        normalizedStatus,
-        updates.providerStatus,
-        jsonText(providerData),
-        updates.failureReason,
-        ...(finalCompletedAt !== undefined
-          ? [finalCompletedAt]
-          : []),
-        ...(finalCancelledAt !== undefined
-          ? [finalCancelledAt]
-          : []),
-        now,
-        order.id
-      ),
-    db
-      .prepare(`
-        INSERT INTO order_events (
-          order_id,
-          status,
-          provider_status,
-          message,
-          provider_data,
-          created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
-      `)
-      .bind(
-        order.id,
-        normalizedStatus,
-        updates.providerStatus,
-        message
-          ? cleanString(
-              message,
-              2048
-            )
-          : null,
-        jsonText(providerData),
-        now
-      )
-  ];
-
   try {
-    await db.batch(
-      statements
+    const auth =
+      await requireAdmin(
+        request,
+        env
+      );
+
+    if (
+      auth?.response
+    ) {
+      return auth.response;
+    }
+
+    const url =
+      new URL(
+        request.url
+      );
+
+    const limit =
+      Math.min(
+        Math.max(
+          parsePositiveInteger(
+            url.searchParams.get(
+              "limit"
+            )
+          ) || 50,
+          1
+        ),
+        200
+      );
+
+    const offset =
+      Math.max(
+        Number(
+          url.searchParams.get(
+            "offset"
+          )
+        ) || 0,
+        0
+      );
+
+    const status =
+      normalizeStatus(
+        url.searchParams.get(
+          "status"
+        )
+      );
+
+    const type =
+      String(
+        url.searchParams.get(
+          "type"
+        ) || ""
+      )
+        .trim()
+        .toUpperCase();
+
+    if (
+      status &&
+      !validStatus(
+        status
+      )
+    ) {
+      return errorResponse(
+        "Status order tidak valid.",
+        400
+      );
+    }
+
+    let query = `
+      SELECT
+        o.*,
+        u.username,
+        u.first_name
+      FROM orders o
+      LEFT JOIN users u
+        ON u.id = o.user_id
+      WHERE 1 = 1
+    `;
+
+    const params = [];
+
+    if (
+      status
+    ) {
+      query +=
+        " AND o.status = ?";
+
+      params.push(
+        status
+      );
+    }
+
+    if (
+      type
+    ) {
+      query +=
+        " AND o.type = ?";
+
+      params.push(
+        type
+      );
+    }
+
+    query += `
+      ORDER BY o.id DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    params.push(
+      limit,
+      offset
     );
+
+    const rows =
+      await env.DB
+        .prepare(
+          query
+        )
+        .bind(
+          ...params
+        )
+        .all();
+
+    let countQuery = `
+      SELECT COUNT(*) AS total
+      FROM orders
+      WHERE 1 = 1
+    `;
+
+    const countParams = [];
+
+    if (
+      status
+    ) {
+      countQuery +=
+        " AND status = ?";
+
+      countParams.push(
+        status
+      );
+    }
+
+    if (
+      type
+    ) {
+      countQuery +=
+        " AND type = ?";
+
+      countParams.push(
+        type
+      );
+    }
+
+    const total =
+      await env.DB
+        .prepare(
+          countQuery
+        )
+        .bind(
+          ...countParams
+        )
+        .first();
+
+    return successResponse({
+      orders:
+        (
+          rows?.results ||
+          []
+        ).map(
+          row => ({
+            ...formatOrder(
+              row
+            ),
+            username:
+              row.username,
+            first_name:
+              row.first_name
+          })
+        ),
+      pagination: {
+        limit,
+        offset,
+        total:
+          Number(
+            total?.total || 0
+          )
+      }
+    });
+  } catch (error) {
+    return errorResponse(
+      error?.message ||
+        "Gagal mengambil daftar order.",
+      error?.status || 500
+    );
+  }
+}
+
+export async function adminUpdateOrderStatus(
+  request,
+  env
+) {
+  try {
+    const auth =
+      await requireAdmin(
+        request,
+        env
+      );
+
+    if (
+      auth?.response
+    ) {
+      return auth.response;
+    }
+
+    const body =
+      await readJson(
+        request
+      );
+
+    const identifier =
+      getOrderIdentifier(
+        request,
+        body
+      );
+
+    if (
+      !identifier.id &&
+      !identifier.orderNumber
+    ) {
+      return errorResponse(
+        "ID atau nomor order wajib diisi.",
+        400
+      );
+    }
+
+    const order =
+      identifier.id
+        ? await getOrderRowById(
+            env,
+            identifier.id
+          )
+        : await getOrderRowByNumber(
+            env,
+            identifier.orderNumber
+          );
+
+    if (!order) {
+      return errorResponse(
+        "Order tidak ditemukan.",
+        404
+      );
+    }
+
+    const currentStatus =
+      normalizeStatus(
+        order.status
+      );
+
+    const nextStatus =
+      normalizeStatus(
+        body?.status
+      );
+
+    if (
+      !validStatus(
+        nextStatus
+      )
+    ) {
+      return errorResponse(
+        "Status order tidak valid.",
+        400
+      );
+    }
+
+    if (
+      currentStatus ===
+      nextStatus
+    ) {
+      return successResponse({
+        order:
+          formatOrder(
+            order
+          ),
+        message:
+          "Status order sudah sesuai."
+      });
+    }
+
+    if (
+      !STATUS_TRANSITIONS[
+        currentStatus
+      ]?.includes(
+        nextStatus
+      )
+    ) {
+      return errorResponse(
+        `Perubahan status ${currentStatus} ke ${nextStatus} tidak diizinkan.`,
+        400
+      );
+    }
+
+    if (
+      nextStatus ===
+      "REFUNDED"
+    ) {
+      const result =
+        await refundOrderRow(
+          env,
+          order,
+          cleanString(
+            body?.message ||
+              "Order direfund oleh admin.",
+            500
+          )
+        );
+
+      return successResponse({
+        order:
+          formatOrder(
+            result.order
+          ),
+        refunded:
+          result.refunded
+      });
+    }
+
+    const timestamp =
+      nowUnix();
+
+    const updated =
+      await updateOrderRow(
+        env,
+        order.id,
+        {
+          status:
+            nextStatus,
+          completedAt:
+            nextStatus ===
+            "COMPLETED"
+              ? (
+                  order.completed_at ||
+                  timestamp
+                )
+              : order.completed_at,
+          cancelledAt:
+            nextStatus ===
+            "CANCELLED"
+              ? (
+                  order.cancelled_at ||
+                  timestamp
+                )
+              : order.cancelled_at,
+          failureReason:
+            body?.failure_reason ??
+            body?.failureReason ??
+            (
+              nextStatus ===
+              "FAILED"
+                ? (
+                    cleanString(
+                      body?.message,
+                      500
+                    ) ||
+                    "Order gagal."
+                  )
+                : order.failure_reason
+            )
+        }
+      );
+
+    return successResponse({
+      order:
+        formatOrder(
+          updated
+        ),
+      message:
+        "Status order berhasil diperbarui."
+    });
   } catch (error) {
     return errorResponse(
       error?.message ||
         "Gagal memperbarui status order.",
-      500
+      error?.status || 500
     );
   }
-
-  const updated =
-    await getOrderById(
-      db,
-      order.id
-    );
-
-  return successResponse({
-    order: updated,
-    updated: true
-  });
 }
 
-export async function addOrderEvent(
-  db,
-  orderId,
-  {
-    status,
-    providerStatus = null,
-    message = null,
-    providerData = null
-  } = {}
+export async function adminRefundOrder(
+  request,
+  env
 ) {
-  const normalizedOrderId =
-    parseInteger(orderId, {
-      min: 1
-    });
-
-  const normalizedStatus =
-    normalizeStatus(status);
-
-  if (
-    !normalizedOrderId ||
-    !validEnum(
-      normalizedStatus,
-      ALLOWED_STATUSES
-    )
-  ) {
-    return errorResponse(
-      "Data event order tidak valid.",
-      400
-    );
-  }
-
-  const order =
-    await getOrderById(
-      db,
-      normalizedOrderId
-    );
-
-  if (!order) {
-    return errorResponse(
-      "Order tidak ditemukan.",
-      404
-    );
-  }
-
-  const createdAt =
-    nowUnix();
-
   try {
-    await db
-      .prepare(`
-        INSERT INTO order_events (
-          order_id,
-          status,
-          provider_status,
-          message,
-          provider_data,
-          created_at
+    const auth =
+      await requireAdmin(
+        request,
+        env
+      );
+
+    if (
+      auth?.response
+    ) {
+      return auth.response;
+    }
+
+    const body =
+      await readJson(
+        request
+      );
+
+    const identifier =
+      getOrderIdentifier(
+        request,
+        body
+      );
+
+    if (
+      !identifier.id &&
+      !identifier.orderNumber
+    ) {
+      return errorResponse(
+        "ID atau nomor order wajib diisi.",
+        400
+      );
+    }
+
+    const order =
+      identifier.id
+        ? await getOrderRowById(
+            env,
+            identifier.id
+          )
+        : await getOrderRowByNumber(
+            env,
+            identifier.orderNumber
+          );
+
+    if (!order) {
+      return errorResponse(
+        "Order tidak ditemukan.",
+        404
+      );
+    }
+
+    const result =
+      await refundOrderRow(
+        env,
+        order,
+        cleanString(
+          body?.message ||
+            "Order direfund oleh admin.",
+          500
         )
-        VALUES (?, ?, ?, ?, ?, ?)
-      `)
-      .bind(
-        normalizedOrderId,
-        normalizedStatus,
-        normalizeProviderStatus(
-          providerStatus
+      );
+
+    return successResponse({
+      order:
+        formatOrder(
+          result.order
         ),
-        message
-          ? cleanString(
-              message,
-              2048
-            )
-          : null,
-        jsonText(providerData),
-        createdAt
-      )
-      .run();
+      refunded:
+        result.refunded,
+      already_refunded:
+        result.alreadyRefunded
+    });
   } catch (error) {
     return errorResponse(
       error?.message ||
-        "Gagal menyimpan event order.",
-      500
+        "Gagal melakukan refund order.",
+      error?.status || 500
     );
   }
-
-  return successResponse({
-    created: true
-  }, 201);
 }
 
 export async function getOrderEvents(
-  db,
-  orderId,
-  options = {}
+  env,
+  orderId
 ) {
-  const normalizedOrderId =
-    parseInteger(orderId, {
-      min: 1
-    });
-
-  if (!normalizedOrderId) {
-    return {
-      success: false,
-      error: "Order tidak valid."
-    };
-  }
-
-  const limit =
-    Math.min(
-      parseInteger(
-        options.limit ?? 100,
-        {
-          min: 1
-        }
-      ) || 100,
-      500
-    );
-
-  const rows =
-    await db
-      .prepare(`
-        ${EVENT_SELECT}
-        WHERE order_id = ?
-        ORDER BY created_at DESC, id DESC
-        LIMIT ?
-      `)
-      .bind(
-        normalizedOrderId,
-        limit
-      )
-      .all();
-
-  return {
-    success: true,
-    events:
-      (rows.results || [])
-        .map(normalizeEventRow)
-  };
-}
-
-export async function countUserOrders(
-  db,
-  userId,
-  options = {}
-) {
-  const normalizedUserId =
-    parseInteger(userId, {
-      min: 1
-    });
-
-  if (!normalizedUserId) {
-    return 0;
-  }
-
-  const filters = [
-    "user_id = ?"
-  ];
-
-  const binds = [
-    normalizedUserId
-  ];
-
-  if (options.type) {
-    const type =
-      String(options.type)
-        .trim()
-        .toUpperCase();
-
-    if (
-      validEnum(
-        type,
-        ALLOWED_ORDER_TYPES
-      )
-    ) {
-      filters.push(
-        "type = ?"
-      );
-
-      binds.push(type);
-    }
-  }
-
-  if (options.status) {
-    const status =
-      normalizeStatus(
-        options.status
-      );
-
-    if (
-      validEnum(
-        status,
-        ALLOWED_STATUSES
-      )
-    ) {
-      filters.push(
-        "status = ?"
-      );
-
-      binds.push(status);
-    }
-  }
-
-  const row =
-    await db
-      .prepare(`
-        SELECT COUNT(*) AS total
-        FROM orders
-        WHERE ${filters.join(" AND ")}
-      `)
-      .bind(...binds)
-      .first();
-
-  return Number(
-    row?.total || 0
+  return getOrderEventsInternal(
+    env,
+    orderId
   );
 }
 
-export async function getOrderStats(
-  db,
-  options = {}
+async function getOrderEventsInternal(
+  env,
+  orderId
 ) {
-  const filters = [];
-  const binds = [];
-
-  if (options.userId) {
-    const userId =
-      parseInteger(
-        options.userId,
-        {
-          min: 1
-        }
-      );
-
-    if (userId) {
-      filters.push(
-        "user_id = ?"
-      );
-
-      binds.push(userId);
-    }
-  }
-
-  if (options.type) {
-    const type =
-      String(options.type)
-        .trim()
-        .toUpperCase();
-
-    if (
-      validEnum(
-        type,
-        ALLOWED_ORDER_TYPES
-      )
-    ) {
-      filters.push(
-        "type = ?"
-      );
-
-      binds.push(type);
-    }
-  }
-
-  if (options.provider) {
-    const provider =
-      String(options.provider)
-        .trim()
-        .toUpperCase();
-
-    if (
-      validEnum(
-        provider,
-        ALLOWED_PROVIDERS
-      )
-    ) {
-      filters.push(
-        "provider = ?"
-      );
-
-      binds.push(provider);
-    }
-  }
-
-  const where =
-    filters.length
-      ? `WHERE ${filters.join(" AND ")}`
-      : "";
-
-  const rows =
-    await db
-      .prepare(`
-        SELECT
-          status,
-          COUNT(*) AS total,
-          COALESCE(
-            SUM(customer_amount),
-            0
-          ) AS customer_amount,
-          COALESCE(
-            SUM(provider_amount),
-            0
-          ) AS provider_amount
-        FROM orders
-        ${where}
-        GROUP BY status
-        ORDER BY status ASC
-      `)
-      .bind(...binds)
-      .all();
-
-  const stats = {};
-
-  for (
-    const row of rows.results || []
-  ) {
-    stats[row.status] = {
-      total:
-        Number(row.total || 0),
-      customer_amount:
-        Number(
-          row.customer_amount || 0
-        ),
-      provider_amount:
-        Number(
-          row.provider_amount || 0
-        )
-    };
-  }
-
-  return {
-    success: true,
-    stats
-  };
+  return getOrderEvents(
+    env,
+    orderId
+  );
 }
+
+export async function findOrderByIdempotency(
+  env,
+  userId,
+  idempotencyKey
+) {
+  return getOrderByIdempotencyKey(
+    env,
+    userId,
+    idempotencyKey
+  );
+}
+
+export async function handleOrders(
+  request,
+  env
+) {
+  const url =
+    new URL(
+      request.url
+    );
+
+  const path =
+    url.pathname
+      .replace(
+        /\/+$/,
+        ""
+      ) || "/";
+
+  if (
+    request.method ===
+      "GET" &&
+    path ===
+      "/api/orders"
+  ) {
+    return getOrders(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method ===
+      "POST" &&
+    path ===
+      "/api/orders"
+  ) {
+    return createOrder(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method ===
+      "GET" &&
+    path ===
+      "/api/orders/order"
+  ) {
+    return getOrder(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method ===
+      "POST" &&
+    path ===
+      "/api/orders/cancel"
+  ) {
+    return cancelOrder(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method ===
+      "GET" &&
+    path ===
+      "/api/admin/orders"
+  ) {
+    return adminGetOrders(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method ===
+      "POST" &&
+    path ===
+      "/api/admin/orders/status"
+  ) {
+    return adminUpdateOrderStatus(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method ===
+      "POST" &&
+    path ===
+      "/api/admin/orders/refund"
+  ) {
+    return adminRefundOrder(
+      request,
+      env
+    );
+  }
+
+  return errorResponse(
+    "Endpoint order tidak ditemukan.",
+    404
+  );
+}
+
+export default {
+  handleOrders,
+  getOrders,
+  getOrder,
+  createOrder,
+  cancelOrder,
+  adminGetOrders,
+  adminUpdateOrderStatus,
+  adminRefundOrder,
+  createOrderRecordPublic,
+  getOrderById,
+  getOrderByNumber,
+  getUserOrder,
+  updateOrderStatus,
+  listOrdersByUser,
+  getOrderEvents,
+  findOrderByIdempotency
+};
