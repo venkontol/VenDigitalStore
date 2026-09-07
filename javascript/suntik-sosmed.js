@@ -1,12 +1,10 @@
 import {
-  createOrder,
+  createOrderRecordPublic,
+  findOrderByIdempotency,
   getOrderById,
-  getOrderByIdempotencyKey,
   getUserOrder,
+  handleOrders,
   isFinalOrderStatus,
-  listAdminOrders,
-  listUserOrders,
-  updateOrder,
   updateOrderStatus
 } from "./orders.js";
 
@@ -32,7 +30,6 @@ import {
   cleanString,
   errorResponse,
   generateOrderNumber,
-  jsonResponse,
   parseInteger,
   readJson,
   successResponse
@@ -380,6 +377,32 @@ function mapProviderOrder(
       providerStatus
     );
 
+  const providerStatusLower =
+    providerStatus.toLowerCase();
+
+  const explicitProviderFailure =
+    providerOrder?.success === false ||
+    Boolean(
+      providerOrder?.error ||
+      providerOrder?.errors
+    ) ||
+    [
+      "error",
+      "failed",
+      "failure",
+      "cancelled",
+      "canceled"
+    ].includes(
+      providerStatusLower
+    );
+
+  if (
+    explicitProviderFailure &&
+    !externalOrderId
+  ) {
+    status = "FAILED";
+  }
+
   if (
     (
       !providerStatus ||
@@ -404,10 +427,17 @@ function mapProviderOrder(
 
     providerCharge:
       providerOrder.charge !==
-      undefined
+      undefined &&
+      Number.isSafeInteger(
+        Number(
+          providerOrder.charge
+        )
+      ) &&
+      Number(
+        providerOrder.charge
+      ) >= 0
         ? Number(
-            providerOrder.charge ||
-            0
+            providerOrder.charge
           )
         : null,
 
@@ -481,9 +511,9 @@ async function loadSocialOrder(
 
   const order =
     await getUserOrder(
-      env.DB,
+      env,
       user.id,
-      orderId
+      { id: orderId }
     );
 
   if (!order) {
@@ -569,24 +599,22 @@ async function saveProviderState(
     );
 
   if (!mapped) {
-    return errorResponse(
-      "Respons provider tidak valid.",
-      502
-    );
+    return {
+      success: false,
+      error: "Respons provider tidak valid."
+    };
   }
 
   const nextStatus =
     mapped.status &&
-    mapped.status !==
-      "UNKNOWN"
+    mapped.status !== "UNKNOWN"
       ? mapped.status
       : (
           mapped.externalOrderId ||
           order.external_order_id
         )
         ? (
-            order.status ===
-            "CREATING"
+            order.status === "CREATING"
               ? "PENDING"
               : order.status
           )
@@ -599,50 +627,208 @@ async function saveProviderState(
             mapped.externalOrderId
           )
         : order.external_order_id,
-
     status:
       nextStatus,
-
     providerStatus:
       mapped.providerStatus,
-
     providerData:
       mapped.providerData,
-
     providerCharge:
       mapped.providerCharge,
-
     startCount:
       mapped.startCount,
-
     remains:
       mapped.remains,
-
     failureReason:
       mapped.failureReason
   };
 
-  const saved =
-    await updateOrder(
-      env.DB,
-      order.id,
-      updates
+  let saved;
+
+  try {
+    saved =
+      await updateOrderStatus(
+        env,
+        order.id,
+        updates.status,
+        updates
+      );
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error?.message ||
+        "Gagal menyimpan status provider."
+    };
+  }
+
+  if (!saved) {
+    return {
+      success: false,
+      error: "Gagal menyimpan status provider."
+    };
+  }
+
+  return {
+    success: true,
+    order: saved
+  };
+}
+
+async function refundFailedSocialOrder(
+  env,
+  order
+) {
+  if (!order) {
+    return {
+      success: false,
+      error: "Order tidak ditemukan."
+    };
+  }
+
+  if (
+    order.status === "REFUNDED"
+  ) {
+    return {
+      success: true,
+      order,
+      refunded: true,
+      alreadyRefunded: true
+    };
+  }
+
+  if (
+    ![
+      "FAILED",
+      "CANCELLED",
+      "EXPIRED",
+      "REFUNDED"
+    ].includes(
+      order.status
+    )
+  ) {
+    return {
+      success: true,
+      order,
+      refunded: false
+    };
+  }
+
+  const amount =
+    Number(
+      order.customer_amount
     );
 
   if (
-    saved?.success !== true
+    !Number.isSafeInteger(amount) ||
+    amount <= 0
   ) {
-    return errorResponse(
-      saved?.error ||
-        "Gagal menyimpan status provider.",
-      500
-    );
+    return {
+      success: false,
+      error: "Nominal refund order tidak valid."
+    };
   }
 
-  return successResponse({
+  let refund;
+
+  try {
+    refund =
+      await refundBalance(
+        env,
+        {
+          userId:
+            order.user_id,
+          amount,
+          reference:
+            `REFUND:ORDER:${order.id}`,
+          description:
+            `Refund Suntik Sosmed ${order.order_number}`,
+          orderId:
+            order.id
+        }
+      );
+  } catch (error) {
+    try {
+      await updateOrderStatus(
+        env,
+        order.id,
+        "UNKNOWN",
+        {
+          message:
+            "Provider gagal tetapi refund belum berhasil diproses.",
+          failureReason:
+            error?.message ||
+            "Refund gagal."
+        }
+      );
+    } catch {}
+
+    return {
+      success: false,
+      error:
+        error?.message ||
+        "Refund gagal."
+    };
+  }
+
+  if (
+    refund?.success !== true
+  ) {
+    try {
+      await updateOrderStatus(
+        env,
+        order.id,
+        "UNKNOWN",
+        {
+          message:
+            "Provider gagal tetapi refund belum berhasil diproses.",
+          failureReason:
+            refund?.error ||
+            "Refund gagal."
+        }
+      );
+    } catch {}
+
+    return {
+      success: false,
+      error:
+        refund?.error ||
+        "Refund gagal."
+    };
+  }
+
+  let refundedOrder;
+
+  try {
+    refundedOrder =
+      await updateOrderStatus(
+        env,
+        order.id,
+        "REFUNDED",
+        {
+          message:
+            "Provider gagal dan saldo berhasil dikembalikan.",
+          failureReason:
+            order.failure_reason ||
+            null
+        }
+      );
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error?.message ||
+        "Refund berhasil tetapi status order gagal diperbarui."
+    };
+  }
+
+  return {
+    success: true,
     order:
-      saved.order
-  });
+      refundedOrder,
+    refunded: true,
+    alreadyRefunded: false
+  };
 }
 
 async function findService(
@@ -915,8 +1101,8 @@ export async function createSosmedOrder(
   }
 
   const existing =
-    await getOrderByIdempotencyKey(
-      env.DB,
+    await findOrderByIdempotency(
+      env,
       user.id,
       idempotencyKey
     );
@@ -1014,9 +1200,12 @@ export async function createSosmedOrder(
       "SOSMED"
     );
 
-  const created =
-    await createOrder(
-      env.DB,
+  let createdOrder;
+
+  try {
+    createdOrder =
+      await createOrderRecordPublic(
+        env,
       {
         userId:
           user.id,
@@ -1072,8 +1261,13 @@ export async function createSosmedOrder(
         providerData:
           null,
 
-        requestData:
-          data,
+        requestData: {
+          service_id:
+            String(service.id),
+          link:
+            target,
+          quantity
+        },
 
         idempotencyKey,
 
@@ -1081,39 +1275,45 @@ export async function createSosmedOrder(
           null
       }
     );
+  } catch (error) {
+    const concurrent =
+      await findOrderByIdempotency(
+        env,
+        user.id,
+        idempotencyKey
+      );
 
-  if (
-    created?.success !== true ||
-    !created.order
-  ) {
+    if (concurrent) {
+      return successResponse({
+        order: concurrent,
+        created: false,
+        idempotent: true
+      });
+    }
+
     return errorResponse(
-      created?.error ||
+      error?.message ||
         "Gagal membuat order.",
       500
     );
   }
 
-  if (
-    created.created === false ||
-    created.idempotent === true
-  ) {
-    return successResponse({
-      order:
-        created.order,
-      created: false,
-      idempotent: true
-    });
+  if (!createdOrder) {
+    return errorResponse(
+      "Gagal membuat order.",
+      500
+    );
   }
 
   const order =
-    created.order;
+    createdOrder;
 
   let debit;
 
   try {
     debit =
       await debitBalance(
-        env.DB,
+        env,
         {
           userId:
             user.id,
@@ -1136,12 +1336,10 @@ export async function createSosmedOrder(
       );
   } catch (error) {
     await updateOrderStatus(
-      env.DB,
+      env,
       order.id,
+      "FAILED",
       {
-        status:
-          "FAILED",
-
         message:
           error?.message ||
           "Gagal melakukan debit saldo.",
@@ -1159,7 +1357,7 @@ export async function createSosmedOrder(
       {
         order:
           await getOrderById(
-            env.DB,
+            env,
             order.id
           )
       }
@@ -1170,12 +1368,10 @@ export async function createSosmedOrder(
     debit?.success !== true
   ) {
     await updateOrderStatus(
-      env.DB,
+      env,
       order.id,
+      "FAILED",
       {
-        status:
-          "FAILED",
-
         message:
           debit?.error ||
           "Saldo tidak mencukupi.",
@@ -1193,7 +1389,7 @@ export async function createSosmedOrder(
       {
         order:
           await getOrderById(
-            env.DB,
+            env,
             order.id
           )
       }
@@ -1218,12 +1414,10 @@ export async function createSosmedOrder(
       );
   } catch (error) {
     await updateOrderStatus(
-      env.DB,
+      env,
       order.id,
+      "UNKNOWN",
       {
-        status:
-          "UNKNOWN",
-
         message:
           error?.message ||
           "Status order provider belum dapat dipastikan.",
@@ -1240,7 +1434,7 @@ export async function createSosmedOrder(
       {
         order:
           await getOrderById(
-            env.DB,
+            env,
             order.id
           )
       }
@@ -1249,12 +1443,10 @@ export async function createSosmedOrder(
 
   if (!providerOrder) {
     await updateOrderStatus(
-      env.DB,
+      env,
       order.id,
+      "UNKNOWN",
       {
-        status:
-          "UNKNOWN",
-
         message:
           "Provider tidak memberikan respons.",
 
@@ -1269,7 +1461,7 @@ export async function createSosmedOrder(
       {
         order:
           await getOrderById(
-            env.DB,
+            env,
             order.id
           )
       }
@@ -1287,16 +1479,13 @@ export async function createSosmedOrder(
     saved?.success !== true
   ) {
     await updateOrderStatus(
-      env.DB,
+      env,
       order.id,
+      "UNKNOWN",
       {
-        status:
-          "UNKNOWN",
-
         message:
           saved?.error ||
           "Status provider gagal disimpan.",
-
         failureReason:
           saved?.error ||
           "Status provider gagal disimpan."
@@ -1310,10 +1499,49 @@ export async function createSosmedOrder(
       {
         order:
           await getOrderById(
-            env.DB,
+            env,
             order.id
           )
       }
+    );
+  }
+
+  const refundResult =
+    await refundFailedSocialOrder(
+      env,
+      saved.order
+    );
+
+  if (
+    refundResult?.success !== true
+  ) {
+    return errorResponse(
+      refundResult?.error ||
+        "Provider gagal dan refund belum berhasil diproses.",
+      500,
+      {
+        order:
+          await getOrderById(
+            env,
+            order.id
+          )
+      }
+    );
+  }
+
+  if (
+    refundResult.refunded
+  ) {
+    return successResponse(
+      {
+        order:
+          refundResult.order,
+        charged:
+          false,
+        refunded:
+          true
+      },
+      201
     );
   }
 
@@ -1430,12 +1658,44 @@ export async function syncSosmedOrder(
   if (
     saved?.success !== true
   ) {
-    return saved;
+    return errorResponse(
+      saved?.error ||
+        "Status provider gagal disimpan.",
+      500
+    );
+  }
+
+  const refundResult =
+    await refundFailedSocialOrder(
+      env,
+      saved.order
+    );
+
+  if (
+    refundResult?.success !== true
+  ) {
+    return errorResponse(
+      refundResult?.error ||
+        "Provider gagal dan refund belum berhasil diproses.",
+      500,
+      {
+        order:
+          await getOrderById(
+            env,
+            order.id
+          )
+      }
+    );
   }
 
   return successResponse({
     order:
-      saved.order
+      refundResult.order ||
+      saved.order,
+    refunded:
+      Boolean(
+        refundResult.refunded
+      )
   });
 }
 
@@ -1443,40 +1703,22 @@ export async function listMySosmedOrders(
   request,
   env
 ) {
-  const user =
-    await requireAuth(
-      request,
-      env
-    );
-
-  if (
-    user instanceof Response
-  ) {
-    return user;
-  }
-
   const url =
     new URL(
       request.url
     );
 
-  return jsonResponse(
-    await listUserOrders(
-      env.DB,
-      user.id,
-      {
-        url,
+  url.searchParams.set(
+    "type",
+    SOCIAL_TYPE
+  );
 
-        defaultLimit:
-          DEFAULT_LIMIT,
-
-        maxLimit:
-          MAX_LIMIT,
-
-        type:
-          SOCIAL_TYPE
-      }
-    )
+  return handleOrders(
+    new Request(
+      url.toString(),
+      request
+    ),
+    env
   );
 }
 
@@ -1501,11 +1743,15 @@ export async function cancelSosmedOrder(
   } = loaded;
 
   if (
-    order.external_order_id
+    order.external_order_id ||
+    order.status !== "CREATING"
   ) {
     return errorResponse(
-      "Pembatalan order Suntik Sosmed harus dilakukan melalui provider.",
-      409
+      "Order tidak dapat dibatalkan pada status saat ini.",
+      409,
+      {
+        order
+      }
     );
   }
 
@@ -1514,7 +1760,7 @@ export async function cancelSosmedOrder(
   try {
     refund =
       await refundBalance(
-        env.DB,
+        env,
         {
           userId:
             order.user_id,
@@ -1534,12 +1780,10 @@ export async function cancelSosmedOrder(
       );
   } catch (error) {
     await updateOrderStatus(
-      env.DB,
+      env,
       order.id,
+      "CANCELLED",
       {
-        status:
-          "CANCELLED",
-
         message:
           "Order dibatalkan tetapi refund belum berhasil diproses.",
 
@@ -1556,7 +1800,7 @@ export async function cancelSosmedOrder(
       {
         order:
           await getOrderById(
-            env.DB,
+            env,
             order.id
           )
       }
@@ -1567,12 +1811,10 @@ export async function cancelSosmedOrder(
     refund?.success !== true
   ) {
     await updateOrderStatus(
-      env.DB,
+      env,
       order.id,
+      "CANCELLED",
       {
-        status:
-          "CANCELLED",
-
         message:
           "Order dibatalkan tetapi refund belum berhasil diproses.",
 
@@ -1587,7 +1829,7 @@ export async function cancelSosmedOrder(
       {
         order:
           await getOrderById(
-            env.DB,
+            env,
             order.id
           )
       }
@@ -1595,24 +1837,24 @@ export async function cancelSosmedOrder(
   }
 
   await updateOrderStatus(
-    env.DB,
-    order.id,
-    {
-      status:
-        "REFUNDED",
+      env,
+      order.id,
+      "REFUNDED",
+      {
+      
 
       message:
         "Order dibatalkan dan saldo berhasil dikembalikan.",
 
       failureReason:
         null
-    }
-  );
+      }
+    );
 
   return successResponse({
     order:
       await getOrderById(
-        env.DB,
+        env,
         order.id
       ),
 
@@ -1628,52 +1870,27 @@ export async function adminListSosmedOrders(
   request,
   env
 ) {
-  const admin =
-    await requireAdmin(
-      request,
-      env
-    );
-
-  if (
-    admin instanceof Response
-  ) {
-    return admin;
-  }
-
   const url =
     new URL(
       request.url
     );
 
-  return jsonResponse(
-    await listAdminOrders(
-      env.DB,
-      {
-        url,
+  url.searchParams.set(
+    "type",
+    SOCIAL_TYPE
+  );
 
-        defaultLimit:
-          DEFAULT_LIMIT,
+  url.searchParams.set(
+    "provider",
+    SOCIAL_PROVIDER
+  );
 
-        maxLimit:
-          MAX_LIMIT,
-
-        type:
-          SOCIAL_TYPE,
-
-        provider:
-          SOCIAL_PROVIDER,
-
-        userId:
-          url.searchParams.get(
-            "user_id"
-          ),
-
-        status:
-          url.searchParams.get(
-            "status"
-          )
-      }
-    )
+  return handleOrders(
+    new Request(
+      url.toString(),
+      request
+    ),
+    env
   );
 }
 
@@ -1717,7 +1934,7 @@ export async function adminGetSosmedOrder(
 
   const order =
     await getOrderById(
-      env.DB,
+      env,
       orderId
     );
 
@@ -1785,7 +2002,7 @@ export async function adminSyncSosmedOrder(
 
   const order =
     await getOrderById(
-      env.DB,
+      env,
       orderId
     );
 
@@ -1851,21 +2068,6 @@ export async function adminSyncSosmedOrder(
       saved.order
   });
 }
-
-/*
- * Router aliases.
- *
- * router.js menggunakan nama
- * listSocialServices,
- * createSocialOrder,
- * getSocialOrder,
- * syncSocialOrder,
- * listSocialOrders,
- * cancelSocialOrder.
- *
- * Alias ini menjaga kompatibilitas
- * dengan nama fungsi internal di atas.
- */
 
 export const listSocialServices =
   listSosmedServices;
