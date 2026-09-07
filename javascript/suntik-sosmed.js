@@ -1,6 +1,7 @@
 import {
   createOrder,
   getOrderById,
+  getOrderByIdempotencyKey,
   getUserOrder,
   isFinalOrderStatus,
   listAdminOrders,
@@ -32,7 +33,6 @@ import {
   errorResponse,
   generateOrderNumber,
   jsonResponse,
-  nowUnix,
   parseInteger,
   readJson,
   successResponse
@@ -75,39 +75,49 @@ function normalizeServiceData(service) {
       normalized.id ??
       normalized.service_id ??
       null,
+
     name:
       normalized.name ??
       normalized.service_name ??
       "",
+
     category:
       normalized.category ??
       null,
+
     type:
       normalized.type ??
       null,
+
     rate:
       Number(
         normalized.rate || 0
       ),
+
     min:
       Number(
         normalized.min || 0
       ),
+
     max:
       Number(
         normalized.max || 0
       ),
+
     refill:
       Boolean(
         normalized.refill
       ),
+
     dripfeed:
       Boolean(
         normalized.dripfeed
       ),
+
     currency:
       normalized.currency ||
       "IDR",
+
     raw:
       normalized
   };
@@ -122,7 +132,8 @@ function serviceMatches(
   }
 
   if (
-    filters.serviceId !== undefined &&
+    filters.serviceId !==
+      undefined &&
     String(service.id) !==
       String(filters.serviceId)
   ) {
@@ -130,45 +141,80 @@ function serviceMatches(
   }
 
   if (
-    filters.platform &&
-    !String(service.name || "")
-      .toLowerCase()
-      .includes(
-        String(filters.platform)
-          .toLowerCase()
-      ) &&
-    !String(service.category || "")
-      .toLowerCase()
-      .includes(
-        String(filters.platform)
-          .toLowerCase()
-      )
+    filters.platform
   ) {
-    return false;
+    const platform =
+      String(
+        filters.platform
+      ).toLowerCase();
+
+    const name =
+      String(
+        service.name || ""
+      ).toLowerCase();
+
+    const category =
+      String(
+        service.category || ""
+      ).toLowerCase();
+
+    if (
+      !name.includes(platform) &&
+      !category.includes(platform)
+    ) {
+      return false;
+    }
   }
 
   if (
-    filters.category &&
-    String(service.category || "")
-      .toLowerCase() !==
-      String(filters.category)
-        .toLowerCase()
+    filters.category
   ) {
-    return false;
+    if (
+      String(
+        service.category || ""
+      ).toLowerCase() !==
+      String(
+        filters.category
+      ).toLowerCase()
+    ) {
+      return false;
+    }
   }
 
   return true;
 }
 
-function calculateCustomerAmount(
+function getMarkupPercent(env) {
+  const value =
+    Number(
+      env?.MARKUP_PERCENT ??
+      0
+    );
+
+  if (
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 1000
+  ) {
+    return 0;
+  }
+
+  return value;
+}
+
+function calculateProviderAmount(
   ratePer1000,
   quantity
 ) {
   const rate =
-    Number(ratePer1000 || 0);
+    Number(
+      ratePer1000 || 0
+    );
 
   const amount =
-    Number(quantity || 0);
+    Number(
+      quantity || 0
+    );
 
   if (
     !Number.isFinite(rate) ||
@@ -181,7 +227,72 @@ function calculateCustomerAmount(
 
   return Math.ceil(
     (rate * amount) /
-      1000
+    1000
+  );
+}
+
+function calculateCustomerAmount(
+  providerAmount,
+  markupPercent
+) {
+  const amount =
+    Number(
+      providerAmount || 0
+    );
+
+  const markup =
+    Number(
+      markupPercent || 0
+    );
+
+  if (
+    !Number.isFinite(amount) ||
+    !Number.isFinite(markup) ||
+    amount < 0 ||
+    markup < 0
+  ) {
+    return 0;
+  }
+
+  return Math.ceil(
+    amount +
+    (
+      amount *
+      markup
+    ) /
+    100
+  );
+}
+
+function calculateSellingRate(
+  providerRate,
+  markupPercent
+) {
+  const rate =
+    Number(
+      providerRate || 0
+    );
+
+  const markup =
+    Number(
+      markupPercent || 0
+    );
+
+  if (
+    !Number.isFinite(rate) ||
+    !Number.isFinite(markup) ||
+    rate < 0 ||
+    markup < 0
+  ) {
+    return 0;
+  }
+
+  return Math.ceil(
+    rate *
+    (
+      1 +
+      markup / 100
+    )
   );
 }
 
@@ -213,15 +324,17 @@ function validateQuantity(
   value,
   service
 ) {
+  const maximum =
+    Number(
+      service?.max || 0
+    ) || 100000000;
+
   const quantity =
     parseInteger(
       value,
       {
         min: 1,
-        max:
-          Number(
-            service?.max || 0
-          ) || 100000000
+        max: maximum
       }
     );
 
@@ -257,39 +370,65 @@ function mapProviderOrder(
       128
     );
 
+  const externalOrderId =
+    providerOrder.order ??
+    providerOrder.id ??
+    null;
+
+  let status =
+    mapProviderStatus(
+      providerStatus
+    );
+
+  if (
+    (
+      !providerStatus ||
+      status === "UNKNOWN"
+    ) &&
+    externalOrderId
+  ) {
+    status = "PENDING";
+  }
+
   return {
-    externalOrderId:
-      providerOrder.order ??
-      providerOrder.id ??
+    externalOrderId,
+
+    status,
+
+    providerStatus:
+      providerStatus ||
       null,
-    status:
-      mapProviderStatus(
-        providerStatus
-      ),
-    providerStatus,
+
     providerData:
       providerOrder,
+
     providerCharge:
       providerOrder.charge !==
-        undefined
+      undefined
         ? Number(
-            providerOrder.charge || 0
+            providerOrder.charge ||
+            0
           )
         : null,
+
     startCount:
       providerOrder.start_count !==
-        undefined
+      undefined
         ? Number(
-            providerOrder.start_count || 0
+            providerOrder.start_count ||
+            0
           )
         : null,
+
     remains:
       providerOrder.remains !==
-        undefined
+      undefined
         ? Number(
-            providerOrder.remains || 0
+            providerOrder.remains ||
+            0
           )
         : null,
+
     failureReason:
       providerOrder.error ||
       providerOrder.message ||
@@ -358,8 +497,10 @@ async function loadSocialOrder(
   }
 
   if (
-    order.type !== SOCIAL_TYPE ||
-    order.provider !== SOCIAL_PROVIDER
+    order.type !==
+      SOCIAL_TYPE ||
+    order.provider !==
+      SOCIAL_PROVIDER
   ) {
     return {
       response:
@@ -386,7 +527,9 @@ async function loadActionableSocialOrder(
       env
     );
 
-  if (loaded.response) {
+  if (
+    loaded.response
+  ) {
     return loaded;
   }
 
@@ -432,6 +575,23 @@ async function saveProviderState(
     );
   }
 
+  const nextStatus =
+    mapped.status &&
+    mapped.status !==
+      "UNKNOWN"
+      ? mapped.status
+      : (
+          mapped.externalOrderId ||
+          order.external_order_id
+        )
+        ? (
+            order.status ===
+            "CREATING"
+              ? "PENDING"
+              : order.status
+          )
+        : "UNKNOWN";
+
   const updates = {
     externalOrderId:
       mapped.externalOrderId
@@ -439,20 +599,25 @@ async function saveProviderState(
             mapped.externalOrderId
           )
         : order.external_order_id,
+
     status:
-      mapped.status ||
-      order.status,
+      nextStatus,
+
     providerStatus:
-      mapped.providerStatus ||
-      null,
+      mapped.providerStatus,
+
     providerData:
       mapped.providerData,
+
     providerCharge:
       mapped.providerCharge,
+
     startCount:
       mapped.startCount,
+
     remains:
       mapped.remains,
+
     failureReason:
       mapped.failureReason
   };
@@ -478,6 +643,43 @@ async function saveProviderState(
     order:
       saved.order
   });
+}
+
+async function findService(
+  env,
+  serviceId
+) {
+  let services;
+
+  try {
+    services =
+      await getProviderServices(
+        env
+      );
+  } catch (error) {
+    throw error;
+  }
+
+  const normalized =
+    Array.isArray(
+      services
+    )
+      ? services
+          .map(
+            normalizeServiceData
+          )
+          .filter(Boolean)
+      : [];
+
+  return normalized.find(
+    service =>
+      String(
+        service.id
+      ) ===
+      String(
+        serviceId
+      )
+  ) || null;
 }
 
 export async function listSosmedServices(
@@ -537,7 +739,9 @@ export async function listSosmedServices(
   }
 
   const normalized =
-    Array.isArray(services)
+    Array.isArray(
+      services
+    )
       ? services
           .map(
             normalizeServiceData
@@ -554,9 +758,11 @@ export async function listSosmedServices(
             serviceId:
               serviceId ||
               undefined,
+
             platform:
               platform ||
               undefined,
+
             category:
               category ||
               undefined
@@ -603,13 +809,23 @@ export async function getSosmedService(
     );
   }
 
-  let services;
-
   try {
-    services =
-      await getProviderServices(
-        env
+    const service =
+      await findService(
+        env,
+        serviceId
       );
+
+    if (!service) {
+      return errorResponse(
+        "Layanan tidak ditemukan.",
+        404
+      );
+    }
+
+    return successResponse({
+      service
+    });
   } catch (error) {
     return errorResponse(
       error?.message ||
@@ -617,34 +833,6 @@ export async function getSosmedService(
       502
     );
   }
-
-  const service =
-    (Array.isArray(services)
-      ? services
-          .map(
-            normalizeServiceData
-          )
-          .find(
-            item =>
-              String(
-                item.id
-              ) ===
-              String(
-                serviceId
-              )
-          )
-      : null);
-
-  if (!service) {
-    return errorResponse(
-      "Layanan tidak ditemukan.",
-      404
-    );
-  }
-
-  return successResponse({
-    service
-  });
 }
 
 export async function createSosmedOrder(
@@ -680,10 +868,13 @@ export async function createSosmedOrder(
     data.service_id;
 
   if (
-    serviceId === undefined ||
-    serviceId === null ||
-    String(serviceId)
-      .trim() === ""
+    serviceId ===
+      undefined ||
+    serviceId ===
+      null ||
+    String(
+      serviceId
+    ).trim() === ""
   ) {
     return errorResponse(
       "Service ID wajib diisi.",
@@ -694,8 +885,8 @@ export async function createSosmedOrder(
   const target =
     validateTarget(
       data.link ??
-        data.target ??
-        data.url
+      data.target ??
+      data.url
     );
 
   if (!target) {
@@ -710,9 +901,9 @@ export async function createSosmedOrder(
       request.headers.get(
         "Idempotency-Key"
       ) ||
-        data.idempotencyKey ||
-        data.idempotency_key ||
-        "",
+      data.idempotencyKey ||
+      data.idempotency_key ||
+      "",
       128
     );
 
@@ -724,14 +915,11 @@ export async function createSosmedOrder(
   }
 
   const existing =
-    await import("./orders.js")
-      .then(module =>
-        module.getOrderByIdempotencyKey(
-          env.DB,
-          user.id,
-          idempotencyKey
-        )
-      );
+    await getOrderByIdempotencyKey(
+      env.DB,
+      user.id,
+      idempotencyKey
+    );
 
   if (existing) {
     return successResponse({
@@ -742,12 +930,13 @@ export async function createSosmedOrder(
     });
   }
 
-  let services;
+  let service;
 
   try {
-    services =
-      await getProviderServices(
-        env
+    service =
+      await findService(
+        env,
+        serviceId
       );
   } catch (error) {
     return errorResponse(
@@ -756,23 +945,6 @@ export async function createSosmedOrder(
       502
     );
   }
-
-  const service =
-    (Array.isArray(services)
-      ? services
-          .map(
-            normalizeServiceData
-          )
-          .find(
-            item =>
-              String(
-                item.id
-              ) ===
-              String(
-                serviceId
-              )
-          )
-      : null);
 
   if (!service) {
     return errorResponse(
@@ -803,14 +975,33 @@ export async function createSosmedOrder(
     );
   }
 
-  const customerAmount =
-    calculateCustomerAmount(
+  const markupPercent =
+    getMarkupPercent(
+      env
+    );
+
+  const providerAmount =
+    calculateProviderAmount(
       service.rate,
       quantity
     );
 
+  const customerAmount =
+    calculateCustomerAmount(
+      providerAmount,
+      markupPercent
+    );
+
+  const sellingRate =
+    calculateSellingRate(
+      service.rate,
+      markupPercent
+    );
+
   if (
-    customerAmount <= 0
+    providerAmount <= 0 ||
+    customerAmount <= 0 ||
+    sellingRate <= 0
   ) {
     return errorResponse(
       "Total harga tidak valid.",
@@ -829,44 +1020,63 @@ export async function createSosmedOrder(
       {
         userId:
           user.id,
+
         orderNumber,
+
         type:
           SOCIAL_TYPE,
+
         provider:
           SOCIAL_PROVIDER,
+
         externalOrderId:
           null,
+
         serviceId:
           String(
             service.id
           ),
+
         serviceName:
           service.name,
+
         target,
+
         quantity,
+
         rateUnit:
           RATE_UNIT,
+
         providerRate:
           service.rate,
-        sellingRate:
-          service.rate,
-        providerAmount:
-          customerAmount,
+
+        sellingRate,
+
+        providerAmount,
+
         customerAmount,
+
         providerCharge:
           null,
+
         providerCurrency:
           service.currency ||
           "IDR",
+
         status:
           "CREATING",
+
         providerStatus:
           null,
+
         providerData:
           null,
+
         requestData:
           data,
+
         idempotencyKey,
+
         failureReason:
           null
       }
@@ -883,18 +1093,78 @@ export async function createSosmedOrder(
     );
   }
 
+  if (
+    created.created === false ||
+    created.idempotent === true
+  ) {
+    return successResponse({
+      order:
+        created.order,
+      created: false,
+      idempotent: true
+    });
+  }
+
   const order =
     created.order;
 
-  const debit =
-    await debitBalance(
+  let debit;
+
+  try {
+    debit =
+      await debitBalance(
+        env.DB,
+        {
+          userId:
+            user.id,
+
+          amount:
+            customerAmount,
+
+          type:
+            "PURCHASE",
+
+          reference:
+            `ORDER:${order.id}`,
+
+          description:
+            `Pembelian Suntik Sosmed ${order.order_number}`,
+
+          orderId:
+            order.id
+        }
+      );
+  } catch (error) {
+    await updateOrderStatus(
       env.DB,
-      user.id,
-      customerAmount,
-      `ORDER:${order.id}`,
-      `Pembelian Suntik Sosmed ${order.order_number}`,
-      order.id
+      order.id,
+      {
+        status:
+          "FAILED",
+
+        message:
+          error?.message ||
+          "Gagal melakukan debit saldo.",
+
+        failureReason:
+          error?.message ||
+          "Gagal melakukan debit saldo."
+      }
     );
+
+    return errorResponse(
+      error?.message ||
+        "Gagal melakukan debit saldo.",
+      500,
+      {
+        order:
+          await getOrderById(
+            env.DB,
+            order.id
+          )
+      }
+    );
+  }
 
   if (
     debit?.success !== true
@@ -905,9 +1175,11 @@ export async function createSosmedOrder(
       {
         status:
           "FAILED",
+
         message:
           debit?.error ||
           "Saldo tidak mencukupi.",
+
         failureReason:
           debit?.error ||
           "Saldo tidak mencukupi."
@@ -937,8 +1209,10 @@ export async function createSosmedOrder(
         {
           service:
             service.id,
+
           link:
             target,
+
           quantity
         }
       );
@@ -949,9 +1223,11 @@ export async function createSosmedOrder(
       {
         status:
           "UNKNOWN",
+
         message:
           error?.message ||
-          "Status order provider tidak dapat dipastikan.",
+          "Status order provider belum dapat dipastikan.",
+
         failureReason:
           error?.message ||
           "Provider request tidak dapat dipastikan."
@@ -971,17 +1247,17 @@ export async function createSosmedOrder(
     );
   }
 
-  if (
-    !providerOrder
-  ) {
+  if (!providerOrder) {
     await updateOrderStatus(
       env.DB,
       order.id,
       {
         status:
           "UNKNOWN",
+
         message:
           "Provider tidak memberikan respons.",
+
         failureReason:
           "Provider tidak memberikan respons."
       }
@@ -1016,9 +1292,11 @@ export async function createSosmedOrder(
       {
         status:
           "UNKNOWN",
+
         message:
           saved?.error ||
           "Status provider gagal disimpan.",
+
         failureReason:
           saved?.error ||
           "Status provider gagal disimpan."
@@ -1043,8 +1321,23 @@ export async function createSosmedOrder(
     {
       order:
         saved.order,
+
       charged:
-        true
+        true,
+
+      pricing: {
+        provider_rate:
+          service.rate,
+
+        provider_amount:
+          providerAmount,
+
+        markup_percent:
+          markupPercent,
+
+        customer_amount:
+          customerAmount
+      }
     },
     201
   );
@@ -1060,7 +1353,9 @@ export async function getSosmedOrder(
       env
     );
 
-  if (loaded.response) {
+  if (
+    loaded.response
+  ) {
     return loaded.response;
   }
 
@@ -1075,18 +1370,30 @@ export async function syncSosmedOrder(
   env
 ) {
   const loaded =
-    await loadActionableSocialOrder(
+    await loadSocialOrder(
       request,
       env
     );
 
-  if (loaded.response) {
+  if (
+    loaded.response
+  ) {
     return loaded.response;
   }
 
   const {
     order
   } = loaded;
+
+  if (
+    isFinalOrderStatus(
+      order.status
+    )
+  ) {
+    return successResponse({
+      order
+    });
+  }
 
   if (
     !order.external_order_id
@@ -1159,10 +1466,13 @@ export async function listMySosmedOrders(
       user.id,
       {
         url,
+
         defaultLimit:
           DEFAULT_LIMIT,
+
         maxLimit:
           MAX_LIMIT,
+
         type:
           SOCIAL_TYPE
       }
@@ -1180,7 +1490,9 @@ export async function cancelSosmedOrder(
       env
     );
 
-  if (loaded.response) {
+  if (
+    loaded.response
+  ) {
     return loaded.response;
   }
 
@@ -1189,7 +1501,70 @@ export async function cancelSosmedOrder(
   } = loaded;
 
   if (
-    !order.external_order_id
+    order.external_order_id
+  ) {
+    return errorResponse(
+      "Pembatalan order Suntik Sosmed harus dilakukan melalui provider.",
+      409
+    );
+  }
+
+  let refund;
+
+  try {
+    refund =
+      await refundBalance(
+        env.DB,
+        {
+          userId:
+            order.user_id,
+
+          amount:
+            order.customer_amount,
+
+          reference:
+            `REFUND:ORDER:${order.id}`,
+
+          description:
+            `Refund Suntik Sosmed ${order.order_number}`,
+
+          orderId:
+            order.id
+        }
+      );
+  } catch (error) {
+    await updateOrderStatus(
+      env.DB,
+      order.id,
+      {
+        status:
+          "CANCELLED",
+
+        message:
+          "Order dibatalkan tetapi refund belum berhasil diproses.",
+
+        failureReason:
+          error?.message ||
+          "Refund gagal."
+      }
+    );
+
+    return errorResponse(
+      error?.message ||
+        "Order dibatalkan tetapi refund gagal.",
+      500,
+      {
+        order:
+          await getOrderById(
+            env.DB,
+            order.id
+          )
+      }
+    );
+  }
+
+  if (
+    refund?.success !== true
   ) {
     await updateOrderStatus(
       env.DB,
@@ -1197,53 +1572,56 @@ export async function cancelSosmedOrder(
       {
         status:
           "CANCELLED",
+
         message:
-          "Order dibatalkan sebelum memiliki order provider."
+          "Order dibatalkan tetapi refund belum berhasil diproses.",
+
+        failureReason:
+          "Refund gagal."
       }
     );
 
-    const refund =
-      await refundBalance(
-        env.DB,
-        order.user_id,
-        order.customer_amount,
-        `ORDER:${order.id}`,
-        `Refund Suntik Sosmed ${order.order_number}`,
-        order.id
-      );
-
-    const refunded =
-      refund?.success === true;
-
-    if (refunded) {
-      await updateOrderStatus(
-        env.DB,
-        order.id,
-        {
-          status:
-            "REFUNDED",
-          message:
-            "Order dibatalkan dan saldo berhasil dikembalikan."
-        }
-      );
-    }
-
-    return successResponse({
-      order:
-        await getOrderById(
-          env.DB,
-          order.id
-        ),
-      refunded,
-      refund_pending:
-        !refunded
-    });
+    return errorResponse(
+      "Order dibatalkan tetapi refund belum berhasil diproses.",
+      500,
+      {
+        order:
+          await getOrderById(
+            env.DB,
+            order.id
+          )
+      }
+    );
   }
 
-  return errorResponse(
-    "Pembatalan order Suntik Sosmed harus dilakukan melalui provider.",
-    409
+  await updateOrderStatus(
+    env.DB,
+    order.id,
+    {
+      status:
+        "REFUNDED",
+
+      message:
+        "Order dibatalkan dan saldo berhasil dikembalikan.",
+
+      failureReason:
+        null
+    }
   );
+
+  return successResponse({
+    order:
+      await getOrderById(
+        env.DB,
+        order.id
+      ),
+
+    refunded:
+      true,
+
+    refund_pending:
+      false
+  });
 }
 
 export async function adminListSosmedOrders(
@@ -1272,18 +1650,24 @@ export async function adminListSosmedOrders(
       env.DB,
       {
         url,
+
         defaultLimit:
           DEFAULT_LIMIT,
+
         maxLimit:
           MAX_LIMIT,
+
         type:
           SOCIAL_TYPE,
+
         provider:
           SOCIAL_PROVIDER,
+
         userId:
           url.searchParams.get(
             "user_id"
           ),
+
         status:
           url.searchParams.get(
             "status"
@@ -1345,8 +1729,10 @@ export async function adminGetSosmedOrder(
   }
 
   if (
-    order.type !== SOCIAL_TYPE ||
-    order.provider !== SOCIAL_PROVIDER
+    order.type !==
+      SOCIAL_TYPE ||
+    order.provider !==
+      SOCIAL_PROVIDER
   ) {
     return errorResponse(
       "Order bukan order Suntik Sosmed.",
@@ -1411,8 +1797,10 @@ export async function adminSyncSosmedOrder(
   }
 
   if (
-    order.type !== SOCIAL_TYPE ||
-    order.provider !== SOCIAL_PROVIDER
+    order.type !==
+      SOCIAL_TYPE ||
+    order.provider !==
+      SOCIAL_PROVIDER
   ) {
     return errorResponse(
       "Order bukan order Suntik Sosmed.",
@@ -1463,3 +1851,57 @@ export async function adminSyncSosmedOrder(
       saved.order
   });
 }
+
+/*
+ * Router aliases.
+ *
+ * router.js menggunakan nama
+ * listSocialServices,
+ * createSocialOrder,
+ * getSocialOrder,
+ * syncSocialOrder,
+ * listSocialOrders,
+ * cancelSocialOrder.
+ *
+ * Alias ini menjaga kompatibilitas
+ * dengan nama fungsi internal di atas.
+ */
+
+export const listSocialServices =
+  listSosmedServices;
+
+export const createSocialOrder =
+  createSosmedOrder;
+
+export const getSocialOrder =
+  getSosmedOrder;
+
+export const syncSocialOrder =
+  syncSosmedOrder;
+
+export const listSocialOrders =
+  listMySosmedOrders;
+
+export const cancelSocialOrder =
+  cancelSosmedOrder;
+
+export default {
+  listSosmedServices,
+  getSosmedService,
+  createSosmedOrder,
+  getSosmedOrder,
+  syncSosmedOrder,
+  listMySosmedOrders,
+  cancelSosmedOrder,
+
+  adminListSosmedOrders,
+  adminGetSosmedOrder,
+  adminSyncSosmedOrder,
+
+  listSocialServices,
+  createSocialOrder,
+  getSocialOrder,
+  syncSocialOrder,
+  listSocialOrders,
+  cancelSocialOrder
+};
