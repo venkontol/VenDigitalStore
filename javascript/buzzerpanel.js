@@ -2,15 +2,23 @@ const DEFAULT_BASE_URL = "https://buzzerpanel.id/api/json.php";
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_CACHE_TTL = 60;
 const DEFAULT_MAX_SERVICES = 300;
+const MIN_TIMEOUT_MS = 1000;
+const MAX_TIMEOUT_MS = 120000;
+const MAX_ID_LENGTH = 256;
+const MAX_LINK_LENGTH = 4096;
+const MAX_QUANTITY_LENGTH = 32;
+const MAX_OPTION_LENGTH = 4096;
 
 const servicesCache = new Map();
 
 export class BuzzerPanelError extends Error {
   constructor(message, options = {}) {
-    super(message);
+    super(String(message || "BuzzerPanel error."));
     this.name = "BuzzerPanelError";
-    this.status = Number(options.status || 502);
-    this.code = options.code || "BUZZERPANEL_ERROR";
+    this.status = Number.isFinite(Number(options.status))
+      ? Number(options.status)
+      : 502;
+    this.code = String(options.code || "BUZZERPANEL_ERROR");
     this.details = options.details ?? null;
   }
 }
@@ -30,7 +38,34 @@ function getBaseUrl(env) {
     );
   }
 
-  return value;
+  let url;
+
+  try {
+    url = new URL(value);
+  } catch {
+    throw new BuzzerPanelError(
+      "BuzzerPanel API URL tidak valid.",
+      {
+        status: 500,
+        code: "BUZZERPANEL_API_URL_INVALID"
+      }
+    );
+  }
+
+  if (
+    url.protocol !== "https:" &&
+    url.protocol !== "http:"
+  ) {
+    throw new BuzzerPanelError(
+      "Protokol BuzzerPanel API tidak valid.",
+      {
+        status: 500,
+        code: "BUZZERPANEL_API_URL_INVALID"
+      }
+    );
+  }
+
+  return url.toString();
 }
 
 function getCredentials(env) {
@@ -68,16 +103,25 @@ function getCredentials(env) {
   };
 }
 
-function getTimeout(env) {
+function getTimeout(env, requested) {
+  const requestedValue = Number(requested);
+
+  if (
+    Number.isFinite(requestedValue) &&
+    requestedValue >= MIN_TIMEOUT_MS &&
+    requestedValue <= MAX_TIMEOUT_MS
+  ) {
+    return Math.floor(requestedValue);
+  }
+
   const value = Number(
-    env?.BUZZER_API_TIMEOUT ||
-      DEFAULT_TIMEOUT_MS
+    env?.BUZZER_API_TIMEOUT || DEFAULT_TIMEOUT_MS
   );
 
   if (
     Number.isFinite(value) &&
-    value >= 1000 &&
-    value <= 120000
+    value >= MIN_TIMEOUT_MS &&
+    value <= MAX_TIMEOUT_MS
   ) {
     return Math.floor(value);
   }
@@ -87,8 +131,7 @@ function getTimeout(env) {
 
 function getCacheTtl(env) {
   const value = Number(
-    env?.CACHE_TTL ||
-      DEFAULT_CACHE_TTL
+    env?.CACHE_TTL ?? DEFAULT_CACHE_TTL
   );
 
   if (
@@ -103,8 +146,7 @@ function getCacheTtl(env) {
 
 function getMaxServices(env) {
   const value = Number(
-    env?.MAX_SERVICES ||
-      DEFAULT_MAX_SERVICES
+    env?.MAX_SERVICES ?? DEFAULT_MAX_SERVICES
   );
 
   if (
@@ -128,6 +170,14 @@ function clean(value, max = 4096) {
   return String(value)
     .trim()
     .slice(0, max);
+}
+
+function isObject(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  );
 }
 
 function buildForm(payload) {
@@ -161,21 +211,18 @@ function buildForm(payload) {
   return form;
 }
 
-function isObject(value) {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value)
-  );
-}
-
 function extractApiMessage(data) {
   if (!data) {
     return "BuzzerPanel tidak memberikan respons.";
   }
 
   if (typeof data === "string") {
-    return clean(data, 1000);
+    return clean(data, 1000) ||
+      "BuzzerPanel tidak memberikan respons.";
+  }
+
+  if (!isObject(data)) {
+    return "BuzzerPanel memberikan respons tidak valid.";
   }
 
   return clean(
@@ -184,9 +231,16 @@ function extractApiMessage(data) {
       data.msg ||
       data.data?.error ||
       data.data?.message ||
+      data.data?.msg ||
       "",
     1000
   );
+}
+
+function getStatusValue(value) {
+  return clean(value, 128)
+    .toLowerCase()
+    .trim();
 }
 
 function isProviderError(data) {
@@ -194,7 +248,14 @@ function isProviderError(data) {
     return false;
   }
 
-  if (data.error) {
+  if (
+    typeof data.error === "string" &&
+    data.error.trim()
+  ) {
+    return true;
+  }
+
+  if (data.error === true) {
     return true;
   }
 
@@ -206,16 +267,31 @@ function isProviderError(data) {
     return true;
   }
 
+  const status = getStatusValue(data.status);
+  const nestedStatus = getStatusValue(
+    data.data?.status
+  );
+
   if (
-    String(data.status || "")
-      .toLowerCase() === "error"
+    [
+      "error",
+      "failed",
+      "failure",
+      "rejected",
+      "invalid"
+    ].includes(status)
   ) {
     return true;
   }
 
   if (
-    String(data.data?.status || "")
-      .toLowerCase() === "error"
+    [
+      "error",
+      "failed",
+      "failure",
+      "rejected",
+      "invalid"
+    ].includes(nestedStatus)
   ) {
     return true;
   }
@@ -237,22 +313,18 @@ async function parseResponse(response) {
   }
 }
 
-async function request(
-  env,
-  payload,
-  options = {}
-) {
+async function request(env, payload, options = {}) {
   const {
     apiKey,
     secretKey
   } = getCredentials(env);
 
-  const timeoutMs =
-    options.timeoutMs ||
-    getTimeout(env);
+  const timeoutMs = getTimeout(
+    env,
+    options.timeoutMs
+  );
 
-  const controller =
-    new AbortController();
+  const controller = new AbortController();
 
   const timer = setTimeout(
     () => controller.abort(),
@@ -266,28 +338,23 @@ async function request(
   });
 
   try {
-    const response =
-      await fetch(
-        getBaseUrl(env),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/x-www-form-urlencoded",
-            Accept:
-              "application/json"
-          },
-          body:
-            form.toString(),
-          signal:
-            controller.signal
-        }
-      );
+    const response = await fetch(
+      getBaseUrl(env),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/x-www-form-urlencoded",
+          Accept: "application/json"
+        },
+        body: form.toString(),
+        signal: controller.signal
+      }
+    );
 
-    const data =
-      await parseResponse(
-        response
-      );
+    const data = await parseResponse(
+      response
+    );
 
     if (!response.ok) {
       throw new BuzzerPanelError(
@@ -295,13 +362,21 @@ async function request(
           `BuzzerPanel HTTP ${response.status}.`,
         {
           status: 502,
-          code:
-            "BUZZERPANEL_HTTP_ERROR",
+          code: "BUZZERPANEL_HTTP_ERROR",
           details: {
-            httpStatus:
-              response.status,
+            httpStatus: response.status,
             response: data
           }
+        }
+      );
+    }
+
+    if (data === null) {
+      throw new BuzzerPanelError(
+        "BuzzerPanel memberikan respons kosong.",
+        {
+          status: 502,
+          code: "BUZZERPANEL_EMPTY_RESPONSE"
         }
       );
     }
@@ -312,8 +387,7 @@ async function request(
           "BuzzerPanel menolak request.",
         {
           status: 502,
-          code:
-            "BUZZERPANEL_API_ERROR",
+          code: "BUZZERPANEL_API_ERROR",
           details: data
         }
       );
@@ -322,22 +396,19 @@ async function request(
     return data;
   } catch (error) {
     if (
-      error instanceof
-      BuzzerPanelError
+      error instanceof BuzzerPanelError
     ) {
       throw error;
     }
 
     if (
-      error?.name ===
-      "AbortError"
+      error?.name === "AbortError"
     ) {
       throw new BuzzerPanelError(
         "Request ke BuzzerPanel timeout.",
         {
           status: 504,
-          code:
-            "BUZZERPANEL_TIMEOUT"
+          code: "BUZZERPANEL_TIMEOUT"
         }
       );
     }
@@ -347,8 +418,7 @@ async function request(
         "Gagal terhubung ke BuzzerPanel.",
       {
         status: 502,
-        code:
-          "BUZZERPANEL_NETWORK_ERROR"
+        code: "BUZZERPANEL_NETWORK_ERROR"
       }
     );
   } finally {
@@ -392,9 +462,30 @@ function extractServices(data) {
   return [];
 }
 
-export function normalizeService(
-  service
-) {
+function parseBoolean(value) {
+  if (
+    value === true ||
+    value === 1
+  ) {
+    return true;
+  }
+
+  const normalized = String(
+    value ?? ""
+  )
+    .trim()
+    .toLowerCase();
+
+  return [
+    "true",
+    "1",
+    "yes",
+    "y",
+    "on"
+  ].includes(normalized);
+}
+
+export function normalizeService(service) {
   if (!isObject(service)) {
     return null;
   }
@@ -407,7 +498,8 @@ export function normalizeService(
 
   if (
     id === null ||
-    id === ""
+    id === "" ||
+    !String(id).trim()
   ) {
     return null;
   }
@@ -432,26 +524,19 @@ export function normalizeService(
   );
 
   return {
-    id: String(id),
-
-    service_id:
-      String(id),
-
-    name:
-      clean(
-        service.name ??
-          service.service_name ??
-          "",
-        512
-      ),
-
+    id: String(id).trim(),
+    service_id: String(id).trim(),
+    name: clean(
+      service.name ??
+        service.service_name ??
+        "",
+      512
+    ),
     category:
       clean(
-        service.category ??
-          "",
+        service.category ?? "",
         256
       ) || null,
-
     type:
       clean(
         service.type ??
@@ -459,60 +544,30 @@ export function normalizeService(
           "",
         128
       ) || null,
-
     rate:
       Number.isFinite(rate) &&
       rate >= 0
         ? rate
         : 0,
-
     min:
       Number.isFinite(min) &&
       min >= 0
         ? min
         : 0,
-
     max:
       Number.isFinite(max) &&
       max >= 0
         ? max
         : 0,
-
     refill:
-      Boolean(
-        service.refill === true ||
-        service.refill === 1 ||
-        String(
-          service.refill
-        ).toLowerCase() ===
-          "true" ||
-        String(
-          service.refill
-        ).toLowerCase() ===
-          "yes"
-      ),
-
+      parseBoolean(service.refill),
     dripfeed:
-      Boolean(
-        service.dripfeed === true ||
-        service.dripfeed === 1 ||
-        String(
-          service.dripfeed
-        ).toLowerCase() ===
-          "true" ||
-        String(
-          service.dripfeed
-        ).toLowerCase() ===
-          "yes"
-      ),
-
+      parseBoolean(service.dripfeed),
     currency:
       clean(
-        service.currency ??
-          "IDR",
+        service.currency ?? "IDR",
         16
       ) || "IDR",
-
     raw: service
   };
 }
@@ -521,51 +576,39 @@ export async function getServices(
   env,
   options = {}
 ) {
-  const cacheKey =
-    getBaseUrl(env);
-
-  const ttl =
-    getCacheTtl(env) *
-    1000;
-
-  const now =
-    Date.now();
-
-  const cached =
-    servicesCache.get(
-      cacheKey
-    );
+  const baseUrl = getBaseUrl(env);
+  const maxServices = getMaxServices(env);
+  const cacheKey = `${baseUrl}|${maxServices}`;
+  const ttl = getCacheTtl(env) * 1000;
+  const now = Date.now();
+  const cached = servicesCache.get(
+    cacheKey
+  );
 
   if (
     !options.forceRefresh &&
     cached &&
     ttl > 0 &&
-    now - cached.timestamp <
-      ttl
+    now - cached.timestamp < ttl
   ) {
     return cached.services;
   }
 
-  const data =
-    await request(
-      env,
-      {
-        action:
-          options.action ||
-          "services"
-      }
-    );
+  const data = await request(
+    env,
+    {
+      action: "services"
+    },
+    {
+      timeoutMs:
+        options.timeoutMs
+    }
+  );
 
-  const services =
-    extractServices(data)
-      .map(
-        normalizeService
-      )
-      .filter(Boolean)
-      .slice(
-        0,
-        getMaxServices(env)
-      );
+  const services = extractServices(data)
+    .map(normalizeService)
+    .filter(Boolean)
+    .slice(0, maxServices);
 
   servicesCache.set(
     cacheKey,
@@ -583,26 +626,26 @@ function extractOrder(data) {
     return null;
   }
 
-  const nested =
-    unwrapData(data);
+  const nested = unwrapData(data);
 
   if (isObject(nested)) {
     const id =
-      nested.id ??
       nested.order ??
       nested.order_id ??
+      nested.id ??
       null;
 
     if (
       id !== null &&
-      id !== ""
+      id !== "" &&
+      String(id).trim()
     ) {
       return {
         ...nested,
-        id: String(id),
+        id: String(id).trim(),
         order: String(
           nested.order ?? id
-        ),
+        ).trim(),
         raw: data
       };
     }
@@ -610,20 +653,21 @@ function extractOrder(data) {
 
   const id =
     data.order ??
-    data.id ??
     data.order_id ??
+    data.id ??
     null;
 
   if (
     id !== null &&
-    id !== ""
+    id !== "" &&
+    String(id).trim()
   ) {
     return {
       ...data,
-      id: String(id),
+      id: String(id).trim(),
       order: String(
         data.order ?? id
-      ),
+      ).trim(),
       raw: data
     };
   }
@@ -636,8 +680,7 @@ function extractStatus(data) {
     return null;
   }
 
-  const nested =
-    unwrapData(data);
+  const nested = unwrapData(data);
 
   if (isObject(nested)) {
     const status =
@@ -651,11 +694,10 @@ function extractStatus(data) {
     ) {
       return {
         ...nested,
-        status:
-          clean(
-            status,
-            128
-          ),
+        status: clean(
+          status,
+          128
+        ),
         raw: data
       };
     }
@@ -663,15 +705,15 @@ function extractStatus(data) {
 
   if (
     data.status !== undefined &&
-    data.status !== null
+    data.status !== null &&
+    String(data.status).trim()
   ) {
     return {
       ...data,
-      status:
-        clean(
-          data.status,
-          128
-        ),
+      status: clean(
+        data.status,
+        128
+      ),
       raw: data
     };
   }
@@ -679,128 +721,163 @@ function extractStatus(data) {
   return null;
 }
 
+function requireText(
+  value,
+  message,
+  code,
+  maxLength
+) {
+  if (
+    value === undefined ||
+    value === null ||
+    !String(value).trim()
+  ) {
+    throw new BuzzerPanelError(
+      message,
+      {
+        status: 400,
+        code
+      }
+    );
+  }
+
+  const normalized = String(
+    value
+  ).trim();
+
+  if (
+    normalized.length > maxLength
+  ) {
+    throw new BuzzerPanelError(
+      `${message} terlalu panjang.`,
+      {
+        status: 400,
+        code: `${code}_TOO_LONG`
+      }
+    );
+  }
+
+  return normalized;
+}
+
+function normalizeOptional(
+  value,
+  maxLength = MAX_OPTION_LENGTH
+) {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return undefined;
+  }
+
+  const normalized = String(
+    value
+  ).trim();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.slice(
+    0,
+    maxLength
+  );
+}
+
 export async function createOrder(
   env,
   params = {}
 ) {
-  const service =
+  const service = requireText(
     params.service ??
-    params.serviceId ??
-    params.service_id;
+      params.serviceId ??
+      params.service_id,
+    "Service BuzzerPanel wajib diisi.",
+    "BUZZERPANEL_SERVICE_MISSING",
+    MAX_ID_LENGTH
+  );
 
-  const link =
+  const link = requireText(
     params.link ??
-    params.data ??
-    params.target;
+      params.data ??
+      params.target,
+    "Target BuzzerPanel wajib diisi.",
+    "BUZZERPANEL_TARGET_MISSING",
+    MAX_LINK_LENGTH
+  );
 
-  const quantity =
-    params.quantity;
+  const quantity = requireText(
+    params.quantity,
+    "Quantity BuzzerPanel wajib diisi.",
+    "BUZZERPANEL_QUANTITY_MISSING",
+    MAX_QUANTITY_LENGTH
+  );
 
-  if (
-    service === undefined ||
-    service === null ||
-    String(service).trim() === ""
-  ) {
-    throw new BuzzerPanelError(
-      "Service BuzzerPanel wajib diisi.",
-      {
-        status: 400,
-        code:
-          "BUZZERPANEL_SERVICE_MISSING"
-      }
-    );
-  }
+  const numericQuantity = Number(
+    quantity
+  );
 
   if (
-    !link ||
-    !String(link).trim()
+    !Number.isFinite(numericQuantity) ||
+    numericQuantity <= 0 ||
+    !Number.isInteger(numericQuantity)
   ) {
     throw new BuzzerPanelError(
-      "Target BuzzerPanel wajib diisi.",
+      "Quantity BuzzerPanel tidak valid.",
       {
         status: 400,
-        code:
-          "BUZZERPANEL_TARGET_MISSING"
-      }
-    );
-  }
-
-  if (
-    quantity === undefined ||
-    quantity === null ||
-    String(quantity).trim() === ""
-  ) {
-    throw new BuzzerPanelError(
-      "Quantity BuzzerPanel wajib diisi.",
-      {
-        status: 400,
-        code:
-          "BUZZERPANEL_QUANTITY_MISSING"
+        code: "BUZZERPANEL_QUANTITY_INVALID"
       }
     );
   }
 
   const payload = {
     action: "order",
-    service:
-      String(service),
-    data:
-      String(link),
-    quantity:
-      String(quantity)
+    service,
+    data: link,
+    quantity: String(
+      Math.floor(numericQuantity)
+    )
   };
 
-  if (
-    params.komen !== undefined
-  ) {
-    payload.komen =
-      params.komen;
-  }
+  const optionalFields = [
+    "komen",
+    "comments",
+    "usernames",
+    "runs",
+    "interval"
+  ];
 
-  if (
-    params.comments !== undefined
+  for (
+    const field of optionalFields
   ) {
-    payload.comments =
-      params.comments;
-  }
-
-  if (
-    params.usernames !== undefined
-  ) {
-    payload.usernames =
-      params.usernames;
-  }
-
-  if (
-    params.runs !== undefined
-  ) {
-    payload.runs =
-      params.runs;
-  }
-
-  if (
-    params.interval !== undefined
-  ) {
-    payload.interval =
-      params.interval;
-  }
-
-  const data =
-    await request(
-      env,
-      payload
+    const value = normalizeOptional(
+      params[field]
     );
 
-  const order =
-    extractOrder(data);
+    if (
+      value !== undefined
+    ) {
+      payload[field] = value;
+    }
+  }
+
+  const data = await request(
+    env,
+    payload
+  );
+
+  const order = extractOrder(
+    data
+  );
 
   if (!order) {
     throw new BuzzerPanelError(
       "BuzzerPanel tidak mengembalikan ID order.",
       {
         status: 502,
-        code:
-          "BUZZERPANEL_ORDER_ID_MISSING",
+        code: "BUZZERPANEL_ORDER_ID_MISSING",
         details: data
       }
     );
@@ -813,41 +890,31 @@ export async function getOrder(
   env,
   orderId
 ) {
-  if (
-    orderId === undefined ||
-    orderId === null ||
-    String(orderId).trim() === ""
-  ) {
-    throw new BuzzerPanelError(
-      "ID order BuzzerPanel wajib diisi.",
-      {
-        status: 400,
-        code:
-          "BUZZERPANEL_ORDER_ID_MISSING"
-      }
-    );
-  }
+  const id = requireText(
+    orderId,
+    "ID order BuzzerPanel wajib diisi.",
+    "BUZZERPANEL_ORDER_ID_MISSING",
+    MAX_ID_LENGTH
+  );
 
-  const data =
-    await request(
-      env,
-      {
-        action: "status",
-        id:
-          String(orderId)
-      }
-    );
+  const data = await request(
+    env,
+    {
+      action: "status",
+      id
+    }
+  );
 
-  const order =
-    extractStatus(data);
+  const order = extractStatus(
+    data
+  );
 
   if (!order) {
     throw new BuzzerPanelError(
       "Respons status order BuzzerPanel tidak valid.",
       {
         status: 502,
-        code:
-          "BUZZERPANEL_STATUS_INVALID",
+        code: "BUZZERPANEL_STATUS_INVALID",
         details: data
       }
     );
@@ -860,27 +927,18 @@ export async function requestRefill(
   env,
   orderId
 ) {
-  if (
-    orderId === undefined ||
-    orderId === null ||
-    String(orderId).trim() === ""
-  ) {
-    throw new BuzzerPanelError(
-      "ID order BuzzerPanel wajib diisi.",
-      {
-        status: 400,
-        code:
-          "BUZZERPANEL_ORDER_ID_MISSING"
-      }
-    );
-  }
+  const id = requireText(
+    orderId,
+    "ID order BuzzerPanel wajib diisi.",
+    "BUZZERPANEL_ORDER_ID_MISSING",
+    MAX_ID_LENGTH
+  );
 
   return request(
     env,
     {
       action: "refill",
-      id:
-        String(orderId)
+      id
     }
   );
 }
@@ -889,28 +947,18 @@ export async function refillStatus(
   env,
   refillId
 ) {
-  if (
-    refillId === undefined ||
-    refillId === null ||
-    String(refillId).trim() === ""
-  ) {
-    throw new BuzzerPanelError(
-      "ID refill BuzzerPanel wajib diisi.",
-      {
-        status: 400,
-        code:
-          "BUZZERPANEL_REFILL_ID_MISSING"
-      }
-    );
-  }
+  const id = requireText(
+    refillId,
+    "ID refill BuzzerPanel wajib diisi.",
+    "BUZZERPANEL_REFILL_ID_MISSING",
+    MAX_ID_LENGTH
+  );
 
   return request(
     env,
     {
-      action:
-        "status_refill",
-      id:
-        String(refillId)
+      action: "status_refill",
+      id
     }
   );
 }
@@ -926,20 +974,15 @@ export async function getBalance(
   );
 }
 
-export function mapStatus(
-  status
-) {
-  const value =
-    clean(
-      status,
-      128
-    )
-      .toUpperCase()
-      .replace(
-        /[_-]+/g,
-        " "
-      )
-      .trim();
+export function mapStatus(status) {
+  const value = clean(
+    status,
+    128
+  )
+    .toUpperCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   if (!value) {
     return "UNKNOWN";
@@ -950,7 +993,9 @@ export function mapStatus(
       "PENDING",
       "WAITING",
       "QUEUED",
-      "QUEUE"
+      "QUEUE",
+      "IN QUEUE",
+      "AWAITING"
     ].includes(value)
   ) {
     return "PENDING";
@@ -962,7 +1007,8 @@ export function mapStatus(
       "IN PROGRESS",
       "INPROGRESS",
       "RUNNING",
-      "STARTED"
+      "STARTED",
+      "WORKING"
     ].includes(value)
   ) {
     return "PROCESSING";
@@ -983,10 +1029,11 @@ export function mapStatus(
   if (
     [
       "PARTIAL",
-      "PARTIALLY COMPLETED"
+      "PARTIALLY COMPLETED",
+      "PARTIALLY"
     ].includes(value)
   ) {
-    return "PARTIAL";
+    return "PROCESSING";
   }
 
   if (
@@ -1015,7 +1062,8 @@ export function mapStatus(
       "FAIL",
       "ERROR",
       "REJECTED",
-      "REJECT"
+      "REJECT",
+      "FAILURE"
     ].includes(value)
   ) {
     return "FAILED";
