@@ -13,31 +13,59 @@ const VISITOR_SESSION_DAYS = 30;
 const VISITOR_SESSION_TTL =
   VISITOR_SESSION_DAYS * 24 * 60 * 60;
 
+const ACTIVE_VISITOR_TTL = 15 * 60;
 const MAX_USER_AGENT_LENGTH = 512;
 const MAX_PATH_LENGTH = 2048;
+const MAX_SESSION_ID_LENGTH = 256;
 
 function getClientIp(request) {
-  return (
-    request.headers.get("CF-Connecting-IP") ||
-    request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
-    request.headers.get("X-Real-IP") ||
-    ""
-  );
+  const cfIp = String(
+    request.headers.get("CF-Connecting-IP") || ""
+  ).trim();
+
+  if (cfIp) {
+    return cfIp;
+  }
+
+  const forwarded = String(
+    request.headers.get("X-Forwarded-For") || ""
+  )
+    .split(",")[0]
+    .trim();
+
+  if (forwarded) {
+    return forwarded;
+  }
+
+  return String(
+    request.headers.get("X-Real-IP") || ""
+  ).trim();
 }
 
 function normalizePath(path) {
-  const value =
-    String(path || "/")
-      .trim()
-      .slice(0, MAX_PATH_LENGTH);
+  let value = String(path || "/")
+    .trim()
+    .slice(0, MAX_PATH_LENGTH);
 
   if (!value) {
     return "/";
   }
 
-  return value.startsWith("/")
-    ? value
-    : "/" + value;
+  try {
+    if (
+      value.startsWith("http://") ||
+      value.startsWith("https://")
+    ) {
+      const url = new URL(value);
+      value = `${url.pathname}${url.search}`;
+    }
+  } catch {}
+
+  if (!value.startsWith("/")) {
+    value = `/${value}`;
+  }
+
+  return value;
 }
 
 function getDateKey(timestamp = nowUnix()) {
@@ -57,16 +85,36 @@ function visitorCookie(
   maxAge = VISITOR_SESSION_TTL
 ) {
   return [
-    `${VISITOR_COOKIE}=${encodeURIComponent(value)}`,
+    `${VISITOR_COOKIE}=${encodeURIComponent(
+      String(value)
+    )}`,
     "Path=/",
     "HttpOnly",
     "Secure",
     "SameSite=Lax",
-    `Max-Age=${maxAge}`
+    `Max-Age=${Math.max(
+      0,
+      Math.floor(Number(maxAge) || 0)
+    )}`
   ].join("; ");
 }
 
-async function getVisitorSession(
+function getSessionId(request) {
+  const value = getCookie(
+    request.headers,
+    VISITOR_COOKIE
+  );
+
+  if (!value) {
+    return "";
+  }
+
+  return String(value)
+    .trim()
+    .slice(0, MAX_SESSION_ID_LENGTH);
+}
+
+async function findVisitorSession(
   db,
   sessionId
 ) {
@@ -74,33 +122,32 @@ async function getVisitorSession(
     return null;
   }
 
-  const current =
-    nowUnix();
+  const current = nowUnix();
+  const cutoff =
+    current - VISITOR_SESSION_TTL;
 
-  const result =
-    await db
-      .prepare(
-        `
-          SELECT
-            id,
-            session_id,
-            ip_hash,
-            user_agent,
-            first_seen_at,
-            last_seen_at,
-            page_views
-          FROM visitor_sessions
-          WHERE session_id = ?
-            AND last_seen_at > ?
-          LIMIT 1
-        `
-      )
-      .bind(
-        sessionId,
-        current -
-          VISITOR_SESSION_TTL
-      )
-      .first();
+  const result = await db
+    .prepare(
+      `
+        SELECT
+          id,
+          session_id,
+          ip_hash,
+          user_agent,
+          first_seen_at,
+          last_seen_at,
+          page_views
+        FROM visitor_sessions
+        WHERE session_id = ?
+          AND last_seen_at > ?
+        LIMIT 1
+      `
+    )
+    .bind(
+      sessionId,
+      cutoff
+    )
+    .first();
 
   return result || null;
 }
@@ -111,27 +158,22 @@ async function createVisitorSession(
   sessionId,
   timestamp
 ) {
-  const ip =
-    getClientIp(
-      request
-    );
+  const ip = getClientIp(
+    request
+  );
 
-  const ipHash =
-    ip
-      ? await sha256(
-          ip
-        )
-      : null;
+  const ipHash = ip
+    ? await sha256(ip)
+    : null;
 
-  const userAgent =
-    String(
-      request.headers.get(
-        "User-Agent"
-      ) || ""
-    ).slice(
-      0,
-      MAX_USER_AGENT_LENGTH
-    );
+  const userAgent = String(
+    request.headers.get(
+      "User-Agent"
+    ) || ""
+  ).slice(
+    0,
+    MAX_USER_AGENT_LENGTH
+  );
 
   await db
     .prepare(
@@ -157,16 +199,11 @@ async function createVisitorSession(
     .run();
 
   return {
-    session_id:
-      sessionId,
-    ip_hash:
-      ipHash,
-    user_agent:
-      userAgent,
-    first_seen_at:
-      timestamp,
-    last_seen_at:
-      timestamp,
+    session_id: sessionId,
+    ip_hash: ipHash,
+    user_agent: userAgent,
+    first_seen_at: timestamp,
+    last_seen_at: timestamp,
     page_views: 1
   };
 }
@@ -176,37 +213,33 @@ async function touchVisitorSession(
   session,
   timestamp
 ) {
-  const result =
-    await db
-      .prepare(
-        `
-          UPDATE visitor_sessions
-          SET
-            last_seen_at = ?,
-            page_views = page_views + 1
-          WHERE id = ?
-        `
-      )
-      .bind(
-        timestamp,
-        session.id
-      )
-      .run();
+  const result = await db
+    .prepare(
+      `
+        UPDATE visitor_sessions
+        SET
+          last_seen_at = ?,
+          page_views = page_views + 1
+        WHERE id = ?
+      `
+    )
+    .bind(
+      timestamp,
+      session.id
+    )
+    .run();
 
   if (
-    result?.meta?.changes !== 1
+    Number(result?.meta?.changes || 0) !== 1
   ) {
     return null;
   }
 
   return {
     ...session,
-    last_seen_at:
-      timestamp,
+    last_seen_at: timestamp,
     page_views:
-      Number(
-        session.page_views || 0
-      ) + 1
+      Number(session.page_views || 0) + 1
   };
 }
 
@@ -215,46 +248,41 @@ async function updateVisitorStats(
   dateKey,
   isNewVisitor
 ) {
-  const timestamp =
-    nowUnix();
-
+  const timestamp = nowUnix();
   const visitorIncrement =
-    isNewVisitor
-      ? 1
-      : 0;
+    isNewVisitor ? 1 : 0;
 
-  const result =
-    await db
-      .prepare(
-        `
-          INSERT INTO visitor_stats (
-            stat_date,
-            visitors,
-            page_views,
-            created_at,
-            updated_at
-          )
-          VALUES (?, ?, 1, ?, ?)
-          ON CONFLICT(stat_date)
-          DO UPDATE SET
-            visitors =
-              visitors + excluded.visitors,
-            page_views =
-              page_views + 1,
-            updated_at =
-              excluded.updated_at
-        `
-      )
-      .bind(
-        dateKey,
-        visitorIncrement,
-        timestamp,
-        timestamp
-      )
-      .run();
+  const result = await db
+    .prepare(
+      `
+        INSERT INTO visitor_stats (
+          stat_date,
+          visitors,
+          page_views,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, 1, ?, ?)
+        ON CONFLICT(stat_date)
+        DO UPDATE SET
+          visitors =
+            visitors + excluded.visitors,
+          page_views =
+            page_views + 1,
+          updated_at =
+            excluded.updated_at
+      `
+    )
+    .bind(
+      dateKey,
+      visitorIncrement,
+      timestamp,
+      timestamp
+    )
+    .run();
 
   return (
-    result?.meta?.changes >= 1
+    Number(result?.meta?.changes || 0) >= 1
   );
 }
 
@@ -268,38 +296,61 @@ async function trackRequest(
     );
   }
 
-  const timestamp =
-    nowUnix();
-
+  const timestamp = nowUnix();
   const existingCookie =
-    getCookie(
-      request.headers,
-      VISITOR_COOKIE
-    );
+    getSessionId(request);
 
   let session =
-    await getVisitorSession(
+    await findVisitorSession(
       env.DB,
       existingCookie
     );
 
-  let isNewVisitor =
-    false;
+  let isNewVisitor = false;
+  let setCookie = false;
 
   if (!session) {
     const sessionId =
       createVisitorId();
 
-    session =
-      await createVisitorSession(
-        env.DB,
-        request,
-        sessionId,
-        timestamp
-      );
+    try {
+      session =
+        await createVisitorSession(
+          env.DB,
+          request,
+          sessionId,
+          timestamp
+        );
 
-    isNewVisitor =
-      true;
+      isNewVisitor = true;
+      setCookie = true;
+    } catch (error) {
+      if (existingCookie) {
+        const recovered =
+          await findVisitorSession(
+            env.DB,
+            existingCookie
+          );
+
+        if (recovered) {
+          session =
+            await touchVisitorSession(
+              env.DB,
+              recovered,
+              timestamp
+            );
+
+          if (session) {
+            isNewVisitor = false;
+            setCookie = false;
+          }
+        }
+      }
+
+      if (!session) {
+        throw error;
+      }
+    }
   } else {
     session =
       await touchVisitorSession(
@@ -312,23 +363,49 @@ async function trackRequest(
       const sessionId =
         createVisitorId();
 
-      session =
-        await createVisitorSession(
-          env.DB,
-          request,
-          sessionId,
-          timestamp
-        );
+      try {
+        session =
+          await createVisitorSession(
+            env.DB,
+            request,
+            sessionId,
+            timestamp
+          );
 
-      isNewVisitor =
-        true;
+        isNewVisitor = true;
+        setCookie = true;
+      } catch (error) {
+        if (existingCookie) {
+          const recovered =
+            await findVisitorSession(
+              env.DB,
+              existingCookie
+            );
+
+          if (recovered) {
+            session =
+              await touchVisitorSession(
+                env.DB,
+                recovered,
+                timestamp
+              );
+
+            if (session) {
+              isNewVisitor = false;
+              setCookie = false;
+            }
+          }
+        }
+
+        if (!session) {
+          throw error;
+        }
+      }
     }
   }
 
   const dateKey =
-    getDateKey(
-      timestamp
-    );
+    getDateKey(timestamp);
 
   await updateVisitorStats(
     env.DB,
@@ -338,35 +415,51 @@ async function trackRequest(
 
   return {
     session,
-    isNewVisitor
+    isNewVisitor,
+    setCookie
   };
 }
 
-async function cleanupVisitors(
-  db
-) {
+async function cleanupVisitors(db) {
   const cutoff =
     nowUnix() -
     VISITOR_SESSION_TTL;
 
-  const result =
-    await db
-      .prepare(
-        `
-          DELETE FROM visitor_sessions
-          WHERE last_seen_at < ?
-        `
-      )
-      .bind(
-        cutoff
-      )
-      .run();
-
-  return (
-    Number(
-      result?.meta?.changes || 0
+  const result = await db
+    .prepare(
+      `
+        DELETE FROM visitor_sessions
+        WHERE last_seen_at < ?
+      `
     )
+    .bind(cutoff)
+    .run();
+
+  return Number(
+    result?.meta?.changes || 0
   );
+}
+
+function createTrackingHeaders(
+  tracked
+) {
+  const headers = new Headers();
+
+  headers.set(
+    "Content-Type",
+    "application/json; charset=utf-8"
+  );
+
+  if (tracked?.setCookie) {
+    headers.set(
+      "Set-Cookie",
+      visitorCookie(
+        tracked.session.session_id
+      )
+    );
+  }
+
+  return headers;
 }
 
 export async function trackVisitor(
@@ -380,25 +473,6 @@ export async function trackVisitor(
         env
       );
 
-    const headers =
-      new Headers();
-
-    headers.set(
-      "Content-Type",
-      "application/json; charset=utf-8"
-    );
-
-    if (
-      tracked.isNewVisitor
-    ) {
-      headers.set(
-        "Set-Cookie",
-        visitorCookie(
-          tracked.session.session_id
-        )
-      );
-    }
-
     return new Response(
       JSON.stringify({
         success: true,
@@ -411,7 +485,10 @@ export async function trackVisitor(
       }),
       {
         status: 200,
-        headers
+        headers:
+          createTrackingHeaders(
+            tracked
+          )
       }
     );
   } catch {
@@ -433,19 +510,21 @@ export async function trackPageView(
         env
       );
 
-    const url =
-      new URL(
-        request.url
-      );
+    const url = new URL(
+      request.url
+    );
 
     const page =
       normalizePath(
         url.searchParams.get(
           "path"
         ) ||
-          getPath(
-            request
-          )
+          getPath(request)
+      );
+
+    const headers =
+      createTrackingHeaders(
+        tracked
       );
 
     return new Response(
@@ -457,18 +536,7 @@ export async function trackPageView(
       }),
       {
         status: 200,
-        headers: {
-          "Content-Type":
-            "application/json; charset=utf-8",
-          ...(tracked.isNewVisitor
-            ? {
-                "Set-Cookie":
-                  visitorCookie(
-                    tracked.session.session_id
-                  )
-              }
-            : {})
-        }
+        headers
       }
     );
   } catch {
@@ -483,43 +551,38 @@ export async function getVisitorStats(
   request,
   env
 ) {
-  if (!env?.DB) {
-    return errorResponse(
-      "Database tidak tersedia.",
-      500
-    );
-  }
+  try {
+    if (!env?.DB) {
+      return errorResponse(
+        "Database tidak tersedia.",
+        500
+      );
+    }
 
-  const url =
-    new URL(
+    const url = new URL(
       request.url
     );
 
-  const daysRaw =
-    Number(
+    const daysRaw = Number(
       url.searchParams.get(
         "days"
       ) || 30
     );
 
-  const days =
-    Number.isFinite(
-      daysRaw
-    )
-      ? Math.min(
-          365,
-          Math.max(
-            1,
-            Math.floor(
-              daysRaw
+    const days =
+      Number.isFinite(daysRaw)
+        ? Math.min(
+            365,
+            Math.max(
+              1,
+              Math.floor(
+                daysRaw
+              )
             )
           )
-        )
-      )
-      : 30;
+        : 30;
 
-  const rows =
-    await env.DB
+    const rows = await env.DB
       .prepare(
         `
           SELECT
@@ -533,79 +596,79 @@ export async function getVisitorStats(
           LIMIT ?
         `
       )
-      .bind(
-        days
-      )
+      .bind(days)
       .all();
 
-  const data =
-    Array.isArray(
-      rows?.results
-    )
-      ? rows.results
-      : [];
+    const data =
+      Array.isArray(
+        rows?.results
+      )
+        ? rows.results
+        : [];
 
-  const totals =
-    data.reduce(
-      (
-        accumulator,
-        row
-      ) => {
-        accumulator.visitors +=
-          Number(
-            row.visitors || 0
-          );
+    const totals =
+      data.reduce(
+        (
+          accumulator,
+          row
+        ) => {
+          accumulator.visitors +=
+            Number(
+              row.visitors || 0
+            );
 
-        accumulator.page_views +=
-          Number(
-            row.page_views || 0
-          );
+          accumulator.page_views +=
+            Number(
+              row.page_views || 0
+            );
 
-        return accumulator;
-      },
-      {
-        visitors: 0,
-        page_views: 0
-      }
+          return accumulator;
+        },
+        {
+          visitors: 0,
+          page_views: 0
+        }
+      );
+
+    return jsonResponse({
+      success: true,
+      days,
+      totals,
+      stats: data
+    });
+  } catch {
+    return errorResponse(
+      "Gagal mengambil statistik visitor.",
+      500
     );
-
-  return jsonResponse({
-    success: true,
-    days,
-    totals,
-    stats: data
-  });
+  }
 }
 
 export async function getVisitorOverview(
   request,
   env
 ) {
-  if (!env?.DB) {
-    return errorResponse(
-      "Database tidak tersedia.",
-      500
-    );
-  }
+  try {
+    if (!env?.DB) {
+      return errorResponse(
+        "Database tidak tersedia.",
+        500
+      );
+    }
 
-  const current =
-    nowUnix();
+    const current = nowUnix();
+    const activeCutoff =
+      current -
+      ACTIVE_VISITOR_TTL;
 
-  const activeCutoff =
-    current -
-    15 * 60;
+    const today =
+      getDateKey(current);
 
-  const today =
-    getDateKey(
-      current
-    );
-
-  const [
-    activeResult,
-    todayResult,
-    totalResult
-  ] =
-    await Promise.all([
+    const [
+      activeResult,
+      todayResult,
+      totalResult
+    ] = await Promise.all([
       env.DB
         .prepare(
           `
@@ -631,122 +694,137 @@ export async function getVisitorOverview(
             LIMIT 1
           `
         )
-        .bind(
-          today
-        )
+        .bind(today)
         .first(),
 
       env.DB
         .prepare(
           `
             SELECT
-              COUNT(*) AS total_sessions,
+              COUNT(*) AS stored_sessions,
               COALESCE(
                 SUM(page_views),
                 0
-              ) AS total_page_views
+              ) AS stored_page_views
             FROM visitor_sessions
           `
         )
         .first()
     ]);
 
-  return jsonResponse({
-    success: true,
-    active_visitors:
-      Number(
-        activeResult?.count || 0
-      ),
-    today: {
-      visitors:
+    return jsonResponse({
+      success: true,
+      active_visitors:
         Number(
-          todayResult?.visitors || 0
+          activeResult?.count || 0
         ),
-      page_views:
-        Number(
-          todayResult?.page_views || 0
-        )
-    },
-    total: {
-      sessions:
-        Number(
-          totalResult?.total_sessions ||
-            0
-        ),
-      page_views:
-        Number(
-          totalResult?.total_page_views ||
-            0
-        )
-    }
-  });
+      today: {
+        visitors:
+          Number(
+            todayResult?.visitors || 0
+          ),
+        page_views:
+          Number(
+            todayResult?.page_views || 0
+          )
+      },
+      stored: {
+        sessions:
+          Number(
+            totalResult?.stored_sessions ||
+              0
+          ),
+        page_views:
+          Number(
+            totalResult?.stored_page_views ||
+              0
+          )
+      }
+    });
+  } catch {
+    return errorResponse(
+      "Gagal mengambil overview visitor.",
+      500
+    );
+  }
 }
 
 export async function cleanupVisitorSessions(
   request,
   env
 ) {
-  if (!env?.DB) {
+  try {
+    if (!env?.DB) {
+      return errorResponse(
+        "Database tidak tersedia.",
+        500
+      );
+    }
+
+    const deleted =
+      await cleanupVisitors(
+        env.DB
+      );
+
+    return jsonResponse({
+      success: true,
+      deleted
+    });
+  } catch {
     return errorResponse(
-      "Database tidak tersedia.",
+      "Gagal membersihkan visitor session.",
       500
     );
   }
-
-  const deleted =
-    await cleanupVisitors(
-      env.DB
-    );
-
-  return jsonResponse({
-    success: true,
-    deleted
-  });
 }
 
 export async function getVisitorSession(
   request,
   env
 ) {
-  if (!env?.DB) {
+  try {
+    if (!env?.DB) {
+      return errorResponse(
+        "Database tidak tersedia.",
+        500
+      );
+    }
+
+    const sessionId =
+      getSessionId(request);
+
+    const session =
+      await findVisitorSession(
+        env.DB,
+        sessionId
+      );
+
+    if (!session) {
+      return jsonResponse({
+        success: true,
+        visitor: null
+      });
+    }
+
+    return jsonResponse({
+      success: true,
+      visitor: {
+        session_id:
+          session.session_id,
+        first_seen_at:
+          session.first_seen_at,
+        last_seen_at:
+          session.last_seen_at,
+        page_views:
+          session.page_views
+      }
+    });
+  } catch {
     return errorResponse(
-      "Database tidak tersedia.",
+      "Gagal mengambil session visitor.",
       500
     );
   }
-
-  const sessionId =
-    getCookie(
-      request.headers,
-      VISITOR_COOKIE
-    );
-
-  const session =
-    await getVisitorSession(
-      env.DB,
-      sessionId
-    );
-
-  if (!session) {
-    return jsonResponse({
-      success: true,
-      visitor: null
-    });
-  }
-
-  return jsonResponse({
-    success: true,
-    visitor: {
-      session_id:
-        session.session_id,
-      first_seen_at:
-        session.first_seen_at,
-      last_seen_at:
-        session.last_seen_at,
-      page_views:
-        session.page_views
-    }
-  });
 }
 
 export function getVisitorCookieName() {
