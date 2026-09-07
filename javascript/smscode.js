@@ -1,20 +1,53 @@
-const BASE_URL = "https://api.smscode.gg/v1";
-
+const DEFAULT_BASE_URL = "https://api.smscode.gg/v2";
 const DEFAULT_TIMEOUT = 15000;
 
 class SMSCodeError extends Error {
   constructor(message, details = {}) {
     super(message);
-
     this.name = "SMSCodeError";
-    this.status = details.status || 502;
+    this.status = Number(details.status || 502);
     this.code = details.code || null;
-    this.providerData = details.providerData || null;
+    this.providerData = details.providerData ?? null;
+  }
+}
+
+function getBaseUrl(env) {
+  const value = String(
+    env?.SMSCODE_API_URL ||
+    DEFAULT_BASE_URL
+  ).trim();
+
+  if (!value) {
+    throw new SMSCodeError(
+      "SMSCode API URL belum dikonfigurasi.",
+      {
+        status: 500,
+        code: "SMSCODE_URL_MISSING"
+      }
+    );
+  }
+
+  try {
+    return new URL(
+      value.endsWith("/")
+        ? value
+        : `${value}/`
+    );
+  } catch {
+    throw new SMSCodeError(
+      "SMSCode API URL tidak valid.",
+      {
+        status: 500,
+        code: "SMSCODE_URL_INVALID"
+      }
+    );
   }
 }
 
 function getToken(env) {
-  const token = String(env?.SMSCODE_TOKEN || "").trim();
+  const token = String(
+    env?.SMSCODE_TOKEN || ""
+  ).trim();
 
   if (!token) {
     throw new SMSCodeError(
@@ -33,7 +66,10 @@ function normalizeData(data) {
   if (
     data &&
     typeof data === "object" &&
-    "data" in data
+    Object.prototype.hasOwnProperty.call(
+      data,
+      "data"
+    )
   ) {
     return data.data;
   }
@@ -41,122 +77,62 @@ function normalizeData(data) {
   return data;
 }
 
-async function request(env, path, options = {}) {
-  const token = getToken(env);
+function normalizeProviderPayload(data) {
+  const normalized =
+    normalizeData(data);
 
-  const controller =
-    new AbortController();
-
-  const timeout =
-    setTimeout(
-      () => controller.abort(),
-      options.timeout || DEFAULT_TIMEOUT
-    );
-
-  try {
-    const headers = new Headers(
-      options.headers || {}
-    );
-
-    headers.set(
-      "Authorization",
-      `Bearer ${token}`
-    );
-
-    headers.set(
-      "Accept",
-      "application/json"
-    );
-
-    if (
-      options.body !== undefined &&
-      !headers.has("Content-Type")
-    ) {
-      headers.set(
-        "Content-Type",
-        "application/json"
-      );
-    }
-
-    const response =
-      await fetch(
-        BASE_URL + path,
-        {
-          method:
-            options.method || "GET",
-          headers,
-          body:
-            options.body !== undefined
-              ? JSON.stringify(options.body)
-              : undefined,
-          signal:
-            controller.signal
-        }
-      );
-
-    let data = null;
-
-    try {
-      data =
-        await response.json();
-    } catch {
-      data = null;
-    }
-
-    if (!response.ok) {
-      const message =
-        data?.error ||
-        data?.message ||
-        data?.detail ||
-        `SMSCode API gagal (${response.status}).`;
-
-      throw new SMSCodeError(
-        String(message),
-        {
-          status:
-            response.status >= 500
-              ? 502
-              : response.status,
-          code:
-            data?.code ||
-            data?.error_code ||
-            null,
-          providerData:
-            data
-        }
-      );
-    }
-
-    return data;
-  } catch (error) {
-    if (
-      error instanceof SMSCodeError
-    ) {
-      throw error;
-    }
-
-    if (
-      error?.name === "AbortError"
-    ) {
-      throw new SMSCodeError(
-        "SMSCode API timeout.",
-        {
-          status: 504,
-          code: "SMSCODE_TIMEOUT"
-        }
-      );
-    }
-
-    throw new SMSCodeError(
-      "Tidak dapat terhubung ke SMSCode API.",
-      {
-        status: 502,
-        code: "SMSCODE_NETWORK_ERROR"
-      }
-    );
-  } finally {
-    clearTimeout(timeout);
+  if (
+    normalized &&
+    typeof normalized === "object" &&
+    normalized.order &&
+    typeof normalized.order === "object"
+  ) {
+    return normalized.order;
   }
+
+  return normalized;
+}
+
+function getErrorMessage(data, status) {
+  if (
+    typeof data === "string" &&
+    data.trim()
+  ) {
+    return data.trim();
+  }
+
+  if (
+    data &&
+    typeof data === "object"
+  ) {
+    return String(
+      data.error ||
+      data.message ||
+      data.detail ||
+      data.error_message ||
+      data.errors?.message ||
+      `SMSCode API gagal (${status}).`
+    );
+  }
+
+  return `SMSCode API gagal (${status}).`;
+}
+
+function getErrorCode(data) {
+  if (
+    !data ||
+    typeof data !== "object"
+  ) {
+    return null;
+  }
+
+  return (
+    data.code ||
+    data.error_code ||
+    data.errorCode ||
+    data.errors?.code ||
+    null
+  );
 }
 
 function buildQuery(params = {}) {
@@ -189,14 +165,244 @@ function buildQuery(params = {}) {
     : "";
 }
 
-export async function getCountries(env) {
+function normalizePositiveInteger(
+  value,
+  label,
+  required = false
+) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    if (required) {
+      throw new SMSCodeError(
+        `${label} wajib diisi.`,
+        {
+          status: 400,
+          code: `${label
+            .toUpperCase()
+            .replace(/\s+/g, "_")}_REQUIRED`
+        }
+      );
+    }
+
+    return null;
+  }
+
+  const parsed =
+    Number(value);
+
+  if (
+    !Number.isSafeInteger(parsed) ||
+    parsed < 1
+  ) {
+    throw new SMSCodeError(
+      `${label} tidak valid.`,
+      {
+        status: 400,
+        code: `INVALID_${label
+          .toUpperCase()
+          .replace(/\s+/g, "_")}`
+      }
+    );
+  }
+
+  return parsed;
+}
+
+async function request(
+  env,
+  path,
+  options = {}
+) {
+  const token =
+    getToken(env);
+
+  const baseUrl =
+    getBaseUrl(env);
+
+  const controller =
+    new AbortController();
+
+  const timeoutMs =
+    Number(options.timeout) > 0
+      ? Number(options.timeout)
+      : DEFAULT_TIMEOUT;
+
+  const timeout =
+    setTimeout(
+      () => controller.abort(),
+      timeoutMs
+    );
+
+  try {
+    const url =
+      new URL(
+        String(path).replace(
+          /^\/+/,
+          ""
+        ),
+        baseUrl
+      );
+
+    const headers =
+      new Headers(
+        options.headers || {}
+      );
+
+    headers.set(
+      "Authorization",
+      `Bearer ${token}`
+    );
+
+    headers.set(
+      "Accept",
+      "application/json"
+    );
+
+    if (
+      options.body !== undefined &&
+      !headers.has(
+        "Content-Type"
+      )
+    ) {
+      headers.set(
+        "Content-Type",
+        "application/json"
+      );
+    }
+
+    const response =
+      await fetch(
+        url,
+        {
+          method:
+            options.method || "GET",
+          headers,
+          body:
+            options.body !== undefined
+              ? JSON.stringify(
+                  options.body
+                )
+              : undefined,
+          signal:
+            controller.signal
+        }
+      );
+
+    const contentType =
+      response.headers.get(
+        "content-type"
+      ) || "";
+
+    let data = null;
+
+    if (
+      contentType.includes(
+        "application/json"
+      )
+    ) {
+      try {
+        data =
+          await response.json();
+      } catch {
+        data = null;
+      }
+    } else {
+      try {
+        const text =
+          await response.text();
+
+        data =
+          text.trim()
+            ? text
+            : null;
+      } catch {
+        data = null;
+      }
+    }
+
+    if (!response.ok) {
+      throw new SMSCodeError(
+        getErrorMessage(
+          data,
+          response.status
+        ),
+        {
+          status:
+            response.status >= 500
+              ? 502
+              : response.status,
+          code:
+            getErrorCode(data),
+          providerData:
+            data
+        }
+      );
+    }
+
+    return data;
+  } catch (error) {
+    if (
+      error instanceof SMSCodeError
+    ) {
+      throw error;
+    }
+
+    if (
+      error?.name ===
+      "AbortError"
+    ) {
+      throw new SMSCodeError(
+        "SMSCode API timeout.",
+        {
+          status: 504,
+          code: "SMSCODE_TIMEOUT"
+        }
+      );
+    }
+
+    throw new SMSCodeError(
+      "Tidak dapat terhubung ke SMSCode API.",
+      {
+        status: 502,
+        code:
+          "SMSCODE_NETWORK_ERROR",
+        providerData:
+          error?.message || null
+      }
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function getCountries(
+  env
+) {
   const response =
     await request(
       env,
       "/catalog/countries"
     );
 
-  return normalizeData(response);
+  const data =
+    normalizeData(response);
+
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (
+    Array.isArray(
+      data?.countries
+    )
+  ) {
+    return data.countries;
+  }
+
+  return data;
 }
 
 export async function getServices(
@@ -205,7 +411,8 @@ export async function getServices(
 ) {
   const query =
     buildQuery({
-      country_id: countryId
+      country_id:
+        countryId
     });
 
   const response =
@@ -214,7 +421,22 @@ export async function getServices(
       `/catalog/services${query}`
     );
 
-  return normalizeData(response);
+  const data =
+    normalizeData(response);
+
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (
+    Array.isArray(
+      data?.services
+    )
+  ) {
+    return data.services;
+  }
+
+  return data;
 }
 
 export async function getOperators(
@@ -226,8 +448,10 @@ export async function getOperators(
 ) {
   const query =
     buildQuery({
-      country_id: countryId,
-      platform_id: platformId
+      country_id:
+        countryId,
+      platform_id:
+        platformId
     });
 
   const response =
@@ -236,7 +460,22 @@ export async function getOperators(
       `/catalog/operators${query}`
     );
 
-  return normalizeData(response);
+  const data =
+    normalizeData(response);
+
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (
+    Array.isArray(
+      data?.operators
+    )
+  ) {
+    return data.operators;
+  }
+
+  return data;
 }
 
 export async function getProducts(
@@ -273,7 +512,9 @@ export async function getProducts(
   }
 
   if (
-    Array.isArray(data?.products)
+    Array.isArray(
+      data?.products
+    )
   ) {
     return data.products;
   }
@@ -285,29 +526,34 @@ export async function getProduct(
   env,
   productId
 ) {
-  if (!productId) {
-    throw new SMSCodeError(
-      "Product ID SMSCode tidak valid.",
-      {
-        status: 400,
-        code: "INVALID_PRODUCT_ID"
-      }
+  const parsedProductId =
+    normalizePositiveInteger(
+      productId,
+      "Product ID SMSCode",
+      true
     );
-  }
 
   const products =
-    await getProducts(env);
+    await getProducts(
+      env
+    );
 
   return (
     products.find(
       product =>
-        String(product.id) ===
-        String(productId)
+        String(
+          product.id
+        ) ===
+        String(
+          parsedProductId
+        )
     ) || null
   );
 }
 
-export async function getBalance(env) {
+export async function getBalance(
+  env
+) {
   const response =
     await request(
       env,
@@ -318,10 +564,26 @@ export async function getBalance(env) {
     normalizeData(response);
 
   if (
-    typeof data === "number"
+    typeof data ===
+    "number"
   ) {
     return {
       balance: data,
+      currency: "IDR"
+    };
+  }
+
+  if (
+    typeof data ===
+    "string" &&
+    data.trim() &&
+    Number.isFinite(
+      Number(data)
+    )
+  ) {
+    return {
+      balance:
+        Number(data),
       currency: "IDR"
     };
   }
@@ -354,80 +616,160 @@ export async function createOrder(
     idempotencyKey
   } = {}
 ) {
+  const parsedProductId =
+    productId !== undefined &&
+    productId !== null &&
+    productId !== ""
+      ? normalizePositiveInteger(
+          productId,
+          "Product ID SMSCode"
+        )
+      : null;
+
+  const parsedCatalogProductId =
+    catalogProductId !== undefined &&
+    catalogProductId !== null &&
+    catalogProductId !== ""
+      ? normalizePositiveInteger(
+          catalogProductId,
+          "Catalog Product ID SMSCode"
+        )
+      : null;
+
   if (
-    !productId &&
-    !catalogProductId
+    !parsedProductId &&
+    !parsedCatalogProductId
   ) {
     throw new SMSCodeError(
       "Product ID SMSCode wajib diisi.",
       {
         status: 400,
-        code: "PRODUCT_ID_REQUIRED"
+        code:
+          "PRODUCT_ID_REQUIRED"
       }
     );
   }
 
   const parsedQuantity =
-    Number(quantity);
-
-  if (
-    !Number.isInteger(
-      parsedQuantity
-    ) ||
-    parsedQuantity < 1
-  ) {
-    throw new SMSCodeError(
-      "Quantity SMSCode tidak valid.",
-      {
-        status: 400,
-        code: "INVALID_QUANTITY"
-      }
+    normalizePositiveInteger(
+      quantity,
+      "Quantity SMSCode",
+      true
     );
-  }
 
   const body = {
     quantity:
       parsedQuantity
   };
 
-  if (productId) {
+  if (
+    parsedProductId
+  ) {
     body.product_id =
-      Number(productId);
+      parsedProductId;
+  } else {
+    body.catalog_product_id =
+      parsedCatalogProductId;
   }
 
   if (
-    !productId &&
-    catalogProductId
+    operatorId !== undefined &&
+    operatorId !== null &&
+    operatorId !== ""
   ) {
-    body.catalog_product_id =
-      Number(catalogProductId);
-  }
-
-  if (operatorId !== undefined) {
     body.operator_id =
-      Number(operatorId);
+      normalizePositiveInteger(
+        operatorId,
+        "Operator ID SMSCode"
+      );
   }
 
-  if (minPrice !== undefined) {
-    body.min_price =
+  if (
+    minPrice !== undefined &&
+    minPrice !== null &&
+    minPrice !== ""
+  ) {
+    const parsedMinPrice =
       Number(minPrice);
+
+    if (
+      !Number.isFinite(
+        parsedMinPrice
+      ) ||
+      parsedMinPrice < 0
+    ) {
+      throw new SMSCodeError(
+        "Minimum price SMSCode tidak valid.",
+        {
+          status: 400,
+          code:
+            "INVALID_MIN_PRICE"
+        }
+      );
+    }
+
+    body.min_price =
+      parsedMinPrice;
   }
 
-  if (maxPrice !== undefined) {
-    body.max_price =
+  if (
+    maxPrice !== undefined &&
+    maxPrice !== null &&
+    maxPrice !== ""
+  ) {
+    const parsedMaxPrice =
       Number(maxPrice);
+
+    if (
+      !Number.isFinite(
+        parsedMaxPrice
+      ) ||
+      parsedMaxPrice < 0
+    ) {
+      throw new SMSCodeError(
+        "Maximum price SMSCode tidak valid.",
+        {
+          status: 400,
+          code:
+            "INVALID_MAX_PRICE"
+        }
+      );
+    }
+
+    body.max_price =
+      parsedMaxPrice;
+  }
+
+  if (
+    body.min_price !== undefined &&
+    body.max_price !== undefined &&
+    body.min_price >
+      body.max_price
+  ) {
+    throw new SMSCodeError(
+      "Minimum price tidak boleh lebih besar dari maximum price.",
+      {
+        status: 400,
+        code:
+          "INVALID_PRICE_RANGE"
+      }
+    );
   }
 
   const headers = {};
 
   if (
-    idempotencyKey
+    idempotencyKey !== undefined &&
+    idempotencyKey !== null &&
+    String(
+      idempotencyKey
+    ).trim()
   ) {
     headers[
       "Idempotency-Key"
     ] = String(
       idempotencyKey
-    );
+    ).trim();
   }
 
   const response =
@@ -450,12 +792,20 @@ export async function getOrder(
   env,
   orderId
 ) {
-  if (!orderId) {
+  const normalizedOrderId =
+    String(
+      orderId ?? ""
+    ).trim();
+
+  if (
+    !normalizedOrderId
+  ) {
     throw new SMSCodeError(
       "Order ID SMSCode wajib diisi.",
       {
         status: 400,
-        code: "ORDER_ID_REQUIRED"
+        code:
+          "ORDER_ID_REQUIRED"
       }
     );
   }
@@ -464,7 +814,7 @@ export async function getOrder(
     await request(
       env,
       `/orders/${encodeURIComponent(
-        String(orderId)
+        normalizedOrderId
       )}`
     );
 
@@ -490,7 +840,9 @@ export async function getActiveOrders(
   }
 
   if (
-    Array.isArray(data?.orders)
+    Array.isArray(
+      data?.orders
+    )
   ) {
     return data.orders;
   }
@@ -498,16 +850,25 @@ export async function getActiveOrders(
   return [];
 }
 
-export async function cancelOrder(
+async function executeOrderAction(
   env,
-  orderId
+  orderId,
+  action
 ) {
-  if (!orderId) {
+  const normalizedOrderId =
+    String(
+      orderId ?? ""
+    ).trim();
+
+  if (
+    !normalizedOrderId
+  ) {
     throw new SMSCodeError(
       "Order ID SMSCode wajib diisi.",
       {
         status: 400,
-        code: "ORDER_ID_REQUIRED"
+        code:
+          "ORDER_ID_REQUIRED"
       }
     );
   }
@@ -516,8 +877,8 @@ export async function cancelOrder(
     await request(
       env,
       `/orders/${encodeURIComponent(
-        String(orderId)
-      )}/cancel`,
+        normalizedOrderId
+      )}/${action}`,
       {
         method: "POST"
       }
@@ -525,6 +886,17 @@ export async function cancelOrder(
 
   return normalizeData(
     response
+  );
+}
+
+export async function cancelOrder(
+  env,
+  orderId
+) {
+  return executeOrderAction(
+    env,
+    orderId,
+    "cancel"
   );
 }
 
@@ -532,29 +904,10 @@ export async function finishOrder(
   env,
   orderId
 ) {
-  if (!orderId) {
-    throw new SMSCodeError(
-      "Order ID SMSCode wajib diisi.",
-      {
-        status: 400,
-        code: "ORDER_ID_REQUIRED"
-      }
-    );
-  }
-
-  const response =
-    await request(
-      env,
-      `/orders/${encodeURIComponent(
-        String(orderId)
-      )}/finish`,
-      {
-        method: "POST"
-      }
-    );
-
-  return normalizeData(
-    response
+  return executeOrderAction(
+    env,
+    orderId,
+    "finish"
   );
 }
 
@@ -562,29 +915,10 @@ export async function resendOrder(
   env,
   orderId
 ) {
-  if (!orderId) {
-    throw new SMSCodeError(
-      "Order ID SMSCode wajib diisi.",
-      {
-        status: 400,
-        code: "ORDER_ID_REQUIRED"
-      }
-    );
-  }
-
-  const response =
-    await request(
-      env,
-      `/orders/${encodeURIComponent(
-        String(orderId)
-      )}/resend`,
-      {
-        method: "POST"
-      }
-    );
-
-  return normalizeData(
-    response
+  return executeOrderAction(
+    env,
+    orderId,
+    "resend"
   );
 }
 
@@ -615,6 +949,16 @@ export function mapStatus(
     case "EXPIRED":
       return "EXPIRED";
 
+    case "FAILED":
+    case "FAIL":
+      return "FAILED";
+
+    case "PENDING":
+      return "PENDING";
+
+    case "PROCESSING":
+      return "PROCESSING";
+
     default:
       return "UNKNOWN";
   }
@@ -627,63 +971,97 @@ export function normalizeOrder(
     return null;
   }
 
+  const order =
+    normalizeProviderPayload(
+      data
+    );
+
+  if (
+    !order ||
+    typeof order !==
+      "object"
+  ) {
+    return null;
+  }
+
+  const rawStatus =
+    order.status ??
+    order.provider_status ??
+    null;
+
+  const amount =
+    Number(
+      order.amount ??
+      order.price ??
+      order.charge ??
+      0
+    );
+
   return {
     id:
-      data.id ??
-      data.order_id ??
+      order.id ??
+      order.order_id ??
       null,
 
     status:
       mapStatus(
-        data.status
+        rawStatus
       ),
 
     provider_status:
-      data.status ??
-      data.provider_status ??
-      null,
+      rawStatus,
 
     product_id:
-      data.product_id ??
+      order.product_id ??
       null,
 
     catalog_product_id:
-      data.catalog_product_id ??
+      order.catalog_product_id ??
+      null,
+
+    operator_id:
+      order.operator_id ??
       null,
 
     phone_number:
-      data.phone_number ??
+      order.phone_number ??
+      order.phone ??
+      order.number ??
       null,
 
     amount:
-      Number(
-        data.amount ??
-        0
-      ),
+      Number.isFinite(
+        amount
+      )
+        ? amount
+        : 0,
 
     otp_code:
-      data.otp_code ??
+      order.otp_code ??
+      order.otp ??
+      order.code ??
       null,
 
     otp_received_at:
-      data.otp_received_at ??
+      order.otp_received_at ??
       null,
 
     expires_at:
-      data.expires_at ??
+      order.expires_at ??
+      order.expired_at ??
       null,
 
     canceled_at:
-      data.canceled_at ??
+      order.canceled_at ??
       null,
 
     failed_reason:
-      data.failed_reason ??
-      data.failure_reason ??
+      order.failed_reason ??
+      order.failure_reason ??
+      order.error ??
       null,
 
-    raw:
-      data
+    raw: data
   };
 }
 
