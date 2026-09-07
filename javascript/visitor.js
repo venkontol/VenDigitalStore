@@ -1,836 +1,1012 @@
+import { requireAuth, requireAdmin } from "./auth.js";
+import { debitBalance, refundBalance } from "./wallet.js";
 import {
-  errorResponse,
-  getCookie,
-  getPath,
-  jsonResponse,
-  nowUnix,
-  randomToken,
-  sha256
+  getProduct, getProducts, createOrder, getOrder, cancelOrder,
+  finishOrder, resendOrder, mapStatus
+} from "./smscode.js";
+
+import {
+  errorResponse, successResponse, readJson, getUrl,
+  cleanString, parsePositiveInteger, generateOrderNumber, nowUnix
 } from "./utils.js";
 
-const VISITOR_COOKIE = "vds_visitor";
-const VISITOR_SESSION_DAYS = 30;
-const VISITOR_SESSION_TTL =
-  VISITOR_SESSION_DAYS * 24 * 60 * 60;
+const NOKOS_PROVIDER = "SMSCODE";
+const ORDER_TYPE = "NOKOS";
 
-const ACTIVE_VISITOR_TTL = 15 * 60;
-const MAX_USER_AGENT_LENGTH = 512;
-const MAX_PATH_LENGTH = 2048;
-const MAX_SESSION_ID_LENGTH = 256;
+const ORDER_STATUSES = new Set([
+  "CREATING", "PENDING", "PROCESSING", "OTP_RECEIVED",
+  "COMPLETED", "CANCELLED", "EXPIRED", "REFUNDED", "FAILED", "UNKNOWN"
+]);
 
-function getClientIp(request) {
-  const cfIp = String(
-    request.headers.get("CF-Connecting-IP") || ""
-  ).trim();
+const ORDER_COLUMNS = `
+  id, user_id, order_number, type, provider, external_order_id,
+  service_id, service_name, target, quantity, rate_unit,
+  provider_rate, selling_rate, provider_amount, customer_amount,
+  provider_charge, provider_currency, status, provider_status,
+  provider_data, request_data, idempotency_key, failure_reason,
+  phone_number, otp_code, otp_message, otp_received_at,
+  provider_expires_at, start_count, remains,
+  created_at, updated_at, completed_at, cancelled_at
+`;
 
-  if (cfIp) {
-    return cfIp;
-  }
+/* ──────────────── Provider Data Helpers ──────────────── */
 
-  const forwarded = String(
-    request.headers.get("X-Forwarded-For") || ""
-  )
-    .split(",")[0]
-    .trim();
-
-  if (forwarded) {
-    return forwarded;
-  }
-
-  return String(
-    request.headers.get("X-Real-IP") || ""
-  ).trim();
+function internalStatus(providerStatus) {
+  const status = mapStatus(providerStatus);
+  return ORDER_STATUSES.has(status) ? status : "UNKNOWN";
 }
 
-function normalizePath(path) {
-  let value = String(path || "/")
-    .trim()
-    .slice(0, MAX_PATH_LENGTH);
+function getProviderStatus(data) {
+  return String(data?.status || data?.provider_status || data?.order?.status || "").trim().toUpperCase();
+}
 
-  if (!value) {
-    return "/";
+function getProviderOrderId(data) {
+  return data?.id ?? data?.order_id ?? data?.order?.id ?? null;
+}
+
+function getProviderAmount(data) {
+  const values = [data?.amount, data?.price, data?.charge, data?.order?.amount, data?.order?.price, data?.order?.charge];
+  for (const value of values) {
+    const number = Number(value);
+    if (value !== null && value !== undefined && value !== "" && Number.isFinite(number)) {
+      return Math.max(0, Math.round(number));
+    }
+  }
+  return 0;
+}
+
+function getProviderPhone(data) {
+  return data?.phone_number || data?.phone || data?.number || data?.order?.phone_number || data?.order?.phone || null;
+}
+
+function getProviderOtp(data) {
+  return data?.otp_code || data?.otp || data?.code || data?.order?.otp_code || data?.order?.otp || null;
+}
+
+function getProviderOtpMessage(data) {
+  return data?.otp_message || data?.message || data?.order?.otp_message || null;
+}
+
+function getProviderExpiresAt(data) {
+  const value = data?.expires_at ?? data?.expired_at ?? data?.order?.expires_at ?? null;
+  if (value === null || value === undefined || value === "") return null;
+
+  if (typeof value === "number" || /^\d+$/.test(String(value))) {
+    const number = Number(value);
+    return number > 100000000000 ? Math.floor(number / 1000) : number;
   }
 
+  const timestamp = Math.floor(new Date(value).getTime() / 1000);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function getProviderFailure(data) {
+  return data?.failed_reason || data?.failure_reason || data?.error || data?.message || null;
+}
+
+function getProviderData(data) {
+  try { return JSON.stringify(data ?? null); } catch { return null; }
+}
+
+/* ──────────────── Normalizers ──────────────── */
+
+function normalizeTarget(value) { return cleanString(value, 500); }
+function normalizeProductId(value) { return parsePositiveInteger(value) || null; }
+function normalizeCatalogProductId(value) { return parsePositiveInteger(value) || null; }
+function normalizeOperatorId(value) { return parsePositiveInteger(value) || null; }
+
+function normalizeQuantity(value) {
+  if (value === undefined || value === null || value === "") return 1;
+  return parsePositiveInteger(value) || 0;
+}
+
+function normalizePrice(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return null;
+  return Math.round(number);
+}
+
+function normalizeIdempotencyKey(value) {
+  const key = cleanString(value ?? "", 120);
+  return key || null;
+}
+
+/* ──────────────── Validators ──────────────── */
+
+function validateCreatePayload(payload) {
+  const productId = normalizeProductId(payload?.product_id ?? payload?.productId);
+  const catalogProductId = normalizeCatalogProductId(payload?.catalog_product_id ?? payload?.catalogProductId);
+  const operatorId = normalizeOperatorId(payload?.operator_id ?? payload?.operatorId);
+  const quantity = normalizeQuantity(payload?.quantity);
+  const minPrice = normalizePrice(payload?.min_price ?? payload?.minPrice);
+  const maxPrice = normalizePrice(payload?.max_price ?? payload?.maxPrice);
+  const target = normalizeTarget(payload?.target ?? payload?.phone_number ?? "");
+  const idempotencyKey = normalizeIdempotencyKey(payload?.idempotency_key ?? payload?.idempotencyKey);
+
+  if (!productId && !catalogProductId) {
+    return { error: "product_id atau catalog_product_id wajib diisi." };
+  }
+  if (!quantity) {
+    return { error: "quantity tidak valid." };
+  }
+  if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) {
+    return { error: "min_price tidak boleh lebih besar dari max_price." };
+  }
+
+  return { value: { productId, catalogProductId, operatorId, quantity, minPrice, maxPrice, target, idempotencyKey } };
+}
+
+/* ──────────────── DB Helpers ──────────────── */
+
+async function findOrderById(env, userId, orderId) {
+  return env.DB.prepare(`SELECT ${ORDER_COLUMNS} FROM orders WHERE id = ? AND user_id = ? AND type = ? LIMIT 1`)
+    .bind(orderId, userId, ORDER_TYPE).first();
+}
+
+async function findOrderByNumber(env, userId, orderNumber) {
+  return env.DB.prepare(`SELECT ${ORDER_COLUMNS} FROM orders WHERE order_number = ? AND user_id = ? AND type = ? LIMIT 1`)
+    .bind(orderNumber, userId, ORDER_TYPE).first();
+}
+
+async function findOrderByExternalId(env, externalOrderId) {
+  if (!externalOrderId) return null;
+  return env.DB.prepare(`SELECT ${ORDER_COLUMNS} FROM orders WHERE provider = ? AND external_order_id = ? LIMIT 1`)
+    .bind(NOKOS_PROVIDER, String(externalOrderId)).first();
+}
+
+async function findOrderByIdempotency(env, userId, idempotencyKey) {
+  if (!idempotencyKey) return null;
+  return env.DB.prepare(`SELECT ${ORDER_COLUMNS} FROM orders WHERE user_id = ? AND idempotency_key = ? AND type = ? LIMIT 1`)
+    .bind(userId, idempotencyKey, ORDER_TYPE).first();
+}
+
+async function findOrderIdentifier(request, env, userId, body = null) {
+  const url = getUrl(request);
+  const id = parsePositiveInteger(url.searchParams.get("id") ?? body?.id ?? body?.order_id ?? body?.orderId);
+  const orderNumber = cleanString(url.searchParams.get("order_number") ?? body?.order_number ?? body?.orderNumber ?? "", 120);
+
+  if (id) return findOrderById(env, userId, id);
+  if (orderNumber) return findOrderByNumber(env, userId, orderNumber);
+  return null;
+}
+
+/* ──────────────── Product Helpers ──────────────── */
+
+function getProductPrice(product) {
+  const values = [product?.price, product?.selling_price, product?.amount];
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return Math.round(number);
+  }
+  return 0;
+}
+
+function getProductName(product) {
+  return product?.name || product?.service_name || product?.product_name || "NOKOS";
+}
+
+function getProductServiceId(product) {
+  return product?.id ?? product?.product_id ?? product?.productId ?? null;
+}
+
+function getCatalogProductId(product) {
+  return product?.catalog_product_id ?? product?.catalogProductId ?? null;
+}
+
+function getProductCountry(product) {
+  return product?.country_name || product?.country || null;
+}
+
+function getProductPlatform(product) {
+  return product?.platform_name || product?.platform || null;
+}
+
+function getProductOperator(product) {
+  return product?.operator_name || product?.operator || null;
+}
+
+async function getProductForOrder(env, { productId, catalogProductId, operatorId, minPrice, maxPrice }) {
+  if (productId) {
+    const product = await getProduct(env, productId);
+    if (!product) throw new Error("Produk NOKOS tidak ditemukan.");
+    return product;
+  }
+
+  const products = await getProducts(env, { operatorId, minPrice, maxPrice });
+  if (!Array.isArray(products) || !products.length) {
+    throw new Error("Produk NOKOS tidak tersedia.");
+  }
+
+  const matched = products.find(p => String(getCatalogProductId(p) ?? "") === String(catalogProductId));
+  return matched || products[0];
+}
+
+/* ──────────────── Service Sync ──────────────── */
+
+async function saveNokosService(env, product) {
+  const productId = Number(getProductServiceId(product));
+  if (!Number.isInteger(productId) || productId <= 0) return null;
+
+  const catalogProductId = Number(getCatalogProductId(product)) || productId;
+  const countryId = Number(product?.country_id) || null;
+  const platformId = Number(product?.platform_id) || null;
+  const operatorId = Number(product?.operator_id) || null;
+  const countryName = getProductCountry(product);
+  const platformName = getProductPlatform(product);
+  const operatorName = getProductOperator(product);
+  const serviceName = getProductName(product);
+  const providerPrice = getProductPrice(product);
+  const available = product?.available === false ? 0 : 1;
+  const active = product?.active === false ? 0 : 1;
+  const metadata = getProviderData(product);
+  const timestamp = nowUnix();
+
+  await env.DB.prepare(`
+    INSERT INTO nokos_services (
+      product_id, catalog_product_id, country_id, country_name,
+      platform_id, platform_name, operator_id, operator_name,
+      service_name, provider_price, selling_price, available, active,
+      metadata, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(product_id) DO UPDATE SET
+      catalog_product_id = excluded.catalog_product_id,
+      country_id = excluded.country_id, country_name = excluded.country_name,
+      platform_id = excluded.platform_id, platform_name = excluded.platform_name,
+      operator_id = excluded.operator_id, operator_name = excluded.operator_name,
+      service_name = excluded.service_name, provider_price = excluded.provider_price,
+      selling_price = excluded.selling_price, available = excluded.available,
+      active = excluded.active, metadata = excluded.metadata, updated_at = excluded.updated_at
+  `).bind(
+    productId, catalogProductId, countryId, countryName,
+    platformId, platformName, operatorId, operatorName,
+    serviceName, providerPrice, providerPrice, available, active,
+    metadata, timestamp, timestamp
+  ).run();
+
+  return true;
+}
+
+/* ──────────────── Order Lifecycle ──────────────── */
+
+async function createLocalOrder(env, { userId, product, quantity, target, idempotencyKey, requestData, customerAmount }) {
+  const timestamp = nowUnix();
+  const productId = getProductServiceId(product);
+  const catalogProductId = getCatalogProductId(product);
+  const serviceName = getProductName(product);
+  const providerRate = getProductPrice(product);
+  const orderNumber = generateOrderNumber("NK");
+
+  const result = await env.DB.prepare(`
+    INSERT INTO orders (
+      user_id, order_number, type, provider, external_order_id,
+      service_id, service_name, target, quantity, rate_unit,
+      provider_rate, selling_rate, provider_amount, customer_amount,
+      provider_charge, provider_currency, status, provider_status,
+      provider_data, request_data, idempotency_key, failure_reason,
+      created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 'FIXED', ?, ?, ?, ?, NULL, 'IDR', 'CREATING', NULL, NULL, ?, ?, NULL, ?, ?)
+  `).bind(
+    userId, orderNumber, ORDER_TYPE, NOKOS_PROVIDER,
+    String(productId ?? catalogProductId), serviceName, target || null, quantity,
+    providerRate, providerRate, providerRate * quantity, customerAmount,
+    requestData, idempotencyKey, timestamp, timestamp
+  ).run();
+
+  const id = Number(result?.meta?.last_row_id);
+  if (!id) throw new Error("Gagal membuat order NOKOS.");
+
+  return { id, orderNumber, customerAmount, providerRate, serviceName, productId, catalogProductId };
+}
+
+async function addOrderEvent(env, orderId, status, providerStatus = null, message = null, providerData = null) {
+  await env.DB.prepare(`
+    INSERT INTO order_events (order_id, status, provider_status, message, provider_data, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(orderId, status, providerStatus, message, providerData, nowUnix()).run();
+}
+
+/* ──────────────── Dynamic Order Update ──────────────── */
+
+async function updateLocalOrder(env, orderId, updates = {}) {
+  const current = await env.DB.prepare(`
+    SELECT status, external_order_id, provider_status, provider_data, failure_reason,
+           provider_amount, provider_charge, phone_number, otp_code, otp_message,
+           otp_received_at, provider_expires_at, start_count, remains,
+           completed_at, cancelled_at
+    FROM orders WHERE id = ? LIMIT 1
+  `).bind(orderId).first();
+
+  if (!current) throw new Error("Order NOKOS tidak ditemukan.");
+
+  const fields = [];
+  const values = [];
+  const fieldMap = {
+    externalOrderId: "external_order_id",
+    status: "status",
+    providerStatus: "provider_status",
+    providerData: "provider_data",
+    failureReason: "failure_reason",
+    providerAmount: "provider_amount",
+    providerCharge: "provider_charge",
+    phoneNumber: "phone_number",
+    otpCode: "otp_code",
+    otpMessage: "otp_message",
+    otpReceivedAt: "otp_received_at",
+    providerExpiresAt: "provider_expires_at",
+    startCount: "start_count",
+    remains: "remains",
+    completedAt: "completed_at",
+    cancelledAt: "cancelled_at"
+  };
+
+  for (const [key, column] of Object.entries(fieldMap)) {
+    const value = updates[key] !== undefined ? updates[key] : current[column];
+    if (value !== undefined) {
+      fields.push(`${column} = ?`);
+      values.push(value);
+    }
+  }
+
+  fields.push("updated_at = ?");
+  values.push(nowUnix());
+  values.push(orderId);
+
+  await env.DB.prepare(`UPDATE orders SET ${fields.join(", ")} WHERE id = ?`).bind(...values).run();
+
+  await addOrderEvent(
+    env, orderId,
+    updates.status ?? current.status,
+    updates.providerStatus ?? current.provider_status,
+    updates.failureReason ?? current.failure_reason,
+    updates.providerData ?? current.provider_data
+  );
+}
+
+/* ──────────────── Provider Integration ──────────────── */
+
+function isDefiniteProviderFailure(error) {
+  const status = Number(error?.status);
+  return status >= 400 && status < 500 && status !== 408 && status !== 409 && status !== 429;
+}
+
+async function refundFailedCreation(env, { orderId, userId, amount, orderNumber }) {
+  if (!Number.isSafeInteger(Number(amount)) || Number(amount) <= 0) return false;
+
+  const refund = await refundBalance(env, {
+    userId, amount,
+    reference: `REFUND:${orderNumber}`,
+    description: `Refund NOKOS ${orderNumber}`,
+    orderId
+  });
+
+  await updateLocalOrder(env, orderId, {
+    status: refund?.success === false ? "FAILED" : "REFUNDED",
+    failureReason: refund?.success === false
+      ? "Provider gagal dan refund saldo belum berhasil."
+      : "Order provider gagal dan saldo dikembalikan."
+  });
+
+  return refund?.success !== false;
+}
+
+function serializeOrder(order) {
+  if (!order) return null;
+  return {
+    id: Number(order.id),
+    order_number: order.order_number,
+    type: order.type,
+    provider: order.provider,
+    external_order_id: order.external_order_id,
+    service_id: order.service_id,
+    service_name: order.service_name,
+    target: order.target,
+    quantity: Number(order.quantity || 0),
+    rate_unit: order.rate_unit,
+    provider_rate: Number(order.provider_rate || 0),
+    selling_rate: Number(order.selling_rate || 0),
+    provider_amount: Number(order.provider_amount || 0),
+    customer_amount: Number(order.customer_amount || 0),
+    provider_charge: Number(order.provider_charge || 0),
+    provider_currency: order.provider_currency,
+    status: order.status,
+    provider_status: order.provider_status,
+    failure_reason: order.failure_reason,
+    phone_number: order.phone_number,
+    otp_code: order.otp_code,
+    otp_message: order.otp_message,
+    otp_received_at: order.otp_received_at,
+    provider_expires_at: order.provider_expires_at,
+    start_count: order.start_count,
+    remains: order.remains,
+    created_at: order.created_at,
+    updated_at: order.updated_at,
+    completed_at: order.completed_at,
+    cancelled_at: order.cancelled_at
+  };
+}
+
+async function loadOrderEvents(env, orderId) {
+  const result = await env.DB.prepare(`
+    SELECT id, status, provider_status, message, provider_data, created_at
+    FROM order_events WHERE order_id = ? ORDER BY id DESC LIMIT 100
+  `).bind(orderId).all();
+
+  return Array.isArray(result?.results) ? result.results : [];
+}
+
+async function applyProviderOrder(env, order, providerOrder) {
+  const providerStatus = getProviderStatus(providerOrder);
+  const status = internalStatus(providerStatus);
+  const providerAmount = getProviderAmount(providerOrder);
+
+  const normalizedStatus = (status === "UNKNOWN" && order.status !== "UNKNOWN") ? "PROCESSING" : status;
+  const completedAt = normalizedStatus === "COMPLETED" ? (order.completed_at || nowUnix()) : order.completed_at;
+  const cancelledAt = normalizedStatus === "CANCELLED" ? (order.cancelled_at || nowUnix()) : order.cancelled_at;
+  const otpReceivedAt = providerStatus === "OTP_RECEIVED" ? (order.otp_received_at || nowUnix()) : order.otp_received_at;
+
+  await updateLocalOrder(env, order.id, {
+    externalOrderId: getProviderOrderId(providerOrder) || order.external_order_id,
+    status: normalizedStatus,
+    providerStatus,
+    providerData: getProviderData(providerOrder),
+    failureReason: getProviderFailure(providerOrder),
+    providerAmount: providerAmount > 0 ? providerAmount : order.provider_amount,
+    providerCharge: providerAmount > 0 ? providerAmount : order.provider_charge,
+    phoneNumber: getProviderPhone(providerOrder),
+    otpCode: getProviderOtp(providerOrder),
+    otpMessage: getProviderOtpMessage(providerOrder),
+    otpReceivedAt,
+    providerExpiresAt: getProviderExpiresAt(providerOrder),
+    completedAt,
+    cancelledAt
+  });
+
+  return normalizedStatus;
+}
+
+/* ──────────────── Public API: Products ──────────────── */
+
+export async function listNokosProducts(request, env) {
   try {
-    if (
-      value.startsWith("http://") ||
-      value.startsWith("https://")
-    ) {
-      const url = new URL(value);
-      value = `${url.pathname}${url.search}`;
+    const auth = await requireAuth(request, env);
+    if (auth?.response) return auth.response;
+
+    const url = getUrl(request);
+    const productId = normalizeProductId(url.searchParams.get("product_id"));
+    const catalogProductId = normalizeCatalogProductId(url.searchParams.get("catalog_product_id"));
+    const operatorId = normalizeOperatorId(url.searchParams.get("operator_id"));
+    const minPrice = normalizePrice(url.searchParams.get("min_price"));
+    const maxPrice = normalizePrice(url.searchParams.get("max_price"));
+
+    if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) {
+      return errorResponse("min_price tidak boleh lebih besar dari max_price.", 400);
     }
-  } catch {}
 
-  if (!value.startsWith("/")) {
-    value = `/${value}`;
-  }
+    const products = productId
+      ? [await getProduct(env, productId)].filter(Boolean)
+      : await getProducts(env, { operatorId, minPrice, maxPrice, available: true, active: true });
 
-  return value;
-}
+    const filtered = catalogProductId
+      ? products.filter(p => String(getCatalogProductId(p) ?? "") === String(catalogProductId))
+      : products;
 
-function getDateKey(timestamp = nowUnix()) {
-  return new Date(
-    Number(timestamp) * 1000
-  )
-    .toISOString()
-    .slice(0, 10);
-}
-
-function createVisitorId() {
-  return randomToken(32);
-}
-
-function visitorCookie(
-  value,
-  maxAge = VISITOR_SESSION_TTL
-) {
-  return [
-    `${VISITOR_COOKIE}=${encodeURIComponent(
-      String(value)
-    )}`,
-    "Path=/",
-    "HttpOnly",
-    "Secure",
-    "SameSite=Lax",
-    `Max-Age=${Math.max(
-      0,
-      Math.floor(Number(maxAge) || 0)
-    )}`
-  ].join("; ");
-}
-
-function getSessionId(request) {
-  const value = getCookie(
-    request.headers,
-    VISITOR_COOKIE
-  );
-
-  if (!value) {
-    return "";
-  }
-
-  return String(value)
-    .trim()
-    .slice(0, MAX_SESSION_ID_LENGTH);
-}
-
-async function findVisitorSession(
-  db,
-  sessionId
-) {
-  if (!sessionId) {
-    return null;
-  }
-
-  const current = nowUnix();
-  const cutoff =
-    current - VISITOR_SESSION_TTL;
-
-  const result = await db
-    .prepare(
-      `
-        SELECT
-          id,
-          session_id,
-          ip_hash,
-          user_agent,
-          first_seen_at,
-          last_seen_at,
-          page_views
-        FROM visitor_sessions
-        WHERE session_id = ?
-          AND last_seen_at > ?
-        LIMIT 1
-      `
-    )
-    .bind(
-      sessionId,
-      cutoff
-    )
-    .first();
-
-  return result || null;
-}
-
-async function createVisitorSession(
-  db,
-  request,
-  sessionId,
-  timestamp
-) {
-  const ip = getClientIp(
-    request
-  );
-
-  const ipHash = ip
-    ? await sha256(ip)
-    : null;
-
-  const userAgent = String(
-    request.headers.get(
-      "User-Agent"
-    ) || ""
-  ).slice(
-    0,
-    MAX_USER_AGENT_LENGTH
-  );
-
-  await db
-    .prepare(
-      `
-        INSERT INTO visitor_sessions (
-          session_id,
-          ip_hash,
-          user_agent,
-          first_seen_at,
-          last_seen_at,
-          page_views
-        )
-        VALUES (?, ?, ?, ?, ?, 1)
-      `
-    )
-    .bind(
-      sessionId,
-      ipHash,
-      userAgent,
-      timestamp,
-      timestamp
-    )
-    .run();
-
-  return {
-    session_id: sessionId,
-    ip_hash: ipHash,
-    user_agent: userAgent,
-    first_seen_at: timestamp,
-    last_seen_at: timestamp,
-    page_views: 1
-  };
-}
-
-async function touchVisitorSession(
-  db,
-  session,
-  timestamp
-) {
-  const result = await db
-    .prepare(
-      `
-        UPDATE visitor_sessions
-        SET
-          last_seen_at = ?,
-          page_views = page_views + 1
-        WHERE id = ?
-      `
-    )
-    .bind(
-      timestamp,
-      session.id
-    )
-    .run();
-
-  if (
-    Number(result?.meta?.changes || 0) !== 1
-  ) {
-    return null;
-  }
-
-  return {
-    ...session,
-    last_seen_at: timestamp,
-    page_views:
-      Number(session.page_views || 0) + 1
-  };
-}
-
-async function updateVisitorStats(
-  db,
-  dateKey,
-  isNewVisitor
-) {
-  const timestamp = nowUnix();
-  const visitorIncrement =
-    isNewVisitor ? 1 : 0;
-
-  const result = await db
-    .prepare(
-      `
-        INSERT INTO visitor_stats (
-          stat_date,
-          visitors,
-          page_views,
-          created_at,
-          updated_at
-        )
-        VALUES (?, ?, 1, ?, ?)
-        ON CONFLICT(stat_date)
-        DO UPDATE SET
-          visitors =
-            visitors + excluded.visitors,
-          page_views =
-            page_views + 1,
-          updated_at =
-            excluded.updated_at
-      `
-    )
-    .bind(
-      dateKey,
-      visitorIncrement,
-      timestamp,
-      timestamp
-    )
-    .run();
-
-  return (
-    Number(result?.meta?.changes || 0) >= 1
-  );
-}
-
-async function trackRequest(
-  request,
-  env
-) {
-  if (!env?.DB) {
-    throw new Error(
-      "Database tidak tersedia."
-    );
-  }
-
-  const timestamp = nowUnix();
-  const existingCookie =
-    getSessionId(request);
-
-  let session =
-    await findVisitorSession(
-      env.DB,
-      existingCookie
-    );
-
-  let isNewVisitor = false;
-  let setCookie = false;
-
-  if (!session) {
-    const sessionId =
-      createVisitorId();
-
-    try {
-      session =
-        await createVisitorSession(
-          env.DB,
-          request,
-          sessionId,
-          timestamp
-        );
-
-      isNewVisitor = true;
-      setCookie = true;
-    } catch (error) {
-      if (existingCookie) {
-        const recovered =
-          await findVisitorSession(
-            env.DB,
-            existingCookie
-          );
-
-        if (recovered) {
-          session =
-            await touchVisitorSession(
-              env.DB,
-              recovered,
-              timestamp
-            );
-
-          if (session) {
-            isNewVisitor = false;
-            setCookie = false;
-          }
-        }
-      }
-
-      if (!session) {
-        throw error;
-      }
+    for (const product of filtered) {
+      try { await saveNokosService(env, product); } catch {}
     }
-  } else {
-    session =
-      await touchVisitorSession(
-        env.DB,
-        session,
-        timestamp
-      );
 
-    if (!session) {
-      const sessionId =
-        createVisitorId();
+    return successResponse({ products: filtered });
+  } catch (error) {
+    return errorResponse(error?.message || "Gagal mengambil produk NOKOS.", error?.status || 500);
+  }
+}
 
+/* ──────────────── Public API: Orders ──────────────── */
+
+export async function getNokosOrder(request, env) {
+  try {
+    const auth = await requireAuth(request, env);
+    if (auth?.response) return auth.response;
+
+    let order = await findOrderIdentifier(request, env, auth.user.id);
+    if (!order) {
+      return errorResponse("Order NOKOS tidak ditemukan.", 404);
+    }
+
+    if (order.external_order_id) {
       try {
-        session =
-          await createVisitorSession(
-            env.DB,
-            request,
-            sessionId,
-            timestamp
-          );
-
-        isNewVisitor = true;
-        setCookie = true;
-      } catch (error) {
-        if (existingCookie) {
-          const recovered =
-            await findVisitorSession(
-              env.DB,
-              existingCookie
-            );
-
-          if (recovered) {
-            session =
-              await touchVisitorSession(
-                env.DB,
-                recovered,
-                timestamp
-              );
-
-            if (session) {
-              isNewVisitor = false;
-              setCookie = false;
-            }
-          }
-        }
-
-        if (!session) {
-          throw error;
-        }
-      }
-    }
-  }
-
-  const dateKey =
-    getDateKey(timestamp);
-
-  await updateVisitorStats(
-    env.DB,
-    dateKey,
-    isNewVisitor
-  );
-
-  return {
-    session,
-    isNewVisitor,
-    setCookie
-  };
-}
-
-async function cleanupVisitors(db) {
-  const cutoff =
-    nowUnix() -
-    VISITOR_SESSION_TTL;
-
-  const result = await db
-    .prepare(
-      `
-        DELETE FROM visitor_sessions
-        WHERE last_seen_at < ?
-      `
-    )
-    .bind(cutoff)
-    .run();
-
-  return Number(
-    result?.meta?.changes || 0
-  );
-}
-
-function createTrackingHeaders(
-  tracked
-) {
-  const headers = new Headers();
-
-  headers.set(
-    "Content-Type",
-    "application/json; charset=utf-8"
-  );
-
-  if (tracked?.setCookie) {
-    headers.set(
-      "Set-Cookie",
-      visitorCookie(
-        tracked.session.session_id
-      )
-    );
-  }
-
-  return headers;
-}
-
-export async function trackVisitor(
-  request,
-  env
-) {
-  try {
-    const tracked =
-      await trackRequest(
-        request,
-        env
-      );
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        visitor: {
-          session_id:
-            tracked.session.session_id,
-          first_visit:
-            tracked.isNewVisitor
-        }
-      }),
-      {
-        status: 200,
-        headers:
-          createTrackingHeaders(
-            tracked
-          )
-      }
-    );
-  } catch {
-    return errorResponse(
-      "Gagal mencatat visitor.",
-      500
-    );
-  }
-}
-
-export async function trackPageView(
-  request,
-  env
-) {
-  try {
-    const tracked =
-      await trackRequest(
-        request,
-        env
-      );
-
-    const url = new URL(
-      request.url
-    );
-
-    const page =
-      normalizePath(
-        url.searchParams.get(
-          "path"
-        ) ||
-          getPath(request)
-      );
-
-    const headers =
-      createTrackingHeaders(
-        tracked
-      );
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        page,
-        first_visit:
-          tracked.isNewVisitor
-      }),
-      {
-        status: 200,
-        headers
-      }
-    );
-  } catch {
-    return errorResponse(
-      "Gagal mencatat page view.",
-      500
-    );
-  }
-}
-
-export async function getVisitorStats(
-  request,
-  env
-) {
-  try {
-    if (!env?.DB) {
-      return errorResponse(
-        "Database tidak tersedia.",
-        500
-      );
+        const providerOrder = await getOrder(env, order.external_order_id);
+        await applyProviderOrder(env, order, providerOrder);
+        order = await findOrderById(env, auth.user.id, order.id);
+      } catch {}
     }
 
-    const url = new URL(
-      request.url
-    );
+    const events = await loadOrderEvents(env, order.id);
+    return successResponse({ order: serializeOrder(order), events });
+  } catch (error) {
+    return errorResponse(error?.message || "Gagal mengambil order NOKOS.", error?.status || 500);
+  }
+}
 
-    const daysRaw = Number(
-      url.searchParams.get(
-        "days"
-      ) || 30
-    );
+export async function createNokosOrder(request, env) {
+  let orderId = null;
+  let userId = null;
+  let customerAmount = 0;
+  let orderNumber = null;
+  let debited = false;
 
-    const days =
-      Number.isFinite(daysRaw)
-        ? Math.min(
-            365,
-            Math.max(
-              1,
-              Math.floor(
-                daysRaw
-              )
-            )
-          )
-        : 30;
+  try {
+    const auth = await requireAuth(request, env);
+    if (auth?.response) return auth.response;
 
-    const rows = await env.DB
-      .prepare(
-        `
-          SELECT
-            stat_date,
-            visitors,
-            page_views,
-            created_at,
-            updated_at
-          FROM visitor_stats
-          ORDER BY stat_date DESC
-          LIMIT ?
-        `
-      )
-      .bind(days)
-      .all();
+    userId = auth.user.id;
+    const payload = await readJson(request);
+    const validation = validateCreatePayload(payload);
 
-    const data =
-      Array.isArray(
-        rows?.results
-      )
-        ? rows.results
-        : [];
+    if (validation.error) {
+      return errorResponse(validation.error, 400);
+    }
 
-    const totals =
-      data.reduce(
-        (
-          accumulator,
-          row
-        ) => {
-          accumulator.visitors +=
-            Number(
-              row.visitors || 0
-            );
+    const { productId, catalogProductId, operatorId, quantity, minPrice, maxPrice, target, idempotencyKey } = validation.value;
 
-          accumulator.page_views +=
-            Number(
-              row.page_views || 0
-            );
+    if (idempotencyKey) {
+      const existing = await findOrderByIdempotency(env, userId, idempotencyKey);
+      if (existing) {
+        return successResponse({ idempotent: true, order: serializeOrder(existing) });
+      }
+    }
 
-          return accumulator;
-        },
-        {
-          visitors: 0,
-          page_views: 0
-        }
-      );
+    const product = await getProductForOrder(env, { productId, catalogProductId, operatorId, minPrice, maxPrice });
+    if (!product) {
+      return errorResponse("Produk NOKOS tidak ditemukan.", 404);
+    }
 
-    return jsonResponse({
-      success: true,
-      days,
-      totals,
-      stats: data
+    if (product?.available === false || product?.active === false) {
+      return errorResponse("Produk NOKOS sedang tidak tersedia.", 409);
+    }
+
+    await saveNokosService(env, product);
+
+    const providerRate = getProductPrice(product);
+    if (!Number.isSafeInteger(providerRate) || providerRate <= 0) {
+      return errorResponse("Harga produk NOKOS tidak valid.", 409);
+    }
+
+    customerAmount = providerRate * quantity;
+    if (!Number.isSafeInteger(customerAmount) || customerAmount <= 0) {
+      return errorResponse("Total harga NOKOS tidak valid.", 400);
+    }
+
+    const requestData = JSON.stringify({
+      product_id: productId, catalog_product_id: catalogProductId,
+      operator_id: operatorId, quantity, min_price: minPrice, max_price: maxPrice, target: target || null
     });
-  } catch {
-    return errorResponse(
-      "Gagal mengambil statistik visitor.",
-      500
-    );
-  }
-}
 
-export async function getVisitorOverview(
-  request,
-  env
-) {
-  try {
-    if (!env?.DB) {
-      return errorResponse(
-        "Database tidak tersedia.",
-        500
-      );
+    const local = await createLocalOrder(env, {
+      userId, product, quantity, target, idempotencyKey, requestData, customerAmount
+    });
+
+    orderId = local.id;
+    orderNumber = local.orderNumber;
+
+    await addOrderEvent(env, orderId, "CREATING", null, "Order NOKOS dibuat.", null);
+
+    const debit = await debitBalance(env, {
+      userId, amount: customerAmount, type: "PURCHASE",
+      reference: `ORDER:${orderNumber}`,
+      description: `Pembelian NOKOS ${orderNumber}`,
+      orderId
+    });
+
+    if (debit?.insufficient || debit?.success === false) {
+      await updateLocalOrder(env, orderId, { status: "FAILED", failureReason: "Saldo tidak mencukupi." });
+      return errorResponse("Saldo tidak mencukupi.", 402);
     }
 
-    const current = nowUnix();
-    const activeCutoff =
-      current -
-      ACTIVE_VISITOR_TTL;
+    debited = true;
+    await updateLocalOrder(env, orderId, { status: "PROCESSING" });
 
-    const today =
-      getDateKey(current);
-
-    const [
-      activeResult,
-      todayResult,
-      totalResult
-    ] = await Promise.all([
-      env.DB
-        .prepare(
-          `
-            SELECT COUNT(*) AS count
-            FROM visitor_sessions
-            WHERE last_seen_at >= ?
-          `
-        )
-        .bind(
-          activeCutoff
-        )
-        .first(),
-
-      env.DB
-        .prepare(
-          `
-            SELECT
-              stat_date,
-              visitors,
-              page_views
-            FROM visitor_stats
-            WHERE stat_date = ?
-            LIMIT 1
-          `
-        )
-        .bind(today)
-        .first(),
-
-      env.DB
-        .prepare(
-          `
-            SELECT
-              COUNT(*) AS stored_sessions,
-              COALESCE(
-                SUM(page_views),
-                0
-              ) AS stored_page_views
-            FROM visitor_sessions
-          `
-        )
-        .first()
-    ]);
-
-    return jsonResponse({
-      success: true,
-      active_visitors:
-        Number(
-          activeResult?.count || 0
-        ),
-      today: {
-        visitors:
-          Number(
-            todayResult?.visitors || 0
-          ),
-        page_views:
-          Number(
-            todayResult?.page_views || 0
-          )
-      },
-      stored: {
-        sessions:
-          Number(
-            totalResult?.stored_sessions ||
-              0
-          ),
-        page_views:
-          Number(
-            totalResult?.stored_page_views ||
-              0
-          )
+    let providerOrder;
+    try {
+      providerOrder = await createOrder(env, {
+        productId: product?.id ?? product?.product_id ?? productId,
+        catalogProductId: product?.catalog_product_id ?? catalogProductId,
+        operatorId: product?.operator_id ?? operatorId,
+        quantity, minPrice, maxPrice,
+        idempotencyKey: idempotencyKey || orderNumber
+      });
+    } catch (error) {
+      if (isDefiniteProviderFailure(error)) {
+        const refunded = await refundFailedCreation(env, { orderId, userId, amount: customerAmount, orderNumber });
+        return errorResponse(
+          refunded ? (error?.message || "Provider menolak order NOKOS.") : "Provider menolak order dan refund belum berhasil.",
+          502
+        );
       }
-    });
-  } catch {
-    return errorResponse(
-      "Gagal mengambil overview visitor.",
-      500
-    );
+
+      await updateLocalOrder(env, orderId, {
+        status: "UNKNOWN",
+        failureReason: "Status provider tidak dapat dipastikan."
+      });
+      return errorResponse("Order sedang diproses tetapi status provider belum dapat dipastikan.", 202);
+    }
+
+    const externalOrderId = getProviderOrderId(providerOrder);
+    if (!externalOrderId) {
+      await updateLocalOrder(env, orderId, {
+        status: "UNKNOWN",
+        providerData: getProviderData(providerOrder),
+        failureReason: "Provider tidak mengembalikan ID order."
+      });
+      return errorResponse("Order provider dibuat tetapi ID order tidak dapat dipastikan.", 202);
+    }
+
+    const localOrder = await findOrderById(env, userId, orderId);
+    await applyProviderOrder(env, localOrder, providerOrder);
+
+    const saved = await findOrderById(env, userId, orderId);
+    return successResponse({ order: serializeOrder(saved) }, 201);
+
+  } catch (error) {
+    if (orderId && userId && debited) {
+      try {
+        await updateLocalOrder(env, orderId, {
+          status: "UNKNOWN",
+          failureReason: error?.message || "Terjadi kesalahan yang belum dapat dipastikan."
+        });
+      } catch {}
+    }
+
+    if (error?.message === "Saldo tidak mencukupi.") {
+      return errorResponse(error.message, 402);
+    }
+
+    return errorResponse(error?.message || "Gagal membuat order NOKOS.", error?.status || 500);
   }
 }
 
-export async function cleanupVisitorSessions(
-  request,
-  env
-) {
+export async function cancelNokosOrder(request, env) {
   try {
-    if (!env?.DB) {
-      return errorResponse(
-        "Database tidak tersedia.",
-        500
-      );
+    const auth = await requireAuth(request, env);
+    if (auth?.response) return auth.response;
+
+    const payload = await readJson(request);
+    const order = await findOrderIdentifier(request, env, auth.user.id, payload);
+
+    if (!order) {
+      return errorResponse("Order NOKOS tidak ditemukan.", 404);
     }
 
-    const deleted =
-      await cleanupVisitors(
-        env.DB
-      );
-
-    return jsonResponse({
-      success: true,
-      deleted
-    });
-  } catch {
-    return errorResponse(
-      "Gagal membersihkan visitor session.",
-      500
-    );
-  }
-}
-
-export async function getVisitorSession(
-  request,
-  env
-) {
-  try {
-    if (!env?.DB) {
-      return errorResponse(
-        "Database tidak tersedia.",
-        500
-      );
+    if (["COMPLETED", "CANCELLED", "EXPIRED", "REFUNDED", "FAILED"].includes(order.status)) {
+      return successResponse({ order: serializeOrder(order), refunded: order.status === "REFUNDED" });
     }
 
-    const sessionId =
-      getSessionId(request);
+    if (!order.external_order_id) {
+      return errorResponse("Order belum memiliki ID provider.", 409);
+    }
 
-    const session =
-      await findVisitorSession(
-        env.DB,
-        sessionId
-      );
+    let providerOrder;
+    try {
+      providerOrder = await cancelOrder(env, order.external_order_id);
+    } catch (error) {
+      await updateLocalOrder(env, order.id, {
+        status: "UNKNOWN",
+        failureReason: error?.message || "Pembatalan provider belum dapat dipastikan."
+      });
+      return errorResponse("Pembatalan belum dapat dipastikan. Jangan melakukan pembayaran ulang.", 502);
+    }
 
-    if (!session) {
-      return jsonResponse({
-        success: true,
-        visitor: null
+    const providerStatus = getProviderStatus(providerOrder);
+    const status = internalStatus(providerStatus);
+
+    if (status !== "CANCELLED") {
+      await updateLocalOrder(env, order.id, {
+        status: status === "UNKNOWN" ? "UNKNOWN" : status,
+        providerStatus,
+        providerData: getProviderData(providerOrder),
+        failureReason: getProviderFailure(providerOrder)
+      });
+      return successResponse({
+        order: serializeOrder(await findOrderById(env, auth.user.id, order.id)),
+        refunded: false
       });
     }
 
-    return jsonResponse({
-      success: true,
-      visitor: {
-        session_id:
-          session.session_id,
-        first_seen_at:
-          session.first_seen_at,
-        last_seen_at:
-          session.last_seen_at,
-        page_views:
-          session.page_views
-      }
+    const refund = await refundBalance(env, {
+      userId: auth.user.id,
+      amount: Number(order.customer_amount),
+      reference: `REFUND:${order.order_number}`,
+      description: `Refund NOKOS ${order.order_number}`,
+      orderId: order.id
     });
-  } catch {
-    return errorResponse(
-      "Gagal mengambil session visitor.",
-      500
-    );
+
+    const refunded = refund?.success !== false;
+
+    await updateLocalOrder(env, order.id, {
+      status: refunded ? "REFUNDED" : "CANCELLED",
+      providerStatus,
+      providerData: getProviderData(providerOrder),
+      failureReason: refunded ? null : "Provider berhasil membatalkan order tetapi refund wallet belum berhasil.",
+      cancelledAt: order.cancelled_at || nowUnix()
+    });
+
+    const saved = await findOrderById(env, auth.user.id, order.id);
+    return successResponse({ order: serializeOrder(saved), refunded });
+
+  } catch (error) {
+    return errorResponse(error?.message || "Gagal membatalkan order NOKOS.", error?.status || 500);
   }
 }
 
-export function getVisitorCookieName() {
-  return VISITOR_COOKIE;
+export async function finishNokosOrder(request, env) {
+  try {
+    const auth = await requireAuth(request, env);
+    if (auth?.response) return auth.response;
+
+    const payload = await readJson(request);
+    const order = await findOrderIdentifier(request, env, auth.user.id, payload);
+
+    if (!order) {
+      return errorResponse("Order NOKOS tidak ditemukan.", 404);
+    }
+
+    if (order.status === "COMPLETED") {
+      return successResponse({ order: serializeOrder(order) });
+    }
+
+    if (!order.external_order_id) {
+      return errorResponse("Order belum memiliki ID provider.", 409);
+    }
+
+    let providerOrder;
+    try {
+      providerOrder = await finishOrder(env, order.external_order_id);
+    } catch (error) {
+      await updateLocalOrder(env, order.id, {
+        status: "UNKNOWN",
+        failureReason: error?.message || "Penyelesaian order belum dapat dipastikan."
+      });
+      return errorResponse("Status penyelesaian order belum dapat dipastikan.", 502);
+    }
+
+    await applyProviderOrder(env, order, providerOrder);
+
+    const saved = await findOrderById(env, auth.user.id, order.id);
+    return successResponse({ order: serializeOrder(saved) });
+
+  } catch (error) {
+    return errorResponse(error?.message || "Gagal menyelesaikan order NOKOS.", error?.status || 500);
+  }
 }
 
-export function getVisitorSessionTtl() {
-  return VISITOR_SESSION_TTL;
+export async function resendNokosOrder(request, env) {
+  try {
+    const auth = await requireAuth(request, env);
+    if (auth?.response) return auth.response;
+
+    const payload = await readJson(request);
+    const order = await findOrderIdentifier(request, env, auth.user.id, payload);
+
+    if (!order) {
+      return errorResponse("Order NOKOS tidak ditemukan.", 404);
+    }
+
+    if (!order.external_order_id) {
+      return errorResponse("Order belum memiliki ID provider.", 409);
+    }
+
+    const providerOrder = await resendOrder(env, order.external_order_id);
+    await applyProviderOrder(env, order, providerOrder);
+
+    const saved = await findOrderById(env, auth.user.id, order.id);
+    return successResponse({ order: serializeOrder(saved) });
+
+  } catch (error) {
+    return errorResponse(error?.message || "Gagal meminta OTP ulang.", error?.status || 502);
+  }
 }
+
+export async function listMyNokosOrders(request, env) {
+  try {
+    const auth = await requireAuth(request, env);
+    if (auth?.response) return auth.response;
+
+    const url = getUrl(request);
+    const limit = Math.min(parsePositiveInteger(url.searchParams.get("limit")) || 20, 100);
+    const offsetValue = Number(url.searchParams.get("offset"));
+    const offset = Number.isInteger(offsetValue) && offsetValue >= 0 ? offsetValue : 0;
+    const status = cleanString(url.searchParams.get("status") || "", 40).toUpperCase();
+
+    if (status && !ORDER_STATUSES.has(status)) {
+      return errorResponse("Status order tidak valid.", 400);
+    }
+
+    let query = `SELECT ${ORDER_COLUMNS} FROM orders WHERE user_id = ? AND type = ?`;
+    const binds = [auth.user.id, ORDER_TYPE];
+
+    if (status) {
+      query += " AND status = ?";
+      binds.push(status);
+    }
+
+    query += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?";
+    binds.push(limit, offset);
+
+    const result = await env.DB.prepare(query).bind(...binds).all();
+    const orders = Array.isArray(result?.results) ? result.results.map(serializeOrder) : [];
+
+    return successResponse({ orders, limit, offset });
+  } catch (error) {
+    return errorResponse(error?.message || "Gagal mengambil daftar order NOKOS.", error?.status || 500);
+  }
+}
+
+export async function syncNokosOrder(request, env) {
+  try {
+    const auth = await requireAuth(request, env);
+    if (auth?.response) return auth.response;
+
+    const payload = await readJson(request);
+    const order = await findOrderIdentifier(request, env, auth.user.id, payload);
+
+    if (!order) {
+      return errorResponse("Order NOKOS tidak ditemukan.", 404);
+    }
+
+    if (!order.external_order_id) {
+      return errorResponse("Order belum memiliki ID provider.", 409);
+    }
+
+    const providerOrder = await getOrder(env, order.external_order_id);
+    await applyProviderOrder(env, order, providerOrder);
+
+    const saved = await findOrderById(env, auth.user.id, order.id);
+    return successResponse({ order: serializeOrder(saved) });
+
+  } catch (error) {
+    return errorResponse(error?.message || "Gagal sinkronisasi order NOKOS.", error?.status || 502);
+  }
+}
+
+/* ──────────────── Admin API ──────────────── */
+
+export async function adminListNokosOrders(request, env) {
+  try {
+    const auth = await requireAdmin(request, env);
+    if (auth?.response) return auth.response;
+
+    const url = getUrl(request);
+    const limit = Math.min(parsePositiveInteger(url.searchParams.get("limit")) || 50, 200);
+    const offsetValue = Number(url.searchParams.get("offset"));
+    const offset = Number.isInteger(offsetValue) && offsetValue >= 0 ? offsetValue : 0;
+    const status = cleanString(url.searchParams.get("status") || "", 40).toUpperCase();
+    const userId = parsePositiveInteger(url.searchParams.get("user_id"));
+
+    if (status && !ORDER_STATUSES.has(status)) {
+      return errorResponse("Status order tidak valid.", 400);
+    }
+
+    let query = `
+      SELECT o.*, u.username, u.first_name
+      FROM orders o
+      INNER JOIN users u ON u.id = o.user_id
+      WHERE o.type = ?
+    `;
+    const binds = [ORDER_TYPE];
+
+    if (status) {
+      query += " AND o.status = ?";
+      binds.push(status);
+    }
+    if (userId) {
+      query += " AND o.user_id = ?";
+      binds.push(userId);
+    }
+
+    query += " ORDER BY o.created_at DESC, o.id DESC LIMIT ? OFFSET ?";
+    binds.push(limit, offset);
+
+    const result = await env.DB.prepare(query).bind(...binds).all();
+    return successResponse({
+      orders: Array.isArray(result?.results) ? result.results : [],
+      limit, offset
+    });
+
+  } catch (error) {
+    return errorResponse(error?.message || "Gagal mengambil order NOKOS.", error?.status || 500);
+  }
+}
+
+export async function adminGetNokosOrder(request, env) {
+  try {
+    const auth = await requireAdmin(request, env);
+    if (auth?.response) return auth.response;
+
+    const url = getUrl(request);
+    const orderId = parsePositiveInteger(url.searchParams.get("id"));
+
+    if (!orderId) {
+      return errorResponse("id order wajib diisi.", 400);
+    }
+
+    const order = await env.DB.prepare(`
+      SELECT o.*, u.username, u.first_name
+      FROM orders o
+      INNER JOIN users u ON u.id = o.user_id
+      WHERE o.id = ? AND o.type = ?
+      LIMIT 1
+    `).bind(orderId, ORDER_TYPE).first();
+
+    if (!order) {
+      return errorResponse("Order NOKOS tidak ditemukan.", 404);
+    }
+
+    const events = await loadOrderEvents(env, order.id);
+    return successResponse({ order, events });
+
+  } catch (error) {
+    return errorResponse(error?.message || "Gagal mengambil detail order NOKOS.", error?.status || 500);
+  }
+}
+
+export async function getNokosStats(request, env) {
+  try {
+    const auth = await requireAdmin(request, env);
+    if (auth?.response) return auth.response;
+
+    const result = await env.DB.prepare(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN status = 'CREATING' THEN 1 ELSE 0 END) AS creating,
+        SUM(CASE WHEN status = 'PROCESSING' THEN 1 ELSE 0 END) AS processing,
+        SUM(CASE WHEN status = 'OTP_RECEIVED' THEN 1 ELSE 0 END) AS otp_received,
+        SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed,
+        SUM(CASE WHEN status = 'CANCELLED' THEN 1 ELSE 0 END) AS cancelled,
+        SUM(CASE WHEN status = 'EXPIRED' THEN 1 ELSE 0 END) AS expired,
+        SUM(CASE WHEN status = 'REFUNDED' THEN 1 ELSE 0 END) AS refunded,
+        SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) AS failed,
+        SUM(CASE WHEN status = 'UNKNOWN' THEN 1 ELSE 0 END) AS unknown,
+        COALESCE(SUM(customer_amount), 0) AS customer_amount
+      FROM orders
+      WHERE type = ?
+    `).bind(ORDER_TYPE).first();
+
+    return successResponse({
+      stats: {
+        total: Number(result?.total || 0),
+        creating: Number(result?.creating || 0),
+        processing: Number(result?.processing || 0),
+        otp_received: Number(result?.otp_received || 0),
+        completed: Number(result?.completed || 0),
+        cancelled: Number(result?.cancelled || 0),
+        expired: Number(result?.expired || 0),
+        refunded: Number(result?.refunded || 0),
+        failed: Number(result?.failed || 0),
+        unknown: Number(result?.unknown || 0),
+        customer_amount: Number(result?.customer_amount || 0)
+      }
+    });
+
+  } catch (error) {
+    return errorResponse(error?.message || "Gagal mengambil statistik NOKOS.", error?.status || 500);
+  }
+}
+
+/* ──────────────── Internal Helpers ──────────────── */
+
+export async function syncNokosProviderOrder(env, order) {
+  if (!order?.external_order_id) return order;
+
+  const providerOrder = await getOrder(env, order.external_order_id);
+  await applyProviderOrder(env, order, providerOrder);
+
+  return env.DB.prepare(`SELECT * FROM orders WHERE id = ? LIMIT 1`).bind(order.id).first();
+}
+
+export default {
+  listNokosProducts, createNokosOrder, getNokosOrder, listMyNokosOrders,
+  syncNokosOrder, cancelNokosOrder, finishNokosOrder, resendNokosOrder,
+  adminListNokosOrders, adminGetNokosOrder, getNokosStats, syncNokosProviderOrder
+};
