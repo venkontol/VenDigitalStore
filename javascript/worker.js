@@ -1,16 +1,8 @@
 import router from "./router.js";
 
 const FRONTEND_PATHS = new Set([
-  "/",
-  "/login",
-  "/register",
-  "/dashboard",
-  "/nokos",
-  "/suntik-sosmed",
-  "/deposit",
-  "/orders",
-  "/account",
-  "/admin"
+  "/", "/login", "/register", "/dashboard", "/nokos",
+  "/suntik-sosmed", "/deposit", "/orders", "/account", "/admin"
 ]);
 
 const SECURITY_HEADERS = Object.freeze({
@@ -25,8 +17,8 @@ const SECURITY_HEADERS = Object.freeze({
     "form-action 'self'",
     "object-src 'none'",
     "script-src 'self'",
-    "style-src 'self'",
-    "img-src 'self' data: blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
     "media-src 'self' blob:",
     "font-src 'self' data:",
     "connect-src 'self'"
@@ -68,14 +60,46 @@ function notFoundResponse() {
   });
 }
 
+function serverErrorResponse(message = "Internal Server Error") {
+  return new Response(message, {
+    status: 500,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    }
+  });
+}
+
 async function serveFrontend(request, env) {
   const url = new URL(request.url);
-  const assetRequest = new Request(new URL(url.pathname, url.origin), request);
 
   if (env?.ASSETS) {
-    const asset = await env.ASSETS.fetch(assetRequest);
-    if (asset.status !== 404) {
-      return applySecurityHeaders(asset);
+    try {
+      const assetRequest = new Request(new URL(url.pathname, url.origin), request);
+      const asset = await env.ASSETS.fetch(assetRequest);
+      if (asset.status !== 404) {
+        return applySecurityHeaders(asset);
+      }
+    } catch (assetError) {
+      console.error("[ASSETS FETCH ERROR]", assetError);
+    }
+  }
+
+  if (!url.pathname.includes(".")) {
+    try {
+      const indexRequest = new Request(new URL("/index.html", url.origin), request);
+      if (env?.ASSETS) {
+        const index = await env.ASSETS.fetch(indexRequest);
+        if (index.status !== 404) {
+          return applySecurityHeaders(new Response(index.body, {
+            status: 200,
+            headers: { "Content-Type": "text/html; charset=utf-8", ...Object.fromEntries(index.headers) }
+          }));
+        }
+      }
+    } catch (indexError) {
+      console.error("[INDEX FETCH ERROR]", indexError);
     }
   }
 
@@ -84,22 +108,30 @@ async function serveFrontend(request, env) {
 
 export default {
   async fetch(request, env, ctx) {
+    const start = Date.now();
     const url = new URL(request.url);
     const pathname = normalizePath(url.pathname);
 
-    if (isApiPath(pathname)) {
-      const response = await router(request, env, ctx);
-      return applySecurityHeaders(response);
-    }
+    try {
+      let response;
 
-    if (request.method === "GET" && isFrontendPath(pathname)) {
-      return serveFrontend(request, env);
-    }
+      if (isApiPath(pathname)) {
+        response = await router(request, env, ctx);
+      } else if (request.method === "GET" && (isFrontendPath(pathname) || !pathname.includes("."))) {
+        response = await serveFrontend(request, env);
+      } else {
+        response = notFoundResponse();
+      }
 
-    if (request.method === "GET" && !pathname.includes(".")) {
-      return serveFrontend(request, env);
-    }
+      const secured = applySecurityHeaders(response);
+      console.log(`[WORKER] ${request.method} ${pathname} → ${secured.status} (${Date.now() - start}ms)`);
+      return secured;
 
-    return notFoundResponse();
+    } catch (error) {
+      console.error("[WORKER UNCAUGHT ERROR]", error);
+      const fallback = applySecurityHeaders(serverErrorResponse());
+      console.log(`[WORKER] ${request.method} ${pathname} → 500 (${Date.now() - start}ms) [uncaught]`);
+      return fallback;
+    }
   }
 };
