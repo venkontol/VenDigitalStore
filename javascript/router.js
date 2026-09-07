@@ -45,32 +45,23 @@ import {
 } from "./orders.js";
 
 import {
-  trackVisitor,
-  trackPageView,
   getVisitorStats,
-  getVisitorOverview,
-  cleanupVisitorSessions
+  trackVisitor
 } from "./visitor.js";
 
 import {
-  adminDashboard,
-  adminListUsers,
-  adminGetUser,
-  adminUpdateUser,
-  adminAdjustUserBalance,
-  adminListRecentActivity,
-  adminDeleteUser,
-  adminGetSystemCounts
+  getAdminDashboard,
+  getAdminUsers,
+  getAdminUser,
+  updateAdminUser,
+  getAdminDeposits,
+  getAdminOrders,
+  getAdminStats
 } from "./admin.js";
 
 import {
-  getPublicSettings,
-  getPublicSetting,
-  adminGetSettings,
-  adminGetSetting,
-  adminUpdateSetting,
-  adminUpdateSettings,
-  adminResetSettings
+  getSettings,
+  updateSettings
 } from "./setting.js";
 
 import {
@@ -79,252 +70,849 @@ import {
   getPath
 } from "./utils.js";
 
-function routeKey(method, path) {
-  return `${method} ${path}`;
+function jsonResponse(data, status = 200, headers = {}) {
+  return new Response(
+    JSON.stringify(data),
+    {
+      status,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...headers
+      }
+    }
+  );
 }
 
-async function handleRoute(request, env, ctx) {
-  const method = getMethod(request);
-  const path = getPath(request);
-  const key = routeKey(method, path);
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization"
+  };
+}
 
-  switch (key) {
-    case "GET /api/auth/me":
-      return me(request, env, ctx);
+function optionsResponse() {
+  return new Response(
+    null,
+    {
+      status: 204,
+      headers: corsHeaders()
+    }
+  );
+}
 
-    case "POST /api/auth/register":
-      return register(request, env, ctx);
+function withCors(response) {
+  const headers = new Headers(response.headers);
 
-    case "POST /api/auth/login":
-      return login(request, env, ctx);
+  for (const [key, value] of Object.entries(corsHeaders())) {
+    headers.set(key, value);
+  }
 
-    case "POST /api/auth/logout":
-      return logout(request, env, ctx);
+  return new Response(
+    response.body,
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    }
+  );
+}
 
-    case "POST /api/auth/logout-all":
-      return logoutAll(request, env, ctx);
+async function parseBody(request) {
+  const contentType =
+    request.headers.get("content-type") || "";
 
-    case "GET /api/wallet":
-    case "GET /api/wallet/overview":
-      return getWalletOverview(request, env, ctx);
+  if (
+    contentType.includes("application/json")
+  ) {
+    try {
+      return await request.json();
+    } catch {
+      return {};
+    }
+  }
 
-    case "GET /api/wallet/balance":
-      return getWalletBalance(request, env, ctx);
+  if (
+    contentType.includes(
+      "application/x-www-form-urlencoded"
+    )
+  ) {
+    const formData =
+      await request.formData();
 
-    case "GET /api/wallet/transactions":
-      return getWalletTransactions(request, env, ctx);
+    return Object.fromEntries(
+      formData.entries()
+    );
+  }
 
-    case "POST /api/deposit":
-      return createDeposit(request, env, ctx);
+  try {
+    const text = await request.text();
 
-    case "GET /api/deposit":
-      return getDeposit(request, env, ctx);
+    if (!text) {
+      return {};
+    }
 
-    case "POST /api/deposit/check":
-      return checkDeposit(request, env, ctx);
-
-    case "POST /api/deposit/confirm":
-      return confirmDeposit(request, env, ctx);
-
-    case "POST /api/deposit/cancel":
-      return cancelDeposit(request, env, ctx);
-
-    case "POST /api/deposit/expire":
-      return expireDeposits(request, env, ctx);
-
-    case "GET /api/nokos/services":
-    case "GET /api/nokos/products":
-      return listNokosProducts(request, env, ctx);
-
-    case "POST /api/nokos/order":
-      return createNokosOrder(request, env, ctx);
-
-    case "GET /api/nokos/order":
-      return getNokosOrder(request, env, ctx);
-
-    case "POST /api/nokos/order/sync":
-      return syncNokosOrder(request, env, ctx);
-
-    case "POST /api/nokos/order/cancel":
-      return cancelNokosOrder(request, env, ctx);
-
-    case "POST /api/nokos/order/finish":
-      return finishNokosOrder(request, env, ctx);
-
-    case "POST /api/nokos/order/resend":
-      return resendNokosOrder(request, env, ctx);
-
-    case "GET /api/suntik-sosmed/services":
-      return listSocialServices(request, env, ctx);
-
-    case "POST /api/suntik-sosmed/order":
-      return createSocialOrder(request, env, ctx);
-
-    case "GET /api/suntik-sosmed/order":
-      return getSocialOrder(request, env, ctx);
-
-    case "GET /api/suntik-sosmed/orders":
-      return listSocialOrders(request, env, ctx);
-
-    case "POST /api/suntik-sosmed/order/sync":
-      return syncSocialOrder(request, env, ctx);
-
-    case "POST /api/suntik-sosmed/order/cancel":
-      return cancelSocialOrder(request, env, ctx);
-
-    case "GET /api/orders":
-    case "POST /api/orders":
-    case "GET /api/orders/order":
-    case "POST /api/orders/cancel":
-    case "GET /api/admin/orders":
-    case "POST /api/admin/orders/status":
-    case "POST /api/admin/orders/refund":
-      return handleOrders(request, env, ctx);
-
-    case "POST /api/visitor/track":
-      return trackVisitor(request, env, ctx);
-
-    case "POST /api/visitor/pageview":
-      return trackPageView(request, env, ctx);
-
-    case "GET /api/settings":
-      return getPublicSettings(request, env, ctx);
-
-    case "GET /api/settings/public":
-      return getPublicSettings(request, env, ctx);
-
-    case "GET /api/settings/value":
-      return getPublicSetting(request, env, ctx);
-
-    case "GET /api/admin/dashboard":
-      return adminDashboard(request, env, ctx);
-
-    case "GET /api/admin/users":
-      return adminListUsers(request, env, ctx);
-
-    case "GET /api/admin/user":
-      return adminGetUser(request, env, ctx);
-
-    case "PATCH /api/admin/user":
-    case "PUT /api/admin/user":
-      return adminUpdateUser(request, env, ctx);
-
-    case "POST /api/admin/user/balance":
-      return adminAdjustUserBalance(request, env, ctx);
-
-    case "GET /api/admin/activity":
-      return adminListRecentActivity(request, env, ctx);
-
-    case "DELETE /api/admin/user":
-      return adminDeleteUser(request, env, ctx);
-
-    case "GET /api/admin/counts":
-      return adminGetSystemCounts(request, env, ctx);
-
-    case "GET /api/admin/visitors":
-      return getVisitorOverview(request, env, ctx);
-
-    case "GET /api/admin/visitor-stats":
-      return getVisitorStats(request, env, ctx);
-
-    case "POST /api/admin/visitor/cleanup":
-      return cleanupVisitorSessions(request, env, ctx);
-
-    case "GET /api/admin/settings":
-      return adminGetSettings(request, env, ctx);
-
-    case "GET /api/admin/settings/value":
-      return adminGetSetting(request, env, ctx);
-
-    case "PUT /api/admin/settings":
-    case "PATCH /api/admin/settings":
-      return adminUpdateSettings(request, env, ctx);
-
-    case "PUT /api/admin/setting":
-    case "PATCH /api/admin/setting":
-      return adminUpdateSetting(request, env, ctx);
-
-    case "POST /api/admin/settings/reset":
-      return adminResetSettings(request, env, ctx);
-
-    case "OPTIONS /api":
-    case "OPTIONS /api/auth/me":
-    case "OPTIONS /api/auth/register":
-    case "OPTIONS /api/auth/login":
-    case "OPTIONS /api/auth/logout":
-    case "OPTIONS /api/auth/logout-all":
-    case "OPTIONS /api/wallet":
-    case "OPTIONS /api/wallet/overview":
-    case "OPTIONS /api/wallet/balance":
-    case "OPTIONS /api/wallet/transactions":
-    case "OPTIONS /api/deposit":
-    case "OPTIONS /api/deposit/check":
-    case "OPTIONS /api/deposit/confirm":
-    case "OPTIONS /api/deposit/cancel":
-    case "OPTIONS /api/deposit/expire":
-    case "OPTIONS /api/nokos/services":
-    case "OPTIONS /api/nokos/products":
-    case "OPTIONS /api/nokos/order":
-    case "OPTIONS /api/nokos/order/sync":
-    case "OPTIONS /api/nokos/order/cancel":
-    case "OPTIONS /api/nokos/order/finish":
-    case "OPTIONS /api/nokos/order/resend":
-    case "OPTIONS /api/suntik-sosmed/services":
-    case "OPTIONS /api/suntik-sosmed/order":
-    case "OPTIONS /api/suntik-sosmed/orders":
-    case "OPTIONS /api/suntik-sosmed/order/sync":
-    case "OPTIONS /api/suntik-sosmed/order/cancel":
-    case "OPTIONS /api/orders":
-    case "OPTIONS /api/orders/order":
-    case "OPTIONS /api/orders/cancel":
-    case "OPTIONS /api/admin/orders":
-    case "OPTIONS /api/admin/orders/status":
-    case "OPTIONS /api/admin/orders/refund":
-    case "OPTIONS /api/visitor/track":
-    case "OPTIONS /api/visitor/pageview":
-    case "OPTIONS /api/settings":
-    case "OPTIONS /api/settings/public":
-    case "OPTIONS /api/settings/value":
-    case "OPTIONS /api/admin/dashboard":
-    case "OPTIONS /api/admin/users":
-    case "OPTIONS /api/admin/user":
-    case "OPTIONS /api/admin/activity":
-    case "OPTIONS /api/admin/counts":
-    case "OPTIONS /api/admin/orders":
-    case "OPTIONS /api/admin/visitors":
-    case "OPTIONS /api/admin/visitor-stats":
-    case "OPTIONS /api/admin/visitor/cleanup":
-    case "OPTIONS /api/admin/settings":
-    case "OPTIONS /api/admin/settings/value":
-    case "OPTIONS /api/admin/setting":
-    case "OPTIONS /api/admin/settings/reset":
-      return new Response(null, {
-        status: 204
-      });
-
-    default:
-      return errorResponse(
-        "Endpoint tidak ditemukan.",
-        404
-      );
+    try {
+      return JSON.parse(text);
+    } catch {
+      return {};
+    }
+  } catch {
+    return {};
   }
 }
 
-export default async function router(request, env, ctx) {
+function routeMatches(
+  method,
+  path,
+  expectedMethod,
+  expectedPath
+) {
+  return (
+    method === expectedMethod &&
+    path === expectedPath
+  );
+}
+
+export default async function router(
+  request,
+  env,
+  ctx
+) {
   try {
-    return await handleRoute(
-      request,
-      env,
-      ctx
+    const method = getMethod(request);
+    const path = getPath(request);
+
+    if (method === "OPTIONS") {
+      return optionsResponse();
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/auth/register"
+      )
+    ) {
+      const body = await parseBody(request);
+      return withCors(
+        await register(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/auth/login"
+      )
+    ) {
+      const body = await parseBody(request);
+      return withCors(
+        await login(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/auth/logout"
+      )
+    ) {
+      return withCors(
+        await logout(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/auth/logout-all"
+      )
+    ) {
+      return withCors(
+        await logoutAll(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/auth/me"
+      )
+    ) {
+      return withCors(
+        await me(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/wallet"
+      )
+    ) {
+      return withCors(
+        await getWalletOverview(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/wallet/balance"
+      )
+    ) {
+      return withCors(
+        await getWalletBalance(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/wallet/transactions"
+      )
+    ) {
+      return withCors(
+        await getWalletTransactions(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/deposit/create"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await createDeposit(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/deposit"
+      )
+    ) {
+      return withCors(
+        await getDeposit(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/deposit/check"
+      )
+    ) {
+      return withCors(
+        await checkDeposit(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/deposit/confirm"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await confirmDeposit(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/deposit/cancel"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await cancelDeposit(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/deposit/expire"
+      )
+    ) {
+      return withCors(
+        await expireDeposits(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/nokos/services"
+      )
+    ) {
+      return withCors(
+        await listNokosProducts(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/nokos/order"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await createNokosOrder(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/nokos/order"
+      )
+    ) {
+      return withCors(
+        await getNokosOrder(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/nokos/sync"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await syncNokosOrder(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/nokos/cancel"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await cancelNokosOrder(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/nokos/finish"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await finishNokosOrder(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/nokos/resend"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await resendNokosOrder(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/suntik-sosmed/services"
+      )
+    ) {
+      return withCors(
+        await listSocialServices(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/suntik-sosmed/order"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await createSocialOrder(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/suntik-sosmed/order"
+      )
+    ) {
+      return withCors(
+        await getSocialOrder(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/suntik-sosmed/sync"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await syncSocialOrder(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/suntik-sosmed/orders"
+      )
+    ) {
+      return withCors(
+        await listSocialOrders(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/suntik-sosmed/cancel"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await cancelSocialOrder(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      method === "GET" &&
+      (
+        path === "/api/orders" ||
+        path === "/api/orders/order" ||
+        path === "/api/admin/orders"
+      )
+    ) {
+      return withCors(
+        await handleOrders(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      method === "POST" &&
+      (
+        path === "/api/orders" ||
+        path === "/api/orders/cancel" ||
+        path === "/api/admin/orders/status" ||
+        path === "/api/admin/orders/refund"
+      )
+    ) {
+      return withCors(
+        await handleOrders(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/visitor/stats"
+      )
+    ) {
+      return withCors(
+        await getVisitorStats(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/visitor/track"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await trackVisitor(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/admin/dashboard"
+      )
+    ) {
+      return withCors(
+        await getAdminDashboard(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/admin/users"
+      )
+    ) {
+      return withCors(
+        await getAdminUsers(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/admin/user"
+      )
+    ) {
+      return withCors(
+        await getAdminUser(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/admin/user"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await updateAdminUser(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/admin/deposits"
+      )
+    ) {
+      return withCors(
+        await getAdminDeposits(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/admin/stats"
+      )
+    ) {
+      return withCors(
+        await getAdminStats(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "GET",
+        "/api/settings"
+      )
+    ) {
+      return withCors(
+        await getSettings(
+          request,
+          env,
+          ctx
+        )
+      );
+    }
+
+    if (
+      routeMatches(
+        method,
+        path,
+        "POST",
+        "/api/settings"
+      )
+    ) {
+      const body = await parseBody(request);
+
+      return withCors(
+        await updateSettings(
+          request,
+          env,
+          ctx,
+          body
+        )
+      );
+    }
+
+    return withCors(
+      jsonResponse(
+        {
+          success: false,
+          error: "Endpoint tidak ditemukan."
+        },
+        404
+      )
     );
   } catch (error) {
-    return errorResponse(
-      error?.message ||
-        "Terjadi kesalahan pada server.",
-      error?.status >= 400 &&
-      error?.status < 600
-        ? error.status
-        : 500
+    return withCors(
+      errorResponse(
+        error?.message ||
+          "Terjadi kesalahan pada server.",
+        500
+      )
     );
   }
 }
