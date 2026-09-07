@@ -18,6 +18,12 @@
 
   "vars": {
     "APP_NAME": "VenDigitalStore",
-    "NODE_ENV": "production"
+    "NODE_ENV": "production",
+    "BUZZER_API_URL": "https://buzzerpanel.id/api/json.php",
+    "SMSCODE_API_URL": "https://api.smscode.gg/v2",
+    "MARKUP_PERCENT": "20",
+    "MAX_SERVICES": "300",
+    "CACHE_TTL": "60",
+    "DEFAULT_SORT": "price_asc"
   }
 }
