@@ -435,7 +435,7 @@ async function getOrderByIdempotencyKey(
     .first();
 }
 
-async function getOrderEvents(
+async function getOrderEventsRows(
   env,
   orderId
 ) {
@@ -1474,7 +1474,7 @@ export async function createOrder(
       );
     }
 
-    const providerAmount =
+      const providerAmount =
       safeMoney(
         body?.provider_amount ??
         body?.providerAmount ??
@@ -1489,6 +1489,32 @@ export async function createOrder(
         sellingRate *
           quantity
       );
+
+    const providerChargeInput =
+      body?.provider_charge ??
+      body?.providerCharge ??
+      null;
+
+    const providerCharge =
+      providerChargeInput === null ||
+      providerChargeInput === undefined ||
+      providerChargeInput === ""
+        ? null
+        : safeMoney(
+            providerChargeInput
+          );
+
+    if (
+      providerChargeInput !== null &&
+      providerChargeInput !== undefined &&
+      providerChargeInput !== "" &&
+      providerCharge === null
+    ) {
+      return errorResponse(
+        "Provider charge tidak valid.",
+        400
+      );
+    }
 
     if (
       providerAmount === null ||
@@ -1559,10 +1585,7 @@ export async function createOrder(
           sellingRate,
           providerAmount,
           customerAmount,
-          providerCharge:
-            body?.provider_charge ??
-            body?.providerCharge ??
-            null,
+          providerCharge,
           providerCurrency:
             body?.provider_currency ??
             body?.providerCurrency ??
@@ -2436,17 +2459,7 @@ export async function getOrderEvents(
   env,
   orderId
 ) {
-  return getOrderEventsInternal(
-    env,
-    orderId
-  );
-}
-
-async function getOrderEventsInternal(
-  env,
-  orderId
-) {
-  return getOrderEvents(
+  return getOrderEventsRows(
     env,
     orderId
   );
