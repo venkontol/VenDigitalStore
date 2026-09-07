@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#080a10">
+  <meta name="description" content="Pesanan VenDigitalStore">
+  <title>Pesanan — VenDigitalStore</title>
+
+  <link rel="stylesheet" href="/CSS/base.css">
+  <link rel="stylesheet" href="/CSS/components.css">
+  <link rel="stylesheet" href="/CSS/orders.css">
+</head>
+
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <a href="/" class="brand">
+          <span class="brand-mark">VD</span>
+          <span class="brand-name">VenDigitalStore</span>
+        </a>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Navigasi utama">
+        <a href="/dashboard" class="nav-item">
+          <span class="nav-icon">DB</span>
+          <span>Dashboard</span>
+        </a>
+
+        <a href="/nokos" class="nav-item">
+          <span class="nav-icon">NK</span>
+          <span>NOKOS</span>
+        </a>
+
+        <a href="/suntik-sosmed" class="nav-item">
+          <span class="nav-icon">SS</span>
+          <span>Suntik Sosmed</span>
+        </a>
+
+        <a href="/deposit" class="nav-item">
+          <span class="nav-icon">DP</span>
+          <span>Deposit</span>
+        </a>
+
+        <a href="/orders" class="nav-item active" aria-current="page">
+          <span class="nav-icon">PO</span>
+          <span>Pesanan</span>
+        </a>
+
+        <a href="/account" class="nav-item">
+          <span class="nav-icon">AK</span>
+          <span>Akun</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button
+          type="button"
+          class="nav-item logout-button"
+          id="logoutButton"
+        >
+          <span class="nav-icon">LO</span>
+          <span>Logout</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="page-area">
+      <header class="topbar">
+        <button
+          type="button"
+          class="menu-button"
+          id="menuButton"
+          aria-label="Buka menu"
+          aria-expanded="false"
+        >
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+
+        <div class="topbar-title">
+          <span class="eyebrow">ACCOUNT</span>
+          <h1>Pesanan</h1>
+        </div>
+
+        <a href="/account" class="profile-button">
+          <span class="profile-avatar" id="profileAvatar">V</span>
+          <span class="profile-info">
+            <strong id="profileName">Akun</strong>
+            <small id="profileUsername">@username</small>
+          </span>
+        </a>
+      </header>
+
+      <main class="page-content">
+        <section class="orders-header">
+          <div>
+            <span class="eyebrow">TRANSACTION CENTER</span>
+            <h2>Riwayat Pesanan</h2>
+            <p>
+              Pantau seluruh pesanan NOKOS dan Suntik Sosmed
+              dari satu halaman.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            class="button button-secondary"
+            id="refreshOrders"
+          >
+            Refresh
+          </button>
+        </section>
+
+        <section class="order-summary-grid">
+          <article class="summary-card">
+            <span class="summary-label">Total Pesanan</span>
+            <strong id="totalOrders">0</strong>
+          </article>
+
+          <article class="summary-card">
+            <span class="summary-label">Diproses</span>
+            <strong id="processingOrders">0</strong>
+          </article>
+
+          <article class="summary-card">
+            <span class="summary-label">Selesai</span>
+            <strong id="completedOrders">0</strong>
+          </article>
+
+          <article class="summary-card">
+            <span class="summary-label">Gagal</span>
+            <strong id="failedOrders">0</strong>
+          </article>
+        </section>
+
+        <section class="orders-panel">
+          <div class="orders-toolbar">
+            <div class="filter-group">
+              <label for="orderType">Jenis</label>
+
+              <select
+                id="orderType"
+                class="input"
+              >
+                <option value="">Semua Pesanan</option>
+                <option value="NOKOS">NOKOS</option>
+                <option value="SOCIAL">Suntik Sosmed</option>
+              </select>
+            </div>
+
+            <div class="filter-group">
+              <label for="orderStatus">Status</label>
+
+              <select
+                id="orderStatus"
+                class="input"
+              >
+                <option value="">Semua Status</option>
+                <option value="CREATING">CREATING</option>
+                <option value="PENDING">PENDING</option>
+                <option value="PROCESSING">PROCESSING</option>
+                <option value="OTP_RECEIVED">OTP RECEIVED</option>
+                <option value="COMPLETED">COMPLETED</option>
+                <option value="PARTIAL">PARTIAL</option>
+                <option value="CANCELLED">CANCELLED</option>
+                <option value="EXPIRED">EXPIRED</option>
+                <option value="REFUNDED">REFUNDED</option>
+                <option value="FAILED">FAILED</option>
+                <option value="UNKNOWN">UNKNOWN</option>
+              </select>
+            </div>
+
+            <div class="filter-group filter-search">
+              <label for="orderSearch">Cari</label>
+
+              <input
+                id="orderSearch"
+                class="input"
+                type="search"
+                placeholder="Nomor pesanan..."
+                autocomplete="off"
+              >
+            </div>
+          </div>
+
+          <div
+            id="ordersAlert"
+            class="alert"
+            role="alert"
+            aria-live="polite"
+          ></div>
+
+          <div class="orders-table-wrapper">
+            <table class="orders-table">
+              <thead>
+                <tr>
+                  <th>Pesanan</th>
+                  <th>Jenis</th>
+                  <th>Layanan</th>
+                  <th>Target</th>
+                  <th>Total</th>
+                  <th>Status</th>
+                  <th>Waktu</th>
+                  <th></th>
+                </tr>
+              </thead>
+
+              <tbody id="ordersTableBody">
+                <tr>
+                  <td colspan="8">
+                    <div class="table-loading">
+                      Memuat pesanan...
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div
+            id="ordersEmpty"
+            class="empty-state"
+            hidden
+          >
+            <strong>Belum ada pesanan</strong>
+            <p>
+              Pesanan yang kamu buat akan muncul di sini.
+            </p>
+
+            <div class="empty-actions">
+              <a
+                href="/nokos"
+                class="button button-primary"
+              >
+                Pesan NOKOS
+              </a>
+
+              <a
+                href="/suntik-sosmed"
+                class="button button-secondary"
+              >
+                Suntik Sosmed
+              </a>
+            </div>
+          </div>
+
+          <div
+            class="orders-pagination"
+            id="ordersPagination"
+            hidden
+          >
+            <button
+              type="button"
+              class="button button-secondary"
+              id="previousPage"
+            >
+              Sebelumnya
+            </button>
+
+            <span id="pageInfo">
+              Halaman 1
+            </span>
+
+            <button
+              type="button"
+              class="button button-secondary"
+              id="nextPage"
+            >
+              Berikutnya
+            </button>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div
+    class="sidebar-overlay"
+    id="sidebarOverlay"
+    hidden
+  ></div>
+
+  <dialog
+    class="order-dialog"
+    id="orderDialog"
+  >
+    <div class="dialog-header">
+      <div>
+        <span class="eyebrow">ORDER DETAIL</span>
+        <h2>Detail Pesanan</h2>
+      </div>
+
+      <button
+        type="button"
+        class="dialog-close"
+        id="closeOrderDialog"
+        aria-label="Tutup"
+      >
+        ×
+      </button>
+    </div>
+
+    <div
+      class="dialog-content"
+      id="orderDetail"
+    >
+      <div class="table-loading">
+        Memuat detail pesanan...
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="/javascript/orders-page.js"></script>
+</body>
+</html>
