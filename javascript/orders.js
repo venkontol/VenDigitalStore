@@ -20,10 +20,17 @@ import {
 
 const ORDER_TYPES = new Set([
   "NOKOS",
-  "SOSMED",
-  "DEPOSIT",
-  "PRODUCT",
-  "OTHER"
+  "SOCIAL"
+]);
+
+const PROVIDERS = new Set([
+  "SMSCODE",
+  "BUZZERPANEL"
+]);
+
+const RATE_UNITS = new Set([
+  "FIXED",
+  "PER_1000"
 ]);
 
 const ORDER_STATUSES = new Set([
@@ -32,6 +39,7 @@ const ORDER_STATUSES = new Set([
   "PROCESSING",
   "OTP_RECEIVED",
   "COMPLETED",
+  "PARTIAL",
   "CANCELLED",
   "EXPIRED",
   "REFUNDED",
@@ -41,53 +49,117 @@ const ORDER_STATUSES = new Set([
 
 const FINAL_STATUSES = new Set([
   "COMPLETED",
+  "PARTIAL",
   "CANCELLED",
   "EXPIRED",
   "REFUNDED",
   "FAILED"
 ]);
 
+const STATUS_TRANSITIONS = {
+  CREATING: [
+    "PENDING",
+    "PROCESSING",
+    "FAILED",
+    "CANCELLED",
+    "UNKNOWN"
+  ],
+  PENDING: [
+    "PROCESSING",
+    "COMPLETED",
+    "PARTIAL",
+    "FAILED",
+    "CANCELLED",
+    "EXPIRED",
+    "UNKNOWN"
+  ],
+  PROCESSING: [
+    "OTP_RECEIVED",
+    "COMPLETED",
+    "PARTIAL",
+    "FAILED",
+    "CANCELLED",
+    "EXPIRED",
+    "UNKNOWN"
+  ],
+  OTP_RECEIVED: [
+    "PROCESSING",
+    "COMPLETED",
+    "PARTIAL",
+    "FAILED",
+    "CANCELLED",
+    "EXPIRED",
+    "UNKNOWN"
+  ],
+  COMPLETED: [
+    "REFUNDED"
+  ],
+  PARTIAL: [],
+  CANCELLED: [],
+  EXPIRED: [],
+  REFUNDED: [],
+  FAILED: [],
+  UNKNOWN: [
+    "PENDING",
+    "PROCESSING",
+    "OTP_RECEIVED",
+    "COMPLETED",
+    "PARTIAL",
+    "FAILED",
+    "CANCELLED",
+    "EXPIRED"
+  ]
+};
+
 function normalizeStatus(value) {
-  return String(
-    value || ""
-  )
+  return String(value || "")
     .trim()
     .toUpperCase();
 }
 
 function normalizeOrderType(value) {
-  const type =
-    String(
-      value || "OTHER"
-    )
-      .trim()
-      .toUpperCase();
+  const type = String(value || "")
+    .trim()
+    .toUpperCase();
 
   return ORDER_TYPES.has(type)
     ? type
-    : "OTHER";
+    : null;
+}
+
+function normalizeProvider(value) {
+  const provider = String(value || "")
+    .trim()
+    .toUpperCase();
+
+  return PROVIDERS.has(provider)
+    ? provider
+    : null;
+}
+
+function normalizeRateUnit(value) {
+  const rateUnit = String(value || "FIXED")
+    .trim()
+    .toUpperCase();
+
+  return RATE_UNITS.has(rateUnit)
+    ? rateUnit
+    : null;
 }
 
 function validStatus(value) {
-  return ORDER_STATUSES.has(
-    normalizeStatus(value)
-  );
+  return ORDER_STATUSES.has(normalizeStatus(value));
 }
 
 function isFinalStatus(value) {
-  return FINAL_STATUSES.has(
-    normalizeStatus(value)
-  );
+  return FINAL_STATUSES.has(normalizeStatus(value));
 }
 
 function safeMoney(value) {
-  const amount =
-    Number(value);
+  const amount = Number(value);
 
   if (
-    !Number.isSafeInteger(
-      amount
-    ) ||
+    !Number.isSafeInteger(amount) ||
     amount < 0
   ) {
     return null;
@@ -97,10 +169,7 @@ function safeMoney(value) {
 }
 
 function safeQuantity(value) {
-  const quantity =
-    parsePositiveInteger(
-      value
-    );
+  const quantity = parsePositiveInteger(value);
 
   if (
     !quantity ||
@@ -118,92 +187,48 @@ function formatOrder(row) {
   }
 
   return {
-    id:
-      Number(row.id),
+    id: Number(row.id),
     user_id:
       row.user_id === null ||
       row.user_id === undefined
         ? null
         : Number(row.user_id),
-    order_number:
-      row.order_number,
-    type:
-      row.type,
-    provider:
-      row.provider,
-    external_order_id:
-      row.external_order_id,
-    service_id:
-      row.service_id,
-    service_name:
-      row.service_name,
-    target:
-      row.target,
-    quantity:
-      Number(
-        row.quantity || 0
-      ),
-    rate_unit:
-      row.rate_unit,
-    provider_rate:
-      Number(
-        row.provider_rate || 0
-      ),
-    selling_rate:
-      Number(
-        row.selling_rate || 0
-      ),
-    provider_amount:
-      Number(
-        row.provider_amount || 0
-      ),
-    customer_amount:
-      Number(
-        row.customer_amount || 0
-      ),
+    order_number: row.order_number,
+    type: row.type,
+    provider: row.provider,
+    external_order_id: row.external_order_id,
+    service_id: row.service_id,
+    service_name: row.service_name,
+    target: row.target,
+    quantity: Number(row.quantity || 0),
+    rate_unit: row.rate_unit,
+    provider_rate: Number(row.provider_rate || 0),
+    selling_rate: Number(row.selling_rate || 0),
+    provider_amount: Number(row.provider_amount || 0),
+    customer_amount: Number(row.customer_amount || 0),
     provider_charge:
       row.provider_charge === null ||
       row.provider_charge === undefined
         ? null
-        : Number(
-            row.provider_charge
-          ),
-    provider_currency:
-      row.provider_currency,
-    status:
-      row.status,
-    provider_status:
-      row.provider_status,
-    provider_data:
-      row.provider_data,
-    request_data:
-      row.request_data,
-    idempotency_key:
-      row.idempotency_key,
-    failure_reason:
-      row.failure_reason,
-    phone_number:
-      row.phone_number,
-    otp_code:
-      row.otp_code,
-    otp_message:
-      row.otp_message,
-    otp_received_at:
-      row.otp_received_at,
-    provider_expires_at:
-      row.provider_expires_at,
-    start_count:
-      row.start_count,
-    remains:
-      row.remains,
-    created_at:
-      row.created_at,
-    updated_at:
-      row.updated_at,
-    completed_at:
-      row.completed_at,
-    cancelled_at:
-      row.cancelled_at
+        : Number(row.provider_charge),
+    provider_currency: row.provider_currency,
+    status: row.status,
+    provider_status: row.provider_status,
+    provider_data: row.provider_data,
+    request_data: row.request_data,
+    idempotency_key: row.idempotency_key,
+    failure_reason: row.failure_reason,
+    phone_number: row.phone_number,
+    otp_code: row.otp_code,
+    otp_message: row.otp_message,
+    otp_received_at: row.otp_received_at,
+    provider_expires_at: row.provider_expires_at,
+    start_count: row.start_count,
+    remains: row.remains,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    completed_at: row.completed_at,
+    cancelled_at: row.cancelled_at
   };
 }
 
@@ -213,97 +238,63 @@ function formatEvent(row) {
   }
 
   return {
-    id:
-      Number(row.id),
-    order_id:
-      Number(row.order_id),
-    status:
-      row.status,
-    provider_status:
-      row.provider_status,
-    message:
-      row.message,
-    provider_data:
-      row.provider_data,
-    created_at:
-      row.created_at
+    id: Number(row.id),
+    order_id: Number(row.order_id),
+    status: row.status,
+    provider_status: row.provider_status,
+    message: row.message,
+    provider_data: row.provider_data,
+    created_at: row.created_at
   };
 }
 
-function getOrderIdentifier(
-  request,
-  body = null
-) {
-  const url =
-    new URL(
-      request.url
-    );
+function getOrderIdentifier(request, body = null) {
+  const url = new URL(request.url);
+  const path = url.pathname
+    .split("/")
+    .filter(Boolean);
 
-  const path =
-    url.pathname
-      .split("/")
-      .filter(Boolean);
+  const queryId = parsePositiveInteger(
+    url.searchParams.get("id")
+  );
 
-  const queryId =
-    parsePositiveInteger(
-      url.searchParams.get(
-        "id"
-      )
-    );
+  const bodyId = parsePositiveInteger(
+    body?.id ??
+    body?.order_id ??
+    body?.orderId
+  );
 
-  const bodyId =
-    parsePositiveInteger(
-      body?.id ??
-      body?.order_id ??
-      body?.orderId
-    );
+  const queryNumber = cleanString(
+    url.searchParams.get("order_number"),
+    120
+  );
 
-  const queryNumber =
-    cleanString(
-      url.searchParams.get(
-        "order_number"
-      ),
-      120
-    );
+  const bodyNumber = cleanString(
+    body?.order_number ??
+    body?.orderNumber,
+    120
+  );
 
-  const bodyNumber =
-    cleanString(
-      body?.order_number ??
-      body?.orderNumber,
-      120
-    );
-
-  let pathIdentifier =
-    null;
+  let pathIdentifier = null;
 
   if (
     path[0] === "api" &&
     path[1] === "orders" &&
     path[2]
   ) {
-    pathIdentifier =
-      path[2];
+    pathIdentifier = path[2];
   }
 
   const pathId =
     pathIdentifier &&
-    /^\d+$/.test(
-      pathIdentifier
-    )
-      ? parsePositiveInteger(
-          pathIdentifier
-        )
+    /^\d+$/.test(pathIdentifier)
+      ? parsePositiveInteger(pathIdentifier)
       : null;
 
   const pathNumber =
     pathIdentifier &&
-    !/^\d+$/.test(
-      pathIdentifier
-    )
-      ? cleanString(
-          pathIdentifier,
-          120
-        )
+    !/^\d+$/.test(pathIdentifier)
+      ? cleanString(pathIdentifier, 120)
       : "";
 
   return {
@@ -320,10 +311,7 @@ function getOrderIdentifier(
   };
 }
 
-async function getOrderRowById(
-  env,
-  orderId
-) {
+async function getOrderRowById(env, orderId) {
   if (!orderId) {
     return null;
   }
@@ -335,16 +323,11 @@ async function getOrderRowById(
       WHERE id = ?
       LIMIT 1
     `)
-    .bind(
-      orderId
-    )
+    .bind(orderId)
     .first();
 }
 
-async function getOrderRowByNumber(
-  env,
-  orderNumber
-) {
+async function getOrderRowByNumber(env, orderNumber) {
   if (!orderNumber) {
     return null;
   }
@@ -356,9 +339,7 @@ async function getOrderRowByNumber(
       WHERE order_number = ?
       LIMIT 1
     `)
-    .bind(
-      orderNumber
-    )
+    .bind(orderNumber)
     .first();
 }
 
@@ -370,9 +351,7 @@ async function getUserOrderRow(
     orderNumber = ""
   } = {}
 ) {
-  if (
-    id
-  ) {
+  if (id) {
     return env.DB
       .prepare(`
         SELECT *
@@ -381,16 +360,11 @@ async function getUserOrderRow(
           AND user_id = ?
         LIMIT 1
       `)
-      .bind(
-        id,
-        userId
-      )
+      .bind(id, userId)
       .first();
   }
 
-  if (
-    orderNumber
-  ) {
+  if (orderNumber) {
     return env.DB
       .prepare(`
         SELECT *
@@ -399,10 +373,7 @@ async function getUserOrderRow(
           AND user_id = ?
         LIMIT 1
       `)
-      .bind(
-        orderNumber,
-        userId
-      )
+      .bind(orderNumber, userId)
       .first();
   }
 
@@ -414,9 +385,7 @@ async function getOrderByIdempotencyKey(
   userId,
   idempotencyKey
 ) {
-  if (
-    !idempotencyKey
-  ) {
+  if (!idempotencyKey) {
     return null;
   }
 
@@ -428,40 +397,29 @@ async function getOrderByIdempotencyKey(
         AND idempotency_key = ?
       LIMIT 1
     `)
-    .bind(
-      userId,
-      idempotencyKey
-    )
+    .bind(userId, idempotencyKey)
     .first();
 }
 
-async function getOrderEventsRows(
-  env,
-  orderId
-) {
-  const result =
-    await env.DB
-      .prepare(`
-        SELECT
-          id,
-          order_id,
-          status,
-          provider_status,
-          message,
-          provider_data,
-          created_at
-        FROM order_events
-        WHERE order_id = ?
-        ORDER BY id ASC
-      `)
-      .bind(
-        orderId
-      )
-      .all();
+async function getOrderEventsRows(env, orderId) {
+  const result = await env.DB
+    .prepare(`
+      SELECT
+        id,
+        order_id,
+        status,
+        provider_status,
+        message,
+        provider_data,
+        created_at
+      FROM order_events
+      WHERE order_id = ?
+      ORDER BY id ASC
+    `)
+    .bind(orderId)
+    .all();
 
-  return Array.isArray(
-    result?.results
-  )
+  return Array.isArray(result?.results)
     ? result.results
     : [];
 }
@@ -476,53 +434,39 @@ async function addOrderEvent(
     providerData = null
   }
 ) {
-  const normalized =
-    normalizeStatus(
-      status
-    );
+  const normalized = normalizeStatus(status);
 
-  if (
-    !normalized
-  ) {
+  if (!normalized || !validStatus(normalized)) {
     return null;
   }
 
-  const result =
-    await env.DB
-      .prepare(`
-        INSERT INTO order_events (
-          order_id,
-          status,
-          provider_status,
-          message,
-          provider_data,
-          created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
-      `)
-      .bind(
-        orderId,
-        normalized,
-        providerStatus
-          ? String(
-              providerStatus
-            )
-          : null,
-        message
-          ? String(
-              message
-            )
-          : null,
-        providerData
-          ? String(
-              providerData
-            )
-          : null,
-        nowUnix()
+  return env.DB
+    .prepare(`
+      INSERT INTO order_events (
+        order_id,
+        status,
+        provider_status,
+        message,
+        provider_data,
+        created_at
       )
-      .run();
-
-  return result;
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+    .bind(
+      orderId,
+      normalized,
+      providerStatus === null
+        ? null
+        : String(providerStatus),
+      message === null
+        ? null
+        : String(message),
+      providerData === null
+        ? null
+        : String(providerData),
+      nowUnix()
+    )
+    .run();
 }
 
 async function updateOrderRow(
@@ -547,34 +491,34 @@ async function updateOrderRow(
     cancelledAt
   } = {}
 ) {
-  const current =
-    await getOrderRowById(
-      env,
-      orderId
-    );
+  const current = await getOrderRowById(
+    env,
+    orderId
+  );
 
   if (!current) {
-    throw new Error(
-      "Order tidak ditemukan."
-    );
+    throw new Error("Order tidak ditemukan.");
   }
+
+  const currentStatus = normalizeStatus(
+    current.status
+  );
 
   const nextStatus =
     status !== undefined
-      ? normalizeStatus(
-          status
-        )
-      : normalizeStatus(
-          current.status
-        );
+      ? normalizeStatus(status)
+      : currentStatus;
+
+  if (!validStatus(nextStatus)) {
+    throw new Error("Status order tidak valid.");
+  }
 
   if (
-    !validStatus(
-      nextStatus
-    )
+    nextStatus !== currentStatus &&
+    !STATUS_TRANSITIONS[currentStatus]?.includes(nextStatus)
   ) {
     throw new Error(
-      "Status order tidak valid."
+      `Perubahan status ${currentStatus} ke ${nextStatus} tidak diizinkan.`
     );
   }
 
@@ -583,157 +527,130 @@ async function updateOrderRow(
       externalOrderId !== undefined
         ? externalOrderId
         : current.external_order_id,
-
     providerStatus:
       providerStatus !== undefined
         ? providerStatus
         : current.provider_status,
-
     providerData:
       providerData !== undefined
         ? providerData
         : current.provider_data,
-
     failureReason:
       failureReason !== undefined
         ? failureReason
         : current.failure_reason,
-
     providerAmount:
       providerAmount !== undefined
         ? providerAmount
         : current.provider_amount,
-
     providerCharge:
       providerCharge !== undefined
         ? providerCharge
         : current.provider_charge,
-
     phoneNumber:
       phoneNumber !== undefined
         ? phoneNumber
         : current.phone_number,
-
     otpCode:
       otpCode !== undefined
         ? otpCode
         : current.otp_code,
-
     otpMessage:
       otpMessage !== undefined
         ? otpMessage
         : current.otp_message,
-
     otpReceivedAt:
       otpReceivedAt !== undefined
         ? otpReceivedAt
         : current.otp_received_at,
-
     providerExpiresAt:
       providerExpiresAt !== undefined
         ? providerExpiresAt
         : current.provider_expires_at,
-
     startCount:
       startCount !== undefined
         ? startCount
         : current.start_count,
-
     remains:
       remains !== undefined
         ? remains
         : current.remains,
-
     completedAt:
       completedAt !== undefined
         ? completedAt
         : current.completed_at,
-
     cancelledAt:
       cancelledAt !== undefined
         ? cancelledAt
         : current.cancelled_at
   };
 
-  const timestamp =
-    nowUnix();
+  const timestamp = nowUnix();
 
-  const result =
-    await env.DB
-      .prepare(`
-        UPDATE orders
-        SET
-          external_order_id = ?,
-          status = ?,
-          provider_status = ?,
-          provider_data = ?,
-          failure_reason = ?,
-          provider_amount = ?,
-          provider_charge = ?,
-          phone_number = ?,
-          otp_code = ?,
-          otp_message = ?,
-          otp_received_at = ?,
-          provider_expires_at = ?,
-          start_count = ?,
-          remains = ?,
-          completed_at = ?,
-          cancelled_at = ?,
-          updated_at = ?
-        WHERE id = ?
-      `)
-      .bind(
-        values.externalOrderId,
-        nextStatus,
-        values.providerStatus,
-        values.providerData,
-        values.failureReason,
-        values.providerAmount,
-        values.providerCharge,
-        values.phoneNumber,
-        values.otpCode,
-        values.otpMessage,
-        values.otpReceivedAt,
-        values.providerExpiresAt,
-        values.startCount,
-        values.remains,
-        values.completedAt,
-        values.cancelledAt,
-        timestamp,
-        orderId
-      )
-      .run();
+  const result = await env.DB
+    .prepare(`
+      UPDATE orders
+      SET
+        external_order_id = ?,
+        status = ?,
+        provider_status = ?,
+        provider_data = ?,
+        failure_reason = ?,
+        provider_amount = ?,
+        provider_charge = ?,
+        phone_number = ?,
+        otp_code = ?,
+        otp_message = ?,
+        otp_received_at = ?,
+        provider_expires_at = ?,
+        start_count = ?,
+        remains = ?,
+        completed_at = ?,
+        cancelled_at = ?,
+        updated_at = ?
+      WHERE id = ?
+    `)
+    .bind(
+      values.externalOrderId,
+      nextStatus,
+      values.providerStatus,
+      values.providerData,
+      values.failureReason,
+      values.providerAmount,
+      values.providerCharge,
+      values.phoneNumber,
+      values.otpCode,
+      values.otpMessage,
+      values.otpReceivedAt,
+      values.providerExpiresAt,
+      values.startCount,
+      values.remains,
+      values.completedAt,
+      values.cancelledAt,
+      timestamp,
+      orderId
+    )
+    .run();
 
   if (
-    Number(
-      result?.meta?.changes || 0
-    ) !== 1
+    Number(result?.meta?.changes || 0) !== 1
   ) {
-    throw new Error(
-      "Order gagal diperbarui."
-    );
+    throw new Error("Order gagal diperbarui.");
   }
 
-  await addOrderEvent(
-    env,
-    {
+  if (nextStatus !== currentStatus) {
+    await addOrderEvent(env, {
       orderId,
-      status:
-        nextStatus,
-      providerStatus:
-        values.providerStatus,
+      status: nextStatus,
+      providerStatus: values.providerStatus,
       message:
         values.failureReason ||
         `Status order menjadi ${nextStatus}.`,
-      providerData:
-        values.providerData
-    }
-  );
+      providerData: values.providerData
+    });
+  }
 
-  return getOrderRowById(
-    env,
-    orderId
-  );
+  return getOrderRowById(env, orderId);
 }
 
 async function createOrderRecord(
@@ -741,8 +658,8 @@ async function createOrderRecord(
   {
     userId,
     orderNumber = null,
-    type = "OTHER",
-    provider = null,
+    type,
+    provider,
     externalOrderId = null,
     serviceId = null,
     serviceName = null,
@@ -762,55 +679,39 @@ async function createOrderRecord(
     idempotencyKey = null
   }
 ) {
-  const normalizedType =
-    normalizeOrderType(
-      type
-    );
-
-  const normalizedStatus =
-    normalizeStatus(
-      status
-    );
-
-  const parsedQuantity =
-    safeQuantity(
-      quantity
-    );
-
-  const parsedProviderRate =
-    safeMoney(
-      providerRate
-    );
-
-  const parsedSellingRate =
-    safeMoney(
-      sellingRate
-    );
-
-  const parsedProviderAmount =
-    safeMoney(
-      providerAmount
-    );
-
-  const parsedCustomerAmount =
-    safeMoney(
-      customerAmount
-    );
-
-  if (
-    !userId
-  ) {
-    throw new Error(
-      "userId wajib diisi."
-    );
+  if (!userId) {
+    throw new Error("userId wajib diisi.");
   }
 
-  if (
-    !parsedQuantity
-  ) {
-    throw new Error(
-      "Quantity order tidak valid."
-    );
+  const normalizedType = normalizeOrderType(type);
+  const normalizedProvider = normalizeProvider(provider);
+  const normalizedRateUnit = normalizeRateUnit(rateUnit);
+  const normalizedStatus = normalizeStatus(status);
+
+  if (!normalizedType) {
+    throw new Error("Tipe order tidak valid.");
+  }
+
+  if (!normalizedProvider) {
+    throw new Error("Provider order tidak valid.");
+  }
+
+  if (!normalizedRateUnit) {
+    throw new Error("Rate unit order tidak valid.");
+  }
+
+  if (!validStatus(normalizedStatus)) {
+    throw new Error("Status order tidak valid.");
+  }
+
+  const parsedQuantity = safeQuantity(quantity);
+  const parsedProviderRate = safeMoney(providerRate);
+  const parsedSellingRate = safeMoney(sellingRate);
+  const parsedProviderAmount = safeMoney(providerAmount);
+  const parsedCustomerAmount = safeMoney(customerAmount);
+
+  if (!parsedQuantity) {
+    throw new Error("Quantity order tidak valid.");
   }
 
   if (
@@ -819,35 +720,33 @@ async function createOrderRecord(
     parsedProviderAmount === null ||
     parsedCustomerAmount === null
   ) {
-    throw new Error(
-      "Nilai harga order tidak valid."
-    );
+    throw new Error("Nilai harga order tidak valid.");
   }
 
+  const parsedProviderCharge =
+    providerCharge === null ||
+    providerCharge === undefined ||
+    providerCharge === ""
+      ? null
+      : safeMoney(providerCharge);
+
   if (
-    !validStatus(
-      normalizedStatus
-    )
+    providerCharge !== null &&
+    providerCharge !== undefined &&
+    providerCharge !== "" &&
+    parsedProviderCharge === null
   ) {
-    throw new Error(
-      "Status order tidak valid."
-    );
+    throw new Error("Provider charge tidak valid.");
   }
 
   const finalOrderNumber =
-    cleanString(
-      orderNumber,
-      120
-    ) ||
-    generateOrderNumber(
-      "ORD"
-    );
+    cleanString(orderNumber, 120) ||
+    generateOrderNumber("ORD");
 
-  const timestamp =
-    nowUnix();
+  const timestamp = nowUnix();
 
-  const result =
-    await env.DB
+  try {
+    const result = await env.DB
       .prepare(`
         INSERT INTO orders (
           user_id,
@@ -894,127 +793,97 @@ async function createOrderRecord(
         Number(userId),
         finalOrderNumber,
         normalizedType,
-        provider
-          ? String(
-              provider
-            )
-          : null,
-        externalOrderId !== null
-          ? String(
-              externalOrderId
-            )
-          : null,
-        serviceId !== null
-          ? String(
-              serviceId
-            )
-          : null,
-        serviceName !== null
-          ? String(
-              serviceName
-            )
-          : null,
-        target !== null
-          ? String(
-              target
-            )
-          : null,
+        normalizedProvider,
+        externalOrderId === null
+          ? null
+          : String(externalOrderId),
+        serviceId === null
+          ? null
+          : String(serviceId),
+        serviceName === null
+          ? null
+          : String(serviceName),
+        target === null
+          ? null
+          : String(target),
         parsedQuantity,
-        rateUnit
-          ? String(
-              rateUnit
-            )
-          : "FIXED",
+        normalizedRateUnit,
         parsedProviderRate,
         parsedSellingRate,
         parsedProviderAmount,
         parsedCustomerAmount,
-        providerCharge === null ||
-        providerCharge === undefined
-          ? null
-          : safeMoney(
-              providerCharge
-            ),
+        parsedProviderCharge,
         providerCurrency
-          ? String(
-              providerCurrency
-            ).toUpperCase()
+          ? String(providerCurrency).toUpperCase()
           : "IDR",
         normalizedStatus,
-        providerStatus !== null
-          ? String(
-              providerStatus
-            )
-          : null,
-        providerData !== null
-          ? String(
-              providerData
-            )
-          : null,
-        requestData !== null
-          ? String(
-              requestData
-            )
-          : null,
-        idempotencyKey !== null
-          ? String(
-              idempotencyKey
-            )
-          : null,
+        providerStatus === null
+          ? null
+          : String(providerStatus),
+        providerData === null
+          ? null
+          : String(providerData),
+        requestData === null
+          ? null
+          : String(requestData),
+        idempotencyKey === null
+          ? null
+          : String(idempotencyKey),
         timestamp,
         timestamp
       )
       .run();
 
-  const id =
-    Number(
+    const id = Number(
       result?.meta?.last_row_id
     );
 
-  if (
-    !id
-  ) {
-    throw new Error(
-      "Gagal membuat order."
-    );
-  }
-
-  await addOrderEvent(
-    env,
-    {
-      orderId:
-        id,
-      status:
-        normalizedStatus,
-      message:
-        "Order berhasil dibuat."
+    if (!id) {
+      throw new Error("Gagal membuat order.");
     }
-  );
 
-  return getOrderRowById(
-    env,
-    id
-  );
+    await addOrderEvent(env, {
+      orderId: id,
+      status: normalizedStatus,
+      message: "Order berhasil dibuat."
+    });
+
+    return getOrderRowById(env, id);
+  } catch (error) {
+    if (
+      idempotencyKey &&
+      String(error?.message || "")
+        .toLowerCase()
+        .includes("unique")
+    ) {
+      const existing =
+        await getOrderByIdempotencyKey(
+          env,
+          userId,
+          idempotencyKey
+        );
+
+      if (existing) {
+        return existing;
+      }
+    }
+
+    throw error;
+  }
 }
 
 export async function createOrderRecordPublic(
   env,
   options
 ) {
-  return createOrderRecord(
-    env,
-    options
-  );
+  return createOrderRecord(env, options);
 }
 
 export async function getOrderById(
   env,
   orderId
 ) {
-  return getOrderRowById(
-    env,
-    orderId
-  );
+  return getOrderRowById(env, orderId);
 }
 
 export async function getOrderByNumber(
@@ -1071,24 +940,40 @@ export async function listOrdersByUser(
     offset = 0
   } = {}
 ) {
-  const safeLimit =
-    Math.min(
-      Math.max(
-        parsePositiveInteger(
-          limit
-        ) || 20,
-        1
-      ),
-      100
-    );
-
-  const safeOffset =
+  const safeLimit = Math.min(
     Math.max(
-      Number(
-        offset
-      ) || 0,
-      0
-    );
+      parsePositiveInteger(limit) || 20,
+      1
+    ),
+    100
+  );
+
+  const safeOffset = Math.max(
+    Number(offset) || 0,
+    0
+  );
+
+  const normalizedStatus =
+    normalizeStatus(status);
+
+  const normalizedType =
+    String(type || "")
+      .trim()
+      .toUpperCase();
+
+  if (
+    normalizedStatus &&
+    !validStatus(normalizedStatus)
+  ) {
+    throw new Error("Status order tidak valid.");
+  }
+
+  if (
+    normalizedType &&
+    !ORDER_TYPES.has(normalizedType)
+  ) {
+    throw new Error("Tipe order tidak valid.");
+  }
 
   let query = `
     SELECT *
@@ -1096,52 +981,16 @@ export async function listOrdersByUser(
     WHERE user_id = ?
   `;
 
-  const params = [
-    userId
-  ];
+  const params = [userId];
 
-  const normalizedStatus =
-    normalizeStatus(
-      status
-    );
-
-  if (
-    normalizedStatus
-  ) {
-    if (
-      !validStatus(
-        normalizedStatus
-      )
-    ) {
-      throw new Error(
-        "Status order tidak valid."
-      );
-    }
-
-    query +=
-      " AND status = ?";
-
-    params.push(
-      normalizedStatus
-    );
+  if (normalizedStatus) {
+    query += " AND status = ?";
+    params.push(normalizedStatus);
   }
 
-  const normalizedType =
-    String(
-      type || ""
-    )
-      .trim()
-      .toUpperCase();
-
-  if (
-    normalizedType
-  ) {
-    query +=
-      " AND type = ?";
-
-    params.push(
-      normalizedType
-    );
+  if (normalizedType) {
+    query += " AND type = ?";
+    params.push(normalizedType);
   }
 
   query += `
@@ -1154,13 +1003,10 @@ export async function listOrdersByUser(
     safeOffset
   );
 
-  const rows =
-    await env.DB
-      .prepare(query)
-      .bind(
-        ...params
-      )
-      .all();
+  const rows = await env.DB
+    .prepare(query)
+    .bind(...params)
+    .all();
 
   let countQuery = `
     SELECT COUNT(*) AS total
@@ -1168,58 +1014,31 @@ export async function listOrdersByUser(
     WHERE user_id = ?
   `;
 
-  const countParams = [
-    userId
-  ];
+  const countParams = [userId];
 
-  if (
-    normalizedStatus
-  ) {
-    countQuery +=
-      " AND status = ?";
-
-    countParams.push(
-      normalizedStatus
-    );
+  if (normalizedStatus) {
+    countQuery += " AND status = ?";
+    countParams.push(normalizedStatus);
   }
 
-  if (
-    normalizedType
-  ) {
-    countQuery +=
-      " AND type = ?";
-
-    countParams.push(
-      normalizedType
-    );
+  if (normalizedType) {
+    countQuery += " AND type = ?";
+    countParams.push(normalizedType);
   }
 
-  const count =
-    await env.DB
-      .prepare(
-        countQuery
-      )
-      .bind(
-        ...countParams
-      )
-      .first();
+  const count = await env.DB
+    .prepare(countQuery)
+    .bind(...countParams)
+    .first();
 
   return {
-    orders:
-      Array.isArray(
-        rows?.results
-      )
-        ? rows.results
-        : [],
+    orders: Array.isArray(rows?.results)
+      ? rows.results
+      : [],
     pagination: {
-      limit:
-        safeLimit,
-      offset:
-        safeOffset,
-      total:
-        Number(
-          count?.total || 0
-        )
+      limit: safeLimit,
+      offset: safeOffset,
+      total: Number(count?.total || 0)
     }
   };
 }
@@ -1229,45 +1048,33 @@ export async function getOrders(
   env
 ) {
   try {
-    const auth =
-      await requireAuth(
-        request,
-        env
-      );
+    const auth = await requireAuth(
+      request,
+      env
+    );
 
-    if (
-      auth?.response
-    ) {
+    if (auth?.response) {
       return auth.response;
     }
 
-    const url =
-      new URL(
-        request.url
-      );
+    const url = new URL(request.url);
 
-    const limit =
-      Math.min(
-        Math.max(
-          parsePositiveInteger(
-            url.searchParams.get(
-              "limit"
-            )
-          ) || 20,
-          1
-        ),
-        100
-      );
-
-    const offset =
+    const limit = Math.min(
       Math.max(
-        Number(
-          url.searchParams.get(
-            "offset"
-          )
-        ) || 0,
-        0
-      );
+        parsePositiveInteger(
+          url.searchParams.get("limit")
+        ) || 20,
+        1
+      ),
+      100
+    );
+
+    const offset = Math.max(
+      Number(
+        url.searchParams.get("offset")
+      ) || 0,
+      0
+    );
 
     const result =
       await listOrdersByUser(
@@ -1275,25 +1082,17 @@ export async function getOrders(
         auth.user.id,
         {
           status:
-            url.searchParams.get(
-              "status"
-            ),
+            url.searchParams.get("status"),
           type:
-            url.searchParams.get(
-              "type"
-            ),
+            url.searchParams.get("type"),
           limit,
           offset
         }
       );
 
     return successResponse({
-      orders:
-        result.orders.map(
-          formatOrder
-        ),
-      pagination:
-        result.pagination
+      orders: result.orders.map(formatOrder),
+      pagination: result.pagination
     });
   } catch (error) {
     return errorResponse(
@@ -1309,22 +1108,17 @@ export async function getOrder(
   env
 ) {
   try {
-    const auth =
-      await requireAuth(
-        request,
-        env
-      );
+    const auth = await requireAuth(
+      request,
+      env
+    );
 
-    if (
-      auth?.response
-    ) {
+    if (auth?.response) {
       return auth.response;
     }
 
     const identifier =
-      getOrderIdentifier(
-        request
-      );
+      getOrderIdentifier(request);
 
     if (
       !identifier.id &&
@@ -1351,20 +1145,14 @@ export async function getOrder(
     }
 
     const events =
-      await getOrderEvents(
+      await getOrderEventsRows(
         env,
         order.id
       );
 
     return successResponse({
-      order:
-        formatOrder(
-          order
-        ),
-      events:
-        events.map(
-          formatEvent
-        )
+      order: formatOrder(order),
+      events: events.map(formatEvent)
     });
   } catch (error) {
     return errorResponse(
@@ -1377,92 +1165,125 @@ export async function getOrder(
 
 export async function createOrder(
   request,
-  env
+  env,
+  body = undefined
 ) {
   try {
-    const auth =
-      await requireAuth(
-        request,
-        env
-      );
+    const auth = await requireAuth(
+      request,
+      env
+    );
 
-    if (
-      auth?.response
-    ) {
+    if (auth?.response) {
       return auth.response;
     }
 
-    const body =
-      await readJson(
-        request
-      );
+    const data =
+      body === undefined
+        ? await readJson(request)
+        : body;
 
-    const type =
-      normalizeOrderType(
-        body?.type ??
-        body?.order_type
+    if (
+      !data ||
+      typeof data !== "object"
+    ) {
+      return errorResponse(
+        "Body request tidak valid.",
+        400
       );
+    }
 
-    const provider =
-      cleanString(
-        body?.provider,
-        100
-      ) || null;
+    const type = normalizeOrderType(
+      data?.type ??
+      data?.order_type
+    );
+
+    if (!type) {
+      return errorResponse(
+        "Tipe order tidak valid. Gunakan NOKOS atau SOCIAL.",
+        400
+      );
+    }
+
+    const provider = normalizeProvider(
+      data?.provider
+    );
+
+    if (!provider) {
+      return errorResponse(
+        "Provider order tidak valid.",
+        400
+      );
+    }
+
+    if (
+      type === "NOKOS" &&
+      provider !== "SMSCODE"
+    ) {
+      return errorResponse(
+        "Order NOKOS harus menggunakan provider SMSCODE.",
+        400
+      );
+    }
+
+    if (
+      type === "SOCIAL" &&
+      provider !== "BUZZERPANEL"
+    ) {
+      return errorResponse(
+        "Order SOCIAL harus menggunakan provider BUZZERPANEL.",
+        400
+      );
+    }
 
     const serviceId =
-      body?.service_id ??
-      body?.serviceId ??
-      body?.product_id ??
+      data?.service_id ??
+      data?.serviceId ??
+      data?.product_id ??
       null;
 
     const serviceName =
       cleanString(
-        body?.service_name ??
-        body?.serviceName ??
-        body?.name ??
+        data?.service_name ??
+        data?.serviceName ??
+        data?.name ??
         "",
         255
       ) || null;
 
     const target =
       cleanString(
-        body?.target ??
-        body?.data ??
+        data?.target ??
+        data?.data ??
         "",
         1000
       ) || null;
 
-    const quantity =
-      safeQuantity(
-        body?.quantity ??
-        1
-      );
+    const quantity = safeQuantity(
+      data?.quantity ?? 1
+    );
 
-    if (
-      !quantity
-    ) {
+    if (!quantity) {
       return errorResponse(
         "Quantity order tidak valid.",
         400
       );
     }
 
-    const providerRate =
-      safeMoney(
-        body?.provider_rate ??
-        body?.providerRate ??
-        body?.provider_cost ??
-        0
-      );
+    const providerRate = safeMoney(
+      data?.provider_rate ??
+      data?.providerRate ??
+      data?.provider_cost ??
+      0
+    );
 
-    const sellingRate =
-      safeMoney(
-        body?.selling_rate ??
-        body?.sellingRate ??
-        body?.price ??
-        body?.unit_price ??
-        0
-      );
+    const sellingRate = safeMoney(
+      data?.selling_rate ??
+      data?.sellingRate ??
+      data?.price ??
+      data?.unit_price ??
+      0
+    );
 
     if (
       providerRate === null ||
@@ -1474,25 +1295,73 @@ export async function createOrder(
       );
     }
 
-      const providerAmount =
-      safeMoney(
-        body?.provider_amount ??
-        body?.providerAmount ??
-        providerRate *
-          quantity
+    const rateUnit = normalizeRateUnit(
+      data?.rate_unit ??
+      data?.rateUnit ??
+      "FIXED"
+    );
+
+    if (!rateUnit) {
+      return errorResponse(
+        "Rate unit order tidak valid.",
+        400
       );
+    }
+
+    const providerAmount =
+      data?.provider_amount !== undefined ||
+      data?.providerAmount !== undefined
+        ? safeMoney(
+            data?.provider_amount ??
+            data?.providerAmount
+          )
+        : rateUnit === "PER_1000"
+          ? safeMoney(
+              Math.ceil(
+                providerRate *
+                quantity /
+                1000
+              )
+            )
+          : safeMoney(
+              providerRate *
+              quantity
+            );
 
     const customerAmount =
-      safeMoney(
-        body?.customer_amount ??
-        body?.customerAmount ??
-        sellingRate *
-          quantity
+      data?.customer_amount !== undefined ||
+      data?.customerAmount !== undefined
+        ? safeMoney(
+            data?.customer_amount ??
+            data?.customerAmount
+          )
+        : rateUnit === "PER_1000"
+          ? safeMoney(
+              Math.ceil(
+                sellingRate *
+                quantity /
+                1000
+              )
+            )
+          : safeMoney(
+              sellingRate *
+              quantity
+            );
+
+    if (
+      providerAmount === null ||
+      customerAmount === null ||
+      customerAmount <= 0
+    ) {
+      return errorResponse(
+        "Total order tidak valid.",
+        400
       );
+    }
 
     const providerChargeInput =
-      body?.provider_charge ??
-      body?.providerCharge ??
+      data?.provider_charge ??
+      data?.providerCharge ??
       null;
 
     const providerCharge =
@@ -1500,9 +1369,7 @@ export async function createOrder(
       providerChargeInput === undefined ||
       providerChargeInput === ""
         ? null
-        : safeMoney(
-            providerChargeInput
-          );
+        : safeMoney(providerChargeInput);
 
     if (
       providerChargeInput !== null &&
@@ -1516,28 +1383,15 @@ export async function createOrder(
       );
     }
 
-    if (
-      providerAmount === null ||
-      customerAmount === null ||
-      customerAmount <= 0
-    ) {
-      return errorResponse(
-        "Total order tidak valid.",
-        400
-      );
-    }
-
     const idempotencyKey =
       cleanString(
-        body?.idempotency_key ??
-        body?.idempotencyKey ??
+        data?.idempotency_key ??
+        data?.idempotencyKey ??
         "",
         150
       ) || null;
 
-    if (
-      idempotencyKey
-    ) {
+    if (idempotencyKey) {
       const existing =
         await getOrderByIdempotencyKey(
           env,
@@ -1545,100 +1399,109 @@ export async function createOrder(
           idempotencyKey
         );
 
-      if (
-        existing
-      ) {
+      if (existing) {
         return successResponse({
-          idempotent:
-            true,
-          order:
-            formatOrder(
-              existing
-            )
+          idempotent: true,
+          order: formatOrder(existing)
         });
       }
+    }
+
+    const requestedStatus =
+      normalizeStatus(
+        data?.status || "PENDING"
+      );
+
+    if (!validStatus(requestedStatus)) {
+      return errorResponse(
+        "Status order tidak valid.",
+        400
+      );
     }
 
     const order =
       await createOrderRecord(
         env,
         {
-          userId:
-            auth.user.id,
+          userId: auth.user.id,
           type,
           provider,
           externalOrderId:
-            body?.external_order_id ??
+            data?.external_order_id ??
+            data?.externalOrderId ??
             null,
           serviceId,
           serviceName,
           target,
           quantity,
-          rateUnit:
-            cleanString(
-              body?.rate_unit ??
-              body?.rateUnit ??
-              "FIXED",
-              50
-            ),
+          rateUnit,
           providerRate,
           sellingRate,
           providerAmount,
           customerAmount,
           providerCharge,
           providerCurrency:
-            body?.provider_currency ??
-            body?.providerCurrency ??
+            data?.provider_currency ??
+            data?.providerCurrency ??
             "IDR",
-          status:
-            normalizeStatus(
-              body?.status ||
-              "PENDING"
-            ),
+          status: requestedStatus,
           providerStatus:
-            body?.provider_status ??
-            body?.providerStatus ??
+            data?.provider_status ??
+            data?.providerStatus ??
             null,
           providerData:
-            body?.provider_data ??
-            body?.providerData ??
+            data?.provider_data ??
+            data?.providerData ??
             null,
           requestData:
-            JSON.stringify(
-              body
-            ),
+            JSON.stringify(data),
           idempotencyKey
         }
       );
 
+    const existingAfterCreate =
+      await getOrderByIdempotencyKey(
+        env,
+        auth.user.id,
+        idempotencyKey
+      );
+
+    if (
+      idempotencyKey &&
+      existingAfterCreate &&
+      Number(existingAfterCreate.id) !==
+        Number(order.id)
+    ) {
+      return successResponse({
+        idempotent: true,
+        order: formatOrder(
+          existingAfterCreate
+        )
+      });
+    }
+
     let debit;
 
     try {
-      debit =
-        await debitBalance(
-          env,
-          {
-            userId:
-              auth.user.id,
-            amount:
-              customerAmount,
-            type:
-              "PURCHASE",
-            reference:
-              `ORDER:${order.order_number}`,
-            description:
-              `Pembelian ${order.order_number}`,
-            orderId:
-              order.id
-          }
-        );
+      debit = await debitBalance(
+        env,
+        {
+          userId: auth.user.id,
+          amount: customerAmount,
+          type: "PURCHASE",
+          reference:
+            `ORDER:${order.order_number}`,
+          description:
+            `Pembelian ${order.order_number}`,
+          orderId: order.id
+        }
+      );
     } catch (error) {
       await updateOrderRow(
         env,
         order.id,
         {
-          status:
-            "FAILED",
+          status: "FAILED",
           failureReason:
             error?.message ||
             "Pembayaran order gagal."
@@ -1656,8 +1519,7 @@ export async function createOrder(
         env,
         order.id,
         {
-          status:
-            "FAILED",
+          status: "FAILED",
           failureReason:
             "Saldo tidak mencukupi."
         }
@@ -1674,16 +1536,12 @@ export async function createOrder(
         env,
         order.id,
         {
-          status:
-            "PROCESSING"
+          status: "PROCESSING"
         }
       );
 
     return successResponse({
-      order:
-        formatOrder(
-          updated
-        )
+      order: formatOrder(updated)
     }, 201);
   } catch (error) {
     return errorResponse(
@@ -1696,30 +1554,28 @@ export async function createOrder(
 
 export async function cancelOrder(
   request,
-  env
+  env,
+  body = undefined
 ) {
   try {
-    const auth =
-      await requireAuth(
-        request,
-        env
-      );
+    const auth = await requireAuth(
+      request,
+      env
+    );
 
-    if (
-      auth?.response
-    ) {
+    if (auth?.response) {
       return auth.response;
     }
 
-    const body =
-      await readJson(
-        request
-      );
+    const data =
+      body === undefined
+        ? await readJson(request)
+        : body;
 
     const identifier =
       getOrderIdentifier(
         request,
-        body
+        data
       );
 
     if (
@@ -1747,28 +1603,19 @@ export async function cancelOrder(
     }
 
     const currentStatus =
-      normalizeStatus(
-        order.status
-      );
+      normalizeStatus(order.status);
 
     if (
-      currentStatus ===
-      "CANCELLED"
+      currentStatus === "CANCELLED"
     ) {
       return successResponse({
-        order:
-          formatOrder(
-            order
-          ),
-        message:
-          "Order sudah dibatalkan."
+        order: formatOrder(order),
+        message: "Order sudah dibatalkan."
       });
     }
 
     if (
-      isFinalStatus(
-        currentStatus
-      )
+      isFinalStatus(currentStatus)
     ) {
       return errorResponse(
         "Order sudah berada pada status akhir.",
@@ -1776,24 +1623,31 @@ export async function cancelOrder(
       );
     }
 
-    const amount =
-      Number(
-        order.customer_amount || 0
+    const amount = Number(
+      order.customer_amount || 0
+    );
+
+    if (
+      !Number.isSafeInteger(amount) ||
+      amount <= 0
+    ) {
+      return errorResponse(
+        "Nominal refund tidak valid.",
+        400
       );
+    }
 
     const refund =
       await refundBalance(
         env,
         {
-          userId:
-            auth.user.id,
+          userId: auth.user.id,
           amount,
           reference:
             `REFUND:${order.order_number}`,
           description:
             `Refund ${order.order_number}`,
-          orderId:
-            order.id
+          orderId: order.id
         }
       );
 
@@ -1811,22 +1665,15 @@ export async function cancelOrder(
         env,
         order.id,
         {
-          status:
-            "CANCELLED",
-          failureReason:
-            null,
-          cancelledAt:
-            nowUnix()
+          status: "CANCELLED",
+          failureReason: null,
+          cancelledAt: nowUnix()
         }
       );
 
     return successResponse({
-      order:
-        formatOrder(
-          updated
-        ),
-      refunded:
-        true,
+      order: formatOrder(updated),
+      refunded: true,
       message:
         "Order berhasil dibatalkan dan saldo dikembalikan."
     });
@@ -1845,41 +1692,28 @@ async function refundOrderRow(
   message
 ) {
   const status =
-    normalizeStatus(
-      order.status
-    );
+    normalizeStatus(order.status);
 
-  if (
-    status ===
-    "REFUNDED"
-  ) {
+  if (status === "REFUNDED") {
     return {
       order,
-      refunded:
-        false,
-      alreadyRefunded:
-        true
+      refunded: false,
+      alreadyRefunded: true
     };
   }
 
-  if (
-    status !==
-    "COMPLETED"
-  ) {
+  if (status !== "COMPLETED") {
     throw new Error(
       "Hanya order COMPLETED yang dapat direfund."
     );
   }
 
-  const amount =
-    Number(
-      order.customer_amount || 0
-    );
+  const amount = Number(
+    order.customer_amount || 0
+  );
 
   if (
-    !Number.isSafeInteger(
-      amount
-    ) ||
+    !Number.isSafeInteger(amount) ||
     amount <= 0
   ) {
     throw new Error(
@@ -1891,16 +1725,14 @@ async function refundOrderRow(
     await refundBalance(
       env,
       {
-        userId:
-          order.user_id,
+        userId: order.user_id,
         amount,
         reference:
           `REFUND:${order.order_number}`,
         description:
           message ||
           `Refund ${order.order_number}`,
-        orderId:
-          order.id
+        orderId: order.id
       }
     );
 
@@ -1917,65 +1749,17 @@ async function refundOrderRow(
       env,
       order.id,
       {
-        status:
-          "REFUNDED",
-        failureReason:
-          null
+        status: "REFUNDED",
+        failureReason: null
       }
     );
 
   return {
-    order:
-      updated,
-    refunded:
-      true,
-    alreadyRefunded:
-      false
+    order: updated,
+    refunded: true,
+    alreadyRefunded: false
   };
 }
-
-const STATUS_TRANSITIONS = {
-  CREATING: [
-    "PENDING",
-    "PROCESSING",
-    "FAILED",
-    "CANCELLED"
-  ],
-  PENDING: [
-    "PROCESSING",
-    "COMPLETED",
-    "FAILED",
-    "CANCELLED"
-  ],
-  PROCESSING: [
-    "OTP_RECEIVED",
-    "COMPLETED",
-    "FAILED",
-    "CANCELLED",
-    "EXPIRED"
-  ],
-  OTP_RECEIVED: [
-    "PROCESSING",
-    "COMPLETED",
-    "FAILED",
-    "CANCELLED",
-    "EXPIRED"
-  ],
-  COMPLETED: [
-    "REFUNDED"
-  ],
-  CANCELLED: [],
-  EXPIRED: [],
-  REFUNDED: [],
-  FAILED: [],
-  UNKNOWN: [
-    "PROCESSING",
-    "COMPLETED",
-    "FAILED",
-    "CANCELLED",
-    "EXPIRED"
-  ]
-};
 
 export async function adminGetOrders(
   request,
@@ -1988,64 +1772,57 @@ export async function adminGetOrders(
         env
       );
 
-    if (
-      auth?.response
-    ) {
+    if (auth?.response) {
       return auth.response;
     }
 
-    const url =
-      new URL(
-        request.url
-      );
+    const url = new URL(request.url);
 
-    const limit =
-      Math.min(
-        Math.max(
-          parsePositiveInteger(
-            url.searchParams.get(
-              "limit"
-            )
-          ) || 50,
-          1
-        ),
-        200
-      );
-
-    const offset =
+    const limit = Math.min(
       Math.max(
-        Number(
-          url.searchParams.get(
-            "offset"
-          )
-        ) || 0,
-        0
-      );
+        parsePositiveInteger(
+          url.searchParams.get("limit")
+        ) || 50,
+        1
+      ),
+      200
+    );
+
+    const offset = Math.max(
+      Number(
+        url.searchParams.get("offset")
+      ) || 0,
+      0
+    );
 
     const status =
       normalizeStatus(
-        url.searchParams.get(
-          "status"
-        )
+        url.searchParams.get("status")
       );
 
     const type =
       String(
-        url.searchParams.get(
-          "type"
-        ) || ""
+        url.searchParams.get("type") || ""
       )
         .trim()
         .toUpperCase();
 
     if (
       status &&
-      !validStatus(
-        status
-      )
+      !validStatus(status)
     ) {
       return errorResponse(
         "Status order tidak valid.",
+        400
+      );
+    }
+
+    if (
+      type &&
+      !ORDER_TYPES.has(type)
+    ) {
+      return errorResponse(
+        "Tipe order tidak valid.",
         400
       );
     }
@@ -2063,26 +1840,14 @@ export async function adminGetOrders(
 
     const params = [];
 
-    if (
-      status
-    ) {
-      query +=
-        " AND o.status = ?";
-
-      params.push(
-        status
-      );
+    if (status) {
+      query += " AND o.status = ?";
+      params.push(status);
     }
 
-    if (
-      type
-    ) {
-      query +=
-        " AND o.type = ?";
-
-      params.push(
-        type
-      );
+    if (type) {
+      query += " AND o.type = ?";
+      params.push(type);
     }
 
     query += `
@@ -2097,12 +1862,8 @@ export async function adminGetOrders(
 
     const rows =
       await env.DB
-        .prepare(
-          query
-        )
-        .bind(
-          ...params
-        )
+        .prepare(query)
+        .bind(...params)
         .all();
 
     let countQuery = `
@@ -2113,61 +1874,38 @@ export async function adminGetOrders(
 
     const countParams = [];
 
-    if (
-      status
-    ) {
+    if (status) {
       countQuery +=
         " AND status = ?";
-
-      countParams.push(
-        status
-      );
+      countParams.push(status);
     }
 
-    if (
-      type
-    ) {
+    if (type) {
       countQuery +=
         " AND type = ?";
-
-      countParams.push(
-        type
-      );
+      countParams.push(type);
     }
 
     const total =
       await env.DB
-        .prepare(
-          countQuery
-        )
-        .bind(
-          ...countParams
-        )
+        .prepare(countQuery)
+        .bind(...countParams)
         .first();
 
     return successResponse({
-      orders:
-        (
-          rows?.results ||
-          []
-        ).map(
-          row => ({
-            ...formatOrder(
-              row
-            ),
-            username:
-              row.username,
-            first_name:
-              row.first_name
-          })
-        ),
+      orders: (
+        rows?.results || []
+      ).map(row => ({
+        ...formatOrder(row),
+        username: row.username,
+        first_name: row.first_name
+      })),
       pagination: {
         limit,
         offset,
-        total:
-          Number(
-            total?.total || 0
-          )
+        total: Number(
+          total?.total || 0
+        )
       }
     });
   } catch (error) {
@@ -2181,7 +1919,8 @@ export async function adminGetOrders(
 
 export async function adminUpdateOrderStatus(
   request,
-  env
+  env,
+  body = undefined
 ) {
   try {
     const auth =
@@ -2190,21 +1929,19 @@ export async function adminUpdateOrderStatus(
         env
       );
 
-    if (
-      auth?.response
-    ) {
+    if (auth?.response) {
       return auth.response;
     }
 
-    const body =
-      await readJson(
-        request
-      );
+    const data =
+      body === undefined
+        ? await readJson(request)
+        : body;
 
     const identifier =
       getOrderIdentifier(
         request,
-        body
+        data
       );
 
     if (
@@ -2236,20 +1973,12 @@ export async function adminUpdateOrderStatus(
     }
 
     const currentStatus =
-      normalizeStatus(
-        order.status
-      );
+      normalizeStatus(order.status);
 
     const nextStatus =
-      normalizeStatus(
-        body?.status
-      );
+      normalizeStatus(data?.status);
 
-    if (
-      !validStatus(
-        nextStatus
-      )
-    ) {
+    if (!validStatus(nextStatus)) {
       return errorResponse(
         "Status order tidak valid.",
         400
@@ -2257,14 +1986,10 @@ export async function adminUpdateOrderStatus(
     }
 
     if (
-      currentStatus ===
-      nextStatus
+      currentStatus === nextStatus
     ) {
       return successResponse({
-        order:
-          formatOrder(
-            order
-          ),
+        order: formatOrder(order),
         message:
           "Status order sudah sesuai."
       });
@@ -2273,9 +1998,7 @@ export async function adminUpdateOrderStatus(
     if (
       !STATUS_TRANSITIONS[
         currentStatus
-      ]?.includes(
-        nextStatus
-      )
+      ]?.includes(nextStatus)
     ) {
       return errorResponse(
         `Perubahan status ${currentStatus} ke ${nextStatus} tidak diizinkan.`,
@@ -2284,15 +2007,14 @@ export async function adminUpdateOrderStatus(
     }
 
     if (
-      nextStatus ===
-      "REFUNDED"
+      nextStatus === "REFUNDED"
     ) {
       const result =
         await refundOrderRow(
           env,
           order,
           cleanString(
-            body?.message ||
+            data?.message ||
               "Order direfund oleh admin.",
             500
           )
@@ -2300,49 +2022,43 @@ export async function adminUpdateOrderStatus(
 
       return successResponse({
         order:
-          formatOrder(
-            result.order
-          ),
-        refunded:
-          result.refunded
+          formatOrder(result.order),
+        refunded: result.refunded,
+        already_refunded:
+          result.alreadyRefunded
       });
     }
 
-    const timestamp =
-      nowUnix();
+    const timestamp = nowUnix();
 
     const updated =
       await updateOrderRow(
         env,
         order.id,
         {
-          status:
-            nextStatus,
+          status: nextStatus,
           completedAt:
-            nextStatus ===
-            "COMPLETED"
+            nextStatus === "COMPLETED"
               ? (
                   order.completed_at ||
                   timestamp
                 )
               : order.completed_at,
           cancelledAt:
-            nextStatus ===
-            "CANCELLED"
+            nextStatus === "CANCELLED"
               ? (
                   order.cancelled_at ||
                   timestamp
                 )
               : order.cancelled_at,
           failureReason:
-            body?.failure_reason ??
-            body?.failureReason ??
+            data?.failure_reason ??
+            data?.failureReason ??
             (
-              nextStatus ===
-              "FAILED"
+              nextStatus === "FAILED"
                 ? (
                     cleanString(
-                      body?.message,
+                      data?.message,
                       500
                     ) ||
                     "Order gagal."
@@ -2353,10 +2069,7 @@ export async function adminUpdateOrderStatus(
       );
 
     return successResponse({
-      order:
-        formatOrder(
-          updated
-        ),
+      order: formatOrder(updated),
       message:
         "Status order berhasil diperbarui."
     });
@@ -2371,7 +2084,8 @@ export async function adminUpdateOrderStatus(
 
 export async function adminRefundOrder(
   request,
-  env
+  env,
+  body = undefined
 ) {
   try {
     const auth =
@@ -2380,21 +2094,19 @@ export async function adminRefundOrder(
         env
       );
 
-    if (
-      auth?.response
-    ) {
+    if (auth?.response) {
       return auth.response;
     }
 
-    const body =
-      await readJson(
-        request
-      );
+    const data =
+      body === undefined
+        ? await readJson(request)
+        : body;
 
     const identifier =
       getOrderIdentifier(
         request,
-        body
+        data
       );
 
     if (
@@ -2430,7 +2142,7 @@ export async function adminRefundOrder(
         env,
         order,
         cleanString(
-          body?.message ||
+          data?.message ||
             "Order direfund oleh admin.",
           500
         )
@@ -2438,9 +2150,7 @@ export async function adminRefundOrder(
 
     return successResponse({
       order:
-        formatOrder(
-          result.order
-        ),
+        formatOrder(result.order),
       refunded:
         result.refunded,
       already_refunded:
@@ -2479,25 +2189,20 @@ export async function findOrderByIdempotency(
 
 export async function handleOrders(
   request,
-  env
+  env,
+  body = undefined
 ) {
-  const url =
-    new URL(
-      request.url
-    );
+  const url = new URL(request.url);
 
   const path =
-    url.pathname
-      .replace(
-        /\/+$/,
-        ""
-      ) || "/";
+    url.pathname.replace(
+      /\/+$/,
+      ""
+    ) || "/";
 
   if (
-    request.method ===
-      "GET" &&
-    path ===
-      "/api/orders"
+    request.method === "GET" &&
+    path === "/api/orders"
   ) {
     return getOrders(
       request,
@@ -2506,22 +2211,19 @@ export async function handleOrders(
   }
 
   if (
-    request.method ===
-      "POST" &&
-    path ===
-      "/api/orders"
+    request.method === "POST" &&
+    path === "/api/orders"
   ) {
     return createOrder(
       request,
-      env
+      env,
+      body
     );
   }
 
   if (
-    request.method ===
-      "GET" &&
-    path ===
-      "/api/orders/order"
+    request.method === "GET" &&
+    path === "/api/orders/order"
   ) {
     return getOrder(
       request,
@@ -2530,22 +2232,19 @@ export async function handleOrders(
   }
 
   if (
-    request.method ===
-      "POST" &&
-    path ===
-      "/api/orders/cancel"
+    request.method === "POST" &&
+    path === "/api/orders/cancel"
   ) {
     return cancelOrder(
       request,
-      env
+      env,
+      body
     );
   }
 
   if (
-    request.method ===
-      "GET" &&
-    path ===
-      "/api/admin/orders"
+    request.method === "GET" &&
+    path === "/api/admin/orders"
   ) {
     return adminGetOrders(
       request,
@@ -2554,26 +2253,24 @@ export async function handleOrders(
   }
 
   if (
-    request.method ===
-      "POST" &&
-    path ===
-      "/api/admin/orders/status"
+    request.method === "POST" &&
+    path === "/api/admin/orders/status"
   ) {
     return adminUpdateOrderStatus(
       request,
-      env
+      env,
+      body
     );
   }
 
   if (
-    request.method ===
-      "POST" &&
-    path ===
-      "/api/admin/orders/refund"
+    request.method === "POST" &&
+    path === "/api/admin/orders/refund"
   ) {
     return adminRefundOrder(
       request,
-      env
+      env,
+      body
     );
   }
 
