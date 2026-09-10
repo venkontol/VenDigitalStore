@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#06101d">
+<title>Admin Panel - VenDigitalStore</title>
+<style>
+:root{
+--bg:#06101d;
+--panel:rgba(10,24,42,.9);
+--panel-2:rgba(13,31,52,.94);
+--line:rgba(150,200,255,.14);
+--text:#f3f8ff;
+--muted:#91a6bd;
+--blue:#4da3ff;
+--blue-2:#79c0ff;
+--green:#35d39a;
+--red:#ff667d;
+--shadow:0 18px 50px rgba(0,0,0,.34);
+--radius:20px
+}
+
+*{
+box-sizing:border-box;
+margin:0;
+padding:0
+}
+
+html{
+scroll-behavior:smooth
+}
+
+body{
+min-height:100vh;
+background:var(--bg);
+color:var(--text);
+font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+overflow-x:hidden
+}
+
+body:before{
+content:"";
+position:fixed;
+inset:0;
+background:
+linear-gradient(180deg,rgba(4,12,23,.68),rgba(4,12,23,.95)),
+url('../images/admin.webp') center/cover no-repeat;
+z-index:-2
+}
+
+body:after{
+content:"";
+position:fixed;
+inset:0;
+background:
+radial-gradient(circle at 15% 10%,rgba(77,163,255,.12),transparent 30%),
+radial-gradient(circle at 85% 20%,rgba(121,192,255,.08),transparent 28%);
+z-index:-1;
+pointer-events:none
+}
+
+button,
+input,
+textarea{
+font:inherit
+}
+
+button{
+cursor:pointer
+}
+
+.app{
+width:min(1180px,calc(100% - 28px));
+margin:0 auto;
+padding:22px 0 34px
+}
+
+.topbar{
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:16px;
+margin-bottom:18px
+}
+
+.brand{
+display:flex;
+align-items:center;
+gap:12px
+}
+
+.brand-mark{
+width:44px;
+height:44px;
+border:1px solid rgba(121,192,255,.28);
+border-radius:14px;
+display:grid;
+place-items:center;
+background:rgba(11,31,53,.84);
+box-shadow:0 10px 30px rgba(0,0,0,.24);
+color:var(--blue-2);
+font-weight:800;
+font-size:17px
+}
+
+.brand h1{
+font-size:20px;
+line-height:1.1;
+letter-spacing:.2px
+}
+
+.brand p{
+font-size:12px;
+color:var(--muted);
+margin-top:4px
+}
+
+.admin-badge{
+padding:9px 13px;
+border:1px solid var(--line);
+background:rgba(10,24,42,.76);
+border-radius:999px;
+color:var(--blue-2);
+font-size:12px;
+font-weight:700
+}
+
+.nav{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:10px;
+margin-bottom:18px;
+position:sticky;
+top:10px;
+z-index:20
+}
+
+.nav a{
+min-height:54px;
+display:flex;
+align-items:center;
+justify-content:center;
+border:1px solid var(--line);
+border-radius:16px;
+background:rgba(7,18,31,.9);
+color:#b9c8d8;
+font-weight:700;
+transition:.2s ease;
+box-shadow:0 10px 30px rgba(0,0,0,.18)
+}
+
+.nav a:hover,
+.nav a:focus{
+border-color:rgba(77,163,255,.5);
+color:#fff;
+background:rgba(12,35,59,.96);
+outline:none
+}
+
+.nav a:active{
+transform:scale(.985)
+}
+
+.section{
+scroll-margin-top:86px;
+margin-bottom:18px
+}
+
+.card{
+background:var(--panel);
+border:1px solid var(--line);
+border-radius:var(--radius);
+box-shadow:var(--shadow);
+backdrop-filter:blur(18px);
+-webkit-backdrop-filter:blur(18px);
+padding:20px
+}
+
+.section-head{
+display:flex;
+align-items:flex-start;
+justify-content:space-between;
+gap:16px;
+margin-bottom:18px
+}
+
+.eyebrow{
+font-size:11px;
+text-transform:uppercase;
+letter-spacing:1.4px;
+color:var(--blue-2);
+font-weight:800;
+margin-bottom:6px
+}
+
+h2{
+font-size:24px;
+line-height:1.15
+}
+
+h3{
+font-size:17px
+}
+
+.muted{
+color:var(--muted);
+font-size:13px;
+line-height:1.55
+}
+
+.stats{
+display:grid;
+grid-template-columns:repeat(4,1fr);
+gap:12px;
+margin-bottom:18px
+}
+
+.stat{
+padding:17px;
+border:1px solid var(--line);
+border-radius:17px;
+background:rgba(8,23,39,.78)
+}
+
+.stat-label{
+font-size:12px;
+color:var(--muted);
+margin-bottom:8px
+}
+
+.stat-value{
+font-size:24px;
+font-weight:800
+}
+
+.stat-note{
+font-size:11px;
+color:var(--muted);
+margin-top:5px
+}
+
+.dashboard-grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:18px
+}
+
+.sub-card{
+border:1px solid var(--line);
+border-radius:18px;
+background:rgba(6,19,33,.72);
+padding:18px
+}
+
+.sub-head{
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:12px;
+margin-bottom:14px
+}
+
+.sub-head h3{
+font-size:16px
+}
+
+.visitor-grid{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:10px
+}
+
+.visitor-stat{
+padding:14px;
+border:1px solid var(--line);
+border-radius:14px;
+background:rgba(10,27,45,.7)
+}
+
+.visitor-label{
+font-size:11px;
+color:var(--muted);
+margin-bottom:7px
+}
+
+.visitor-value{
+font-size:20px;
+font-weight:800
+}
+
+.announcement{
+display:grid;
+gap:14px
+}
+
+.form-label{
+display:block;
+font-size:13px;
+font-weight:700;
+margin-bottom:8px
+}
+
+textarea,
+input[type="number"]{
+width:100%;
+border:1px solid var(--line);
+background:rgba(4,15,27,.82);
+color:var(--text);
+border-radius:14px;
+outline:none;
+transition:.2s ease
+}
+
+textarea{
+min-height:120px;
+padding:14px;
+resize:vertical;
+line-height:1.5
+}
+
+input[type="number"]{
+height:50px;
+padding:0 14px
+}
+
+textarea:focus,
+input[type="number"]:focus{
+border-color:rgba(77,163,255,.65);
+box-shadow:0 0 0 3px rgba(77,163,255,.1)
+}
+
+.primary{
+width:100%;
+min-height:50px;
+border:0;
+border-radius:14px;
+background:linear-gradient(135deg,#3f9bf2,#70b9ff);
+color:#04101d;
+font-weight:800;
+box-shadow:0 12px 28px rgba(45,135,220,.22)
+}
+
+.primary:hover{
+filter:brightness(1.05)
+}
+
+.table-wrap{
+overflow:auto;
+border:1px solid var(--line);
+border-radius:16px;
+background:rgba(4,15,27,.48)
+}
+
+table{
+width:100%;
+border-collapse:collapse;
+min-width:620px
+}
+
+th,
+td{
+text-align:left;
+padding:14px 15px;
+border-bottom:1px solid var(--line);
+font-size:13px
+}
+
+th{
+color:#a9bdd1;
+font-size:11px;
+text-transform:uppercase;
+letter-spacing:.7px;
+background:rgba(14,31,50,.68)
+}
+
+tr:last-child td{
+border-bottom:0
+}
+
+.empty{
+text-align:center;
+color:var(--muted);
+padding:28px
+}
+
+.announcement-table{
+margin-top:16px
+}
+
+.orders-card{
+margin-top:18px
+}
+
+.orders-view{
+max-height:430px;
+overflow:auto;
+padding-right:4px
+}
+
+.order-list{
+display:grid;
+gap:12px
+}
+
+.order-item{
+border:1px solid var(--line);
+border-radius:17px;
+background:rgba(5,18,31,.72);
+overflow:hidden
+}
+
+.order-summary{
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:12px;
+padding:16px;
+cursor:pointer;
+list-style:none
+}
+
+.order-summary::-webkit-details-marker{
+display:none
+}
+
+.order-summary-left{
+display:flex;
+align-items:center;
+gap:12px;
+min-width:0
+}
+
+.order-number{
+width:36px;
+height:36px;
+border-radius:11px;
+display:grid;
+place-items:center;
+background:rgba(77,163,255,.1);
+border:1px solid rgba(77,163,255,.18);
+color:var(--blue-2);
+font-size:12px;
+font-weight:800;
+flex:none
+}
+
+.order-summary-info{
+min-width:0
+}
+
+.order-summary-info strong{
+display:block;
+font-size:14px;
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis
+}
+
+.order-summary-info span{
+display:block;
+font-size:11px;
+color:var(--muted);
+margin-top:4px
+}
+
+.order-type{
+padding:7px 9px;
+border:1px solid var(--line);
+border-radius:999px;
+font-size:10px;
+font-weight:800;
+color:var(--blue-2);
+flex:none
+}
+
+.order-details{
+padding:0 16px 16px;
+border-top:1px solid var(--line)
+}
+
+.detail-grid{
+display:grid;
+grid-template-columns:repeat(2,1fr);
+gap:10px;
+padding-top:15px
+}
+
+.detail{
+padding:12px;
+border:1px solid var(--line);
+border-radius:13px;
+background:rgba(9,26,43,.64)
+}
+
+.detail-label{
+display:block;
+font-size:10px;
+color:var(--muted);
+margin-bottom:5px
+}
+
+.detail-value{
+font-size:13px;
+font-weight:700;
+word-break:break-word
+}
+
+.deposit-list{
+display:grid;
+gap:12px
+}
+
+.deposit-item{
+border:1px solid var(--line);
+border-radius:17px;
+background:rgba(5,18,31,.72);
+padding:17px
+}
+
+.deposit-grid{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:12px;
+margin:12px 0 16px
+}
+
+.data-label{
+display:block;
+color:var(--muted);
+font-size:11px;
+margin-bottom:5px
+}
+
+.data-value{
+font-weight:700;
+font-size:14px;
+word-break:break-word
+}
+
+.actions{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:10px
+}
+
+.confirm,
+.cancel{
+min-height:46px;
+border-radius:13px;
+font-weight:800
+}
+
+.confirm{
+border:1px solid rgba(53,211,154,.3);
+background:rgba(53,211,154,.12);
+color:#6be6b8
+}
+
+.cancel{
+border:1px solid rgba(255,102,125,.3);
+background:rgba(255,102,125,.1);
+color:#ff8b9d
+}
+
+.price-grid{
+display:grid;
+grid-template-columns:1fr;
+gap:14px
+}
+
+.price-box{
+padding:18px;
+border:1px solid var(--line);
+border-radius:17px;
+background:rgba(5,18,31,.72)
+}
+
+.price-title{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:12px;
+margin-bottom:8px
+}
+
+.percent{
+font-size:12px;
+color:var(--blue-2);
+font-weight:800
+}
+
+.input-row{
+position:relative
+}
+
+.suffix{
+position:absolute;
+right:16px;
+top:50%;
+transform:translateY(-50%);
+color:var(--muted);
+font-weight:800;
+pointer-events:none
+}
+
+.price-help{
+margin-top:4px
+}
+
+.price-note{
+margin-top:16px;
+padding:14px;
+border:1px solid rgba(77,163,255,.18);
+border-radius:14px;
+background:rgba(77,163,255,.06);
+font-size:12px;
+color:#a9bdd1;
+line-height:1.6
+}
+
+.footer{
+text-align:center;
+color:#71869b;
+font-size:11px;
+padding:5px 0
+}
+
+@media(max-width:900px){
+.dashboard-grid{
+grid-template-columns:1fr
+}
+
+.stats{
+grid-template-columns:repeat(2,1fr)
+}
+}
+
+@media(max-width:560px){
+.app{
+width:min(100% - 20px,720px);
+padding-top:12px
+}
+
+.topbar{
+align-items:flex-start
+}
+
+.admin-badge{
+font-size:11px;
+padding:8px 10px
+}
+
+.brand-mark{
+width:40px;
+height:40px
+}
+
+.brand h1{
+font-size:18px
+}
+
+.nav{
+gap:7px;
+top:5px
+}
+
+.nav a{
+min-height:48px;
+border-radius:13px;
+font-size:13px
+}
+
+.card{
+padding:15px;
+border-radius:17px
+}
+
+.stats{
+gap:8px
+}
+
+.stat{
+padding:13px
+}
+
+.stat-value{
+font-size:20px
+}
+
+.visitor-grid{
+grid-template-columns:1fr
+}
+
+.deposit-grid{
+grid-template-columns:1fr
+}
+
+.detail-grid{
+grid-template-columns:1fr
+}
+
+.actions{
+grid-template-columns:1fr 1fr
+}
+
+h2{
+font-size:21px
+}
+}
+</style>
+</head>
+<body>
+<main class="app">
+
+<header class="topbar">
+<div class="brand">
+<div class="brand-mark">VDS</div>
+<div>
+<h1>VenDigitalStore</h1>
+<p>Admin Panel</p>
+</div>
+</div>
+<div class="admin-badge">ADMIN</div>
+</header>
+
+<nav class="nav" aria-label="Navigasi admin">
+<a href="#dashboard">Dashboard</a>
+<a href="#deposit">Deposit</a>
+<a href="#setprice">Setprice</a>
+</nav>
+
+<section id="dashboard" class="section">
+<div class="card">
+
+<div class="section-head">
+<div>
+<div class="eyebrow">Overview</div>
+<h2>Dashboard</h2>
+<p class="muted">Ringkasan aktivitas utama VenDigitalStore.</p>
+</div>
+</div>
+
+<div class="stats">
+
+<div class="stat">
+<div class="stat-label">Pengguna</div>
+<div class="stat-value" data-stat="users">0</div>
+<div class="stat-note">Total akun</div>
+</div>
+
+<div class="stat">
+<div class="stat-label">Pesanan</div>
+<div class="stat-value" data-stat="orders">0</div>
+<div class="stat-note">Total pesanan</div>
+</div>
+
+<div class="stat">
+<div class="stat-label">Deposit Menunggu</div>
+<div class="stat-value" data-stat="pending-deposits">0</div>
+<div class="stat-note">Perlu konfirmasi</div>
+</div>
+
+<div class="stat">
+<div class="stat-label">Visitor</div>
+<div class="stat-value" data-stat="visitors">0</div>
+<div class="stat-note">Total visitor</div>
+</div>
+
+</div>
+
+<div class="dashboard-grid">
+
+<div class="sub-card">
+
+<div class="sub-head">
+<div>
+<div class="eyebrow">Traffic</div>
+<h3>Visitor</h3>
+</div>
+</div>
+
+<div class="visitor-grid">
+
+<div class="visitor-stat">
+<div class="visitor-label">Total Visitor</div>
+<div class="visitor-value" data-visitor="total">0</div>
+</div>
+
+<div class="visitor-stat">
+<div class="visitor-label">Hari Ini</div>
+<div class="visitor-value" data-visitor="today">0</div>
+</div>
+
+<div class="visitor-stat">
+<div class="visitor-label">Aktif</div>
+<div class="visitor-value" data-visitor="active">0</div>
+</div>
+
+</div>
+
+</div>
+
+<div class="sub-card">
+
+<div class="sub-head">
+<div>
+<div class="eyebrow">Announcement</div>
+<h3>Pengumuman</h3>
+</div>
+</div>
+
+<div class="announcement">
+
+<label class="form-label" for="announcement-input">
+Tabel Pengumuman
+</label>
+
+<textarea
+id="announcement-input"
+name="announcement"
+placeholder="Tulis pengumuman di sini..."
+></textarea>
+
+<button
+class="primary"
+type="button"
+id="announcement-submit"
+>
+Umumkan
+</button>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="table-wrap announcement-table">
+
+<table>
+<thead>
+<tr>
+<th>Pengumuman</th>
+<th>Waktu</th>
+<th>Status</th>
+</tr>
+</thead>
+
+<tbody id="announcement-table-body">
+<tr>
+<td colspan="3" class="empty">
+Belum ada pengumuman
+</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+
+<div class="sub-card orders-card">
+
+<div class="sub-head">
+<div>
+<div class="eyebrow">Orders</div>
+<h3>Pesanan</h3>
+<p class="muted">Detail seluruh pesanan customer.</p>
+</div>
+</div>
+
+<div class="orders-view">
+
+<div id="order-list" class="order-list">
+
+<details class="order-item" data-order-id="placeholder">
+
+<summary class="order-summary">
+
+<div class="order-summary-left">
+
+<div class="order-number">01</div>
+
+<div class="order-summary-info">
+<strong data-order="username">Belum ada data</strong>
+<span data-order="time">Belum ada data</span>
+</div>
+
+</div>
+
+<span class="order-type" data-order="type">
+ORDER
+</span>
+
+</summary>
+
+<div class="order-details">
+
+<div class="detail-grid">
+
+<div class="detail">
+<span class="detail-label">Username</span>
+<span class="detail-value" data-field="username">
+Belum ada data
+</span>
+</div>
+
+<div class="detail">
+<span class="detail-label">Type</span>
+<span class="detail-value" data-field="type">
+Belum ada data
+</span>
+</div>
+
+<div class="detail">
+<span class="detail-label">Layanan</span>
+<span class="detail-value" data-field="service">
+Belum ada data
+</span>
+</div>
+
+<div class="detail">
+<span class="detail-label">ID Service</span>
+<span class="detail-value" data-field="service-id">
+Belum ada data
+</span>
+</div>
+
+<div class="detail">
+<span class="detail-label">Jumlah / Quantity</span>
+<span class="detail-value" data-field="quantity">
+Belum ada data
+</span>
+</div>
+
+<div class="detail">
+<span class="detail-label">Harga</span>
+<span class="detail-value" data-field="price">
+Rp0
+</span>
+</div>
+
+<div class="detail">
+<span class="detail-label">Waktu</span>
+<span class="detail-value" data-field="time">
+Belum ada data
+</span>
+</div>
+
+</div>
+
+</div>
+
+</details>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section id="deposit" class="section">
+<div class="card">
+
+<div class="section-head">
+<div>
+<div class="eyebrow">Deposit</div>
+<h2>Konfirmasi Deposit</h2>
+<p class="muted">
+Deposit customer yang menunggu konfirmasi akan muncul di sini.
+</p>
+</div>
+</div>
+
+<div id="deposit-list" class="deposit-list">
+
+<div
+class="deposit-item"
+data-deposit-id="placeholder"
+>
+
+<div class="deposit-grid">
+
+<div>
+<span class="data-label">Username</span>
+<span
+class="data-value"
+data-field="username"
+>
+Belum ada data
+</span>
+</div>
+
+<div>
+<span class="data-label">Deposit</span>
+<span
+class="data-value"
+data-field="amount"
+>
+Rp0
+</span>
+</div>
+
+<div>
+<span class="data-label">Waktu</span>
+<span
+class="data-value"
+data-field="requested-at"
+>
+Belum ada data
+</span>
+</div>
+
+</div>
+
+<div class="actions">
+
+<button
+class="confirm"
+type="button"
+data-action="confirm-deposit"
+>
+Konfirmasi
+</button>
+
+<button
+class="cancel"
+type="button"
+data-action="cancel-deposit"
+>
+Cancel
+</button>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section id="setprice" class="section">
+<div class="card">
+
+<div class="section-head">
+<div>
+<div class="eyebrow">Pricing</div>
+<h2>Setprice</h2>
+<p class="muted">
+Atur persentase keuntungan dari harga asli provider.
+</p>
+</div>
+</div>
+
+<div class="price-grid">
+
+<div class="price-box">
+
+<div class="price-title">
+<h3>Setprice NOKOS</h3>
+<span class="percent">Markup</span>
+</div>
+
+<p class="muted price-help">
+Persentase keuntungan yang diterapkan pada harga asli provider NOKOS.
+</p>
+
+<div
+class="input-row"
+style="margin-top:14px"
+>
+
+<input
+id="nokos-markup"
+name="nokos_markup"
+type="number"
+min="0"
+max="1000"
+step="0.01"
+inputmode="decimal"
+placeholder="40"
+>
+
+<span class="suffix">%</span>
+
+</div>
+
+</div>
+
+<div class="price-box">
+
+<div class="price-title">
+<h3>Setprice SOSMED</h3>
+<span class="percent">Markup</span>
+</div>
+
+<p class="muted price-help">
+Persentase keuntungan yang diterapkan pada harga asli provider Sosmed.
+</p>
+
+<div
+class="input-row"
+style="margin-top:14px"
+>
+
+<input
+id="sosmed-markup"
+name="sosmed_markup"
+type="number"
+min="0"
+max="1000"
+step="0.01"
+inputmode="decimal"
+placeholder="40"
+>
+
+<span class="suffix">%</span>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="price-note">
+Contoh: harga asli provider Rp10.000 dan markup 40%, maka harga jual customer menjadi Rp14.000. Harga asli provider tetap menjadi dasar perhitungan dan persentase markup diatur dari halaman ini.
+</div>
+
+<button
+class="primary"
+type="button"
+id="setprice-save"
+style="margin-top:16px"
+>
+Simpan Setprice
+</button>
+
+</div>
+</section>
+
+<footer class="footer">
+VenDigitalStore Admin Panel
+</footer>
+
+</main>
+</body>
+</html>
