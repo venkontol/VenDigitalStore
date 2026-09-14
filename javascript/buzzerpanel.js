@@ -12,1062 +12,1727 @@ const MAX_OPTION_LENGTH = 4096;
 const servicesCache = new Map();
 
 export class BuzzerPanelError extends Error {
-  constructor(message, options = {}) {
-    super(String(message || "BuzzerPanel error."));
-    this.name = "BuzzerPanelError";
-    this.status = Number.isFinite(Number(options.status))
-      ? Number(options.status)
-      : 502;
-    this.code = String(options.code || "BUZZERPANEL_ERROR");
-    this.details = options.details ?? null;
-  }
+constructor(message, options = {}) {
+super(
+String(
+message ||
+"BuzzerPanel error."
+)
+);
+
+this.name =
+  "BuzzerPanelError";
+
+this.status =
+  Number.isFinite(
+    Number(options.status)
+  )
+    ? Number(options.status)
+    : 502;
+
+this.code =
+  String(
+    options.code ||
+      "BUZZERPANEL_ERROR"
+  );
+
+this.details =
+  options.details ??
+  null;
+
+}
 }
 
 function getBaseUrl(env) {
-  const value = String(
-    env?.BUZZER_API_URL || DEFAULT_BASE_URL
-  ).trim();
+const value =
+String(
+env?.BUZZER_API_URL ||
+DEFAULT_BASE_URL
+).trim();
 
-  if (!value) {
-    throw new BuzzerPanelError(
-      "BuzzerPanel API URL belum dikonfigurasi.",
-      {
-        status: 500,
-        code: "BUZZERPANEL_API_URL_MISSING"
-      }
-    );
-  }
+if (!value) {
+throw new BuzzerPanelError(
+"BuzzerPanel API URL belum dikonfigurasi.",
+{
+status: 500,
+code:
+"BUZZERPANEL_API_URL_MISSING"
+}
+);
+}
 
-  let url;
+let url;
 
-  try {
-    url = new URL(value);
-  } catch {
-    throw new BuzzerPanelError(
-      "BuzzerPanel API URL tidak valid.",
-      {
-        status: 500,
-        code: "BUZZERPANEL_API_URL_INVALID"
-      }
-    );
-  }
+try {
+url = new URL(value);
+} catch {
+throw new BuzzerPanelError(
+"BuzzerPanel API URL tidak valid.",
+{
+status: 500,
+code:
+"BUZZERPANEL_API_URL_INVALID"
+}
+);
+}
 
-  if (
-    url.protocol !== "https:" &&
-    url.protocol !== "http:"
-  ) {
-    throw new BuzzerPanelError(
-      "Protokol BuzzerPanel API tidak valid.",
-      {
-        status: 500,
-        code: "BUZZERPANEL_API_URL_INVALID"
-      }
-    );
-  }
+if (
+url.protocol !== "https:" &&
+url.protocol !== "http:"
+) {
+throw new BuzzerPanelError(
+"Protokol BuzzerPanel API tidak valid.",
+{
+status: 500,
+code:
+"BUZZERPANEL_API_URL_INVALID"
+}
+);
+}
 
-  return url.toString();
+return url.toString();
 }
 
 function getCredentials(env) {
-  const apiKey = String(
-    env?.BUZZER_API_KEY || ""
-  ).trim();
+const apiKey =
+String(
+env?.BUZZER_API_KEY ||
+""
+).trim();
 
-  const secretKey = String(
-    env?.BUZZER_SECRET_KEY || ""
-  ).trim();
+const secretKey =
+String(
+env?.BUZZER_SECRET_KEY ||
+""
+).trim();
 
-  if (!apiKey) {
-    throw new BuzzerPanelError(
-      "BuzzerPanel API key belum dikonfigurasi.",
-      {
-        status: 500,
-        code: "BUZZER_API_KEY_MISSING"
-      }
-    );
-  }
-
-  if (!secretKey) {
-    throw new BuzzerPanelError(
-      "BuzzerPanel secret key belum dikonfigurasi.",
-      {
-        status: 500,
-        code: "BUZZER_SECRET_KEY_MISSING"
-      }
-    );
-  }
-
-  return {
-    apiKey,
-    secretKey
-  };
+if (!apiKey) {
+throw new BuzzerPanelError(
+"BuzzerPanel API key belum dikonfigurasi.",
+{
+status: 500,
+code:
+"BUZZER_API_KEY_MISSING"
+}
+);
 }
 
-function getTimeout(env, requested) {
-  const requestedValue = Number(requested);
+if (!secretKey) {
+throw new BuzzerPanelError(
+"BuzzerPanel secret key belum dikonfigurasi.",
+{
+status: 500,
+code:
+"BUZZER_SECRET_KEY_MISSING"
+}
+);
+}
 
-  if (
-    Number.isFinite(requestedValue) &&
-    requestedValue >= MIN_TIMEOUT_MS &&
-    requestedValue <= MAX_TIMEOUT_MS
-  ) {
-    return Math.floor(requestedValue);
-  }
+return {
+apiKey,
+secretKey
+};
+}
 
-  const value = Number(
-    env?.BUZZER_API_TIMEOUT || DEFAULT_TIMEOUT_MS
-  );
+function getTimeout(
+env,
+requested
+) {
+const requestedValue =
+Number(requested);
 
-  if (
-    Number.isFinite(value) &&
-    value >= MIN_TIMEOUT_MS &&
-    value <= MAX_TIMEOUT_MS
-  ) {
-    return Math.floor(value);
-  }
+if (
+Number.isFinite(
+requestedValue
+) &&
+requestedValue >=
+MIN_TIMEOUT_MS &&
+requestedValue <=
+MAX_TIMEOUT_MS
+) {
+return Math.floor(
+requestedValue
+);
+}
 
-  return DEFAULT_TIMEOUT_MS;
+const value =
+Number(
+env?.BUZZER_API_TIMEOUT ||
+DEFAULT_TIMEOUT_MS
+);
+
+if (
+Number.isFinite(value) &&
+value >= MIN_TIMEOUT_MS &&
+value <= MAX_TIMEOUT_MS
+) {
+return Math.floor(value);
+}
+
+return DEFAULT_TIMEOUT_MS;
 }
 
 function getCacheTtl(env) {
-  const value = Number(
-    env?.CACHE_TTL ?? DEFAULT_CACHE_TTL
-  );
+const value =
+Number(
+env?.CACHE_TTL ??
+DEFAULT_CACHE_TTL
+);
 
-  if (
-    Number.isFinite(value) &&
-    value >= 0
-  ) {
-    return value;
-  }
+if (
+Number.isFinite(value) &&
+value >= 0
+) {
+return value;
+}
 
-  return DEFAULT_CACHE_TTL;
+return DEFAULT_CACHE_TTL;
 }
 
 function getMaxServices(env) {
-  const value = Number(
-    env?.MAX_SERVICES ?? DEFAULT_MAX_SERVICES
-  );
+const value =
+Number(
+env?.MAX_SERVICES ??
+DEFAULT_MAX_SERVICES
+);
 
-  if (
-    Number.isFinite(value) &&
-    value >= 1
-  ) {
-    return Math.floor(value);
-  }
-
-  return DEFAULT_MAX_SERVICES;
+if (
+Number.isFinite(value) &&
+value >= 1
+) {
+return Math.floor(value);
 }
 
-function clean(value, max = 4096) {
-  if (
-    value === undefined ||
-    value === null
-  ) {
-    return "";
-  }
+return DEFAULT_MAX_SERVICES;
+}
 
-  return String(value)
-    .trim()
-    .slice(0, max);
+function clean(
+value,
+max = 4096
+) {
+if (
+value === undefined ||
+value === null
+) {
+return "";
+}
+
+return String(value)
+.trim()
+.slice(0, max);
 }
 
 function isObject(value) {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value)
-  );
+return (
+value !== null &&
+typeof value === "object" &&
+!Array.isArray(value)
+);
 }
 
 function buildForm(payload) {
-  const form = new URLSearchParams();
+const form =
+new URLSearchParams();
 
-  for (
-    const [key, value]
-    of Object.entries(payload || {})
-  ) {
-    if (
-      value === undefined ||
-      value === null
-    ) {
-      continue;
-    }
+for (
+const [key, value] of Object.entries(
+payload || {}
+)
+) {
+if (
+value === undefined ||
+value === null
+) {
+continue;
+}
 
-    if (Array.isArray(value)) {
-      form.set(
-        key,
-        value.join("\n")
-      );
-      continue;
-    }
+if (
+  Array.isArray(value)
+) {
+  form.set(
+    key,
+    value.join("\n")
+  );
+  continue;
+}
 
-    form.set(
-      key,
-      String(value)
-    );
-  }
+form.set(
+  key,
+  String(value)
+);
 
-  return form;
+}
+
+return form;
 }
 
 function extractApiMessage(data) {
-  if (!data) {
-    return "BuzzerPanel tidak memberikan respons.";
-  }
-
-  if (typeof data === "string") {
-    return clean(data, 1000) ||
-      "BuzzerPanel tidak memberikan respons.";
-  }
-
-  if (!isObject(data)) {
-    return "BuzzerPanel memberikan respons tidak valid.";
-  }
-
-  return clean(
-    data.error ||
-      data.message ||
-      data.msg ||
-      data.data?.error ||
-      data.data?.message ||
-      data.data?.msg ||
-      "",
-    1000
-  );
+if (!data) {
+return "BuzzerPanel tidak memberikan respons.";
 }
 
-function getStatusValue(value) {
-  return clean(value, 128)
-    .toLowerCase()
-    .trim();
+if (
+typeof data === "string"
+) {
+return (
+clean(data, 1000) ||
+"BuzzerPanel tidak memberikan respons."
+);
 }
 
-function isProviderError(data) {
-  if (!isObject(data)) {
-    return false;
-  }
-
-  if (
-    typeof data.error === "string" &&
-    data.error.trim()
-  ) {
-    return true;
-  }
-
-  if (data.error === true) {
-    return true;
-  }
-
-  if (data.success === false) {
-    return true;
-  }
-
-  if (data.status === false) {
-    return true;
-  }
-
-  const status = getStatusValue(data.status);
-  const nestedStatus = getStatusValue(
-    data.data?.status
-  );
-
-  if (
-    [
-      "error",
-      "failed",
-      "failure",
-      "rejected",
-      "invalid"
-    ].includes(status)
-  ) {
-    return true;
-  }
-
-  if (
-    [
-      "error",
-      "failed",
-      "failure",
-      "rejected",
-      "invalid"
-    ].includes(nestedStatus)
-  ) {
-    return true;
-  }
-
-  return false;
+if (
+!isObject(data)
+) {
+return "BuzzerPanel memberikan respons tidak valid.";
 }
 
-async function parseResponse(response) {
-  const text = await response.text();
-
-  if (!text) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
+return clean(
+data.error ||
+data.message ||
+data.msg ||
+data.data?.error ||
+data.data?.message ||
+data.data?.msg ||
+"",
+1000
+);
 }
 
-async function request(env, payload, options = {}) {
-  const {
-    apiKey,
-    secretKey
-  } = getCredentials(env);
+function getStatusValue(
+value
+) {
+return clean(
+value,
+128
+)
+.toLowerCase()
+.trim();
+}
 
-  const timeoutMs = getTimeout(
-    env,
-    options.timeoutMs
+function isProviderError(
+data
+) {
+if (
+!isObject(data)
+) {
+return false;
+}
+
+if (
+typeof data.error ===
+"string" &&
+data.error.trim()
+) {
+return true;
+}
+
+if (
+data.error === true
+) {
+return true;
+}
+
+if (
+data.success === false
+) {
+return true;
+}
+
+if (
+data.status === false
+) {
+return true;
+}
+
+const status =
+getStatusValue(
+data.status
+);
+
+const nestedStatus =
+getStatusValue(
+data.data?.status
+);
+
+if (
+[
+"error",
+"failed",
+"failure",
+"rejected",
+"invalid"
+].includes(status)
+) {
+return true;
+}
+
+if (
+[
+"error",
+"failed",
+"failure",
+"rejected",
+"invalid"
+].includes(
+nestedStatus
+)
+) {
+return true;
+}
+
+return false;
+}
+
+async function parseResponse(
+response
+) {
+const text =
+await response.text();
+
+if (!text) {
+return null;
+}
+
+try {
+return JSON.parse(text);
+} catch {
+return text;
+}
+}
+
+async function request(
+env,
+payload,
+options = {}
+) {
+const {
+apiKey,
+secretKey
+} =
+getCredentials(env);
+
+const timeoutMs =
+getTimeout(
+env,
+options.timeoutMs
+);
+
+const controller =
+new AbortController();
+
+const timer =
+setTimeout(
+() =>
+controller.abort(),
+timeoutMs
+);
+
+const form =
+buildForm({
+api_key: apiKey,
+secret_key: secretKey,
+...payload
+});
+
+try {
+const response =
+await fetch(
+getBaseUrl(env),
+{
+method: "POST",
+headers: {
+"Content-Type":
+"application/x-www-form-urlencoded",
+Accept:
+"application/json"
+},
+body:
+form.toString(),
+signal:
+controller.signal
+}
+);
+
+const data =
+  await parseResponse(
+    response
   );
 
-  const controller = new AbortController();
-
-  const timer = setTimeout(
-    () => controller.abort(),
-    timeoutMs
-  );
-
-  const form = buildForm({
-    api_key: apiKey,
-    secret_key: secretKey,
-    ...payload
-  });
-
-  try {
-    const response = await fetch(
-      getBaseUrl(env),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type":
-            "application/x-www-form-urlencoded",
-          Accept: "application/json"
-        },
-        body: form.toString(),
-        signal: controller.signal
+if (
+  !response.ok
+) {
+  throw new BuzzerPanelError(
+    extractApiMessage(
+      data
+    ) ||
+      `BuzzerPanel HTTP ${response.status}.`,
+    {
+      status: 502,
+      code:
+        "BUZZERPANEL_HTTP_ERROR",
+      details: {
+        httpStatus:
+          response.status,
+        response:
+          data
       }
-    );
-
-    const data = await parseResponse(
-      response
-    );
-
-    if (!response.ok) {
-      throw new BuzzerPanelError(
-        extractApiMessage(data) ||
-          `BuzzerPanel HTTP ${response.status}.`,
-        {
-          status: 502,
-          code: "BUZZERPANEL_HTTP_ERROR",
-          details: {
-            httpStatus: response.status,
-            response: data
-          }
-        }
-      );
     }
+  );
+}
 
-    if (data === null) {
-      throw new BuzzerPanelError(
-        "BuzzerPanel memberikan respons kosong.",
-        {
-          status: 502,
-          code: "BUZZERPANEL_EMPTY_RESPONSE"
-        }
-      );
+if (
+  data === null
+) {
+  throw new BuzzerPanelError(
+    "BuzzerPanel memberikan respons kosong.",
+    {
+      status: 502,
+      code:
+        "BUZZERPANEL_EMPTY_RESPONSE"
     }
+  );
+}
 
-    if (isProviderError(data)) {
-      throw new BuzzerPanelError(
-        extractApiMessage(data) ||
-          "BuzzerPanel menolak request.",
-        {
-          status: 502,
-          code: "BUZZERPANEL_API_ERROR",
-          details: data
-        }
-      );
+if (
+  isProviderError(data)
+) {
+  throw new BuzzerPanelError(
+    extractApiMessage(
+      data
+    ) ||
+      "BuzzerPanel menolak request.",
+    {
+      status: 502,
+      code:
+        "BUZZERPANEL_API_ERROR",
+      details:
+        data
     }
+  );
+}
 
-    return data;
-  } catch (error) {
-    if (
-      error instanceof BuzzerPanelError
-    ) {
-      throw error;
+return data;
+
+} catch (error) {
+if (
+error instanceof
+BuzzerPanelError
+) {
+throw error;
+}
+
+if (
+  error?.name ===
+  "AbortError"
+) {
+  throw new BuzzerPanelError(
+    "Request ke BuzzerPanel timeout.",
+    {
+      status: 504,
+      code:
+        "BUZZERPANEL_TIMEOUT"
     }
+  );
+}
 
-    if (
-      error?.name === "AbortError"
-    ) {
-      throw new BuzzerPanelError(
-        "Request ke BuzzerPanel timeout.",
-        {
-          status: 504,
-          code: "BUZZERPANEL_TIMEOUT"
-        }
-      );
-    }
-
-    throw new BuzzerPanelError(
-      error?.message ||
-        "Gagal terhubung ke BuzzerPanel.",
-      {
-        status: 502,
-        code: "BUZZERPANEL_NETWORK_ERROR"
-      }
-    );
-  } finally {
-    clearTimeout(timer);
+throw new BuzzerPanelError(
+  error?.message ||
+    "Gagal terhubung ke BuzzerPanel.",
+  {
+    status: 502,
+    code:
+      "BUZZERPANEL_NETWORK_ERROR"
   }
+);
+
+} finally {
+clearTimeout(timer);
+}
 }
 
 function unwrapData(data) {
-  if (!isObject(data)) {
-    return data;
-  }
-
-  if (isObject(data.data)) {
-    return data.data;
-  }
-
-  return data;
+if (
+!isObject(data)
+) {
+return data;
 }
 
-function extractServices(data) {
-  if (Array.isArray(data)) {
-    return data;
-  }
-
-  if (!isObject(data)) {
-    return [];
-  }
-
-  if (Array.isArray(data.data)) {
-    return data.data;
-  }
-
-  if (Array.isArray(data.services)) {
-    return data.services;
-  }
-
-  if (Array.isArray(data.result)) {
-    return data.result;
-  }
-
-  return [];
+if (
+isObject(data.data)
+) {
+return data.data;
 }
 
-function parseBoolean(value) {
-  if (
-    value === true ||
-    value === 1
-  ) {
-    return true;
-  }
-
-  const normalized = String(
-    value ?? ""
-  )
-    .trim()
-    .toLowerCase();
-
-  return [
-    "true",
-    "1",
-    "yes",
-    "y",
-    "on"
-  ].includes(normalized);
+return data;
 }
 
-export function normalizeService(service) {
-  if (!isObject(service)) {
-    return null;
-  }
+function extractServices(
+data
+) {
+if (
+Array.isArray(data)
+) {
+return data;
+}
 
-  const id =
-    service.service ??
-    service.service_id ??
-    service.id ??
-    null;
+if (
+!isObject(data)
+) {
+return [];
+}
 
-  if (
-    id === null ||
-    id === "" ||
-    !String(id).trim()
-  ) {
-    return null;
-  }
+if (
+Array.isArray(
+data.data
+)
+) {
+return data.data;
+}
 
-  const rate = Number(
-    service.rate ??
-      service.price ??
-      service.cost ??
-      0
-  );
+if (
+Array.isArray(
+data.services
+)
+) {
+return data.services;
+}
 
-  const min = Number(
-    service.min ??
-      service.minimum ??
-      0
-  );
+if (
+Array.isArray(
+data.result
+)
+) {
+return data.result;
+}
 
-  const max = Number(
-    service.max ??
-      service.maximum ??
-      0
-  );
+return [];
+}
 
-  return {
-    id: String(id).trim(),
-    service_id: String(id).trim(),
-    name: clean(
-      service.name ??
-        service.service_name ??
-        "",
-      512
-    ),
-    category:
-      clean(
-        service.category ?? "",
-        256
-      ) || null,
-    type:
-      clean(
-        service.type ??
-          service.service_type ??
-          "",
-        128
-      ) || null,
-    rate:
-      Number.isFinite(rate) &&
-      rate >= 0
-        ? rate
-        : 0,
-    min:
-      Number.isFinite(min) &&
-      min >= 0
-        ? min
-        : 0,
-    max:
-      Number.isFinite(max) &&
-      max >= 0
-        ? max
-        : 0,
-    refill:
-      parseBoolean(service.refill),
-    dripfeed:
-      parseBoolean(service.dripfeed),
-    currency:
-      clean(
-        service.currency ?? "IDR",
-        16
-      ) || "IDR",
-    raw: service
-  };
+function parseBoolean(
+value
+) {
+if (
+value === true ||
+value === 1
+) {
+return true;
+}
+
+const normalized =
+String(
+value ?? ""
+)
+.trim()
+.toLowerCase();
+
+return [
+"true",
+"1",
+"yes",
+"y",
+"on"
+].includes(
+normalized
+);
+}
+
+export function normalizeService(
+service
+) {
+if (
+!isObject(service)
+) {
+return null;
+}
+
+const id =
+service.service ??
+service.service_id ??
+service.id ??
+null;
+
+if (
+id === null ||
+id === "" ||
+!String(id).trim()
+) {
+return null;
+}
+
+const rate =
+Number(
+service.rate ??
+service.price ??
+service.cost ??
+0
+);
+
+const min =
+Number(
+service.min ??
+service.minimum ??
+0
+);
+
+const max =
+Number(
+service.max ??
+service.maximum ??
+0
+);
+
+return {
+id:
+String(id).trim(),
+service_id:
+String(id).trim(),
+name:
+clean(
+service.name ??
+service.service_name ??
+"",
+512
+),
+category:
+clean(
+service.category ??
+"",
+256
+) || null,
+type:
+clean(
+service.type ??
+service.service_type ??
+"",
+128
+) || null,
+rate:
+Number.isFinite(rate) &&
+rate >= 0
+? rate
+: 0,
+min:
+Number.isFinite(min) &&
+min >= 0
+? min
+: 0,
+max:
+Number.isFinite(max) &&
+max >= 0
+? max
+: 0,
+refill:
+parseBoolean(
+service.refill
+),
+dripfeed:
+parseBoolean(
+service.dripfeed
+),
+currency:
+clean(
+service.currency ??
+"IDR",
+16
+) || "IDR",
+raw:
+service
+};
 }
 
 export async function getServices(
-  env,
-  options = {}
+env,
+options = {}
 ) {
-  const baseUrl = getBaseUrl(env);
-  const maxServices = getMaxServices(env);
-  const cacheKey = `${baseUrl}|${maxServices}`;
-  const ttl = getCacheTtl(env) * 1000;
-  const now = Date.now();
-  const cached = servicesCache.get(
-    cacheKey
-  );
+const baseUrl =
+getBaseUrl(env);
 
-  if (
-    !options.forceRefresh &&
-    cached &&
-    ttl > 0 &&
-    now - cached.timestamp < ttl
-  ) {
-    return cached.services;
-  }
+const maxServices =
+getMaxServices(env);
 
-  const data = await request(
-    env,
-    {
-      action: "services"
-    },
-    {
-      timeoutMs:
-        options.timeoutMs
-    }
-  );
+const cacheKey =
+"${baseUrl}|${maxServices}";
 
-  const services = extractServices(data)
-    .map(normalizeService)
-    .filter(Boolean)
-    .slice(0, maxServices);
+const ttl =
+getCacheTtl(env);
 
-  servicesCache.set(
-    cacheKey,
-    {
-      timestamp: now,
-      services
-    }
-  );
+const now =
+Date.now();
 
-  return services;
+const cached =
+servicesCache.get(
+cacheKey
+);
+
+if (
+cached &&
+ttl > 0 &&
+now - cached.timestamp <
+ttl * 1000
+) {
+return cached.services;
 }
 
-function extractOrder(data) {
-  if (!isObject(data)) {
-    return null;
-  }
+const data =
+await request(
+env,
+{
+action:
+"services"
+},
+options
+);
 
-  const nested = unwrapData(data);
+const services =
+extractServices(
+data
+)
+.map(
+normalizeService
+)
+.filter(Boolean)
+.slice(
+0,
+maxServices
+);
 
-  if (isObject(nested)) {
-    const id =
-      nested.order ??
-      nested.order_id ??
-      nested.id ??
-      null;
+servicesCache.set(
+cacheKey,
+{
+timestamp:
+now,
+services
+}
+);
 
-    if (
-      id !== null &&
-      id !== "" &&
-      String(id).trim()
-    ) {
-      return {
-        ...nested,
-        id: String(id).trim(),
-        order: String(
-          nested.order ?? id
-        ).trim(),
-        raw: data
-      };
-    }
-  }
+return services;
+}
 
-  const id =
-    data.order ??
-    data.order_id ??
-    data.id ??
-    null;
+function extractOrder(
+data
+) {
+if (
+!isObject(data)
+) {
+return null;
+}
 
-  if (
-    id !== null &&
-    id !== "" &&
-    String(id).trim()
-  ) {
-    return {
-      ...data,
-      id: String(id).trim(),
-      order: String(
-        data.order ?? id
+const nested =
+unwrapData(data);
+
+if (
+isObject(nested)
+) {
+const id =
+nested.order ??
+nested.order_id ??
+nested.id ??
+null;
+
+if (
+  id !== null &&
+  id !== "" &&
+  String(id).trim()
+) {
+  return {
+    ...nested,
+    id:
+      String(id).trim(),
+    order:
+      String(
+        nested.order ??
+          id
       ).trim(),
-      raw: data
-    };
-  }
-
-  return null;
+    raw:
+      data
+  };
 }
 
-function extractStatus(data) {
-  if (!isObject(data)) {
-    return null;
-  }
+}
 
-  const nested = unwrapData(data);
+const id =
+data.order ??
+data.order_id ??
+data.id ??
+null;
 
-  if (isObject(nested)) {
-    const status =
-      nested.status ??
-      nested.order_status ??
-      null;
+if (
+id !== null &&
+id !== "" &&
+String(id).trim()
+) {
+return {
+...data,
+id:
+String(id).trim(),
+order:
+String(
+data.order ??
+id
+).trim(),
+raw:
+data
+};
+}
 
-    if (
-      status !== null &&
-      status !== ""
-    ) {
-      return {
-        ...nested,
-        status: clean(
-          status,
-          128
-        ),
-        raw: data
-      };
-    }
-  }
+return null;
+}
 
-  if (
-    data.status !== undefined &&
-    data.status !== null &&
-    String(data.status).trim()
-  ) {
-    return {
-      ...data,
-      status: clean(
-        data.status,
+function extractStatus(
+data
+) {
+if (
+!isObject(data)
+) {
+return null;
+}
+
+const nested =
+unwrapData(data);
+
+if (
+isObject(nested)
+) {
+const status =
+nested.status ??
+nested.order_status ??
+null;
+
+if (
+  status !== null &&
+  status !== ""
+) {
+  return {
+    ...nested,
+    status:
+      clean(
+        status,
         128
       ),
-      raw: data
-    };
-  }
+    raw:
+      data
+  };
+}
 
-  return null;
+}
+
+if (
+data.status !==
+undefined &&
+data.status !==
+null &&
+String(
+data.status
+).trim()
+) {
+return {
+...data,
+status:
+clean(
+data.status,
+128
+),
+raw:
+data
+};
+}
+
+return null;
 }
 
 function requireText(
-  value,
-  message,
-  code,
-  maxLength
+value,
+message,
+code,
+maxLength
 ) {
-  if (
-    value === undefined ||
-    value === null ||
-    !String(value).trim()
-  ) {
-    throw new BuzzerPanelError(
-      message,
-      {
-        status: 400,
-        code
-      }
-    );
-  }
+if (
+value ===
+undefined ||
+value === null ||
+!String(value).trim()
+) {
+throw new BuzzerPanelError(
+message,
+{
+status: 400,
+code
+}
+);
+}
 
-  const normalized = String(
-    value
-  ).trim();
+const normalized =
+String(value).trim();
 
-  if (
-    normalized.length > maxLength
-  ) {
-    throw new BuzzerPanelError(
-      `${message} terlalu panjang.`,
-      {
-        status: 400,
-        code: `${code}_TOO_LONG`
-      }
-    );
-  }
+if (
+normalized.length >
+maxLength
+) {
+throw new BuzzerPanelError(
+"${message} terlalu panjang.",
+{
+status: 400,
+code:
+"${code}_TOO_LONG"
+}
+);
+}
 
-  return normalized;
+return normalized;
 }
 
 function normalizeOptional(
-  value,
-  maxLength = MAX_OPTION_LENGTH
+value,
+maxLength =
+MAX_OPTION_LENGTH
 ) {
-  if (
-    value === undefined ||
-    value === null
-  ) {
-    return undefined;
-  }
+if (
+value ===
+undefined ||
+value === null
+) {
+return undefined;
+}
 
-  const normalized = String(
-    value
-  ).trim();
+const normalized =
+String(value).trim();
 
-  if (!normalized) {
-    return undefined;
-  }
+if (!normalized) {
+return undefined;
+}
 
-  return normalized.slice(
-    0,
-    maxLength
-  );
+return normalized.slice(
+0,
+maxLength
+);
+}
+
+function getRequestData(
+context
+) {
+const requestData =
+context?.requestData;
+
+if (
+requestData &&
+typeof requestData ===
+"object" &&
+!Array.isArray(
+requestData
+)
+) {
+return requestData;
+}
+
+return {};
+}
+
+function getOrderContext(
+context
+) {
+if (
+!context ||
+typeof context !==
+"object"
+) {
+throw new BuzzerPanelError(
+"Context order BuzzerPanel tidak valid.",
+{
+status: 400,
+code:
+"BUZZERPANEL_ORDER_CONTEXT_INVALID"
+}
+);
+}
+
+const order =
+context.order;
+
+if (
+!order ||
+typeof order !==
+"object"
+) {
+throw new BuzzerPanelError(
+"Data order BuzzerPanel tidak tersedia.",
+{
+status: 400,
+code:
+"BUZZERPANEL_ORDER_MISSING"
+}
+);
+}
+
+return order;
+}
+
+function extractOrderService(
+order,
+requestData
+) {
+return (
+requestData.service_id ??
+requestData.service ??
+order.service_id ??
+order.service ??
+null
+);
+}
+
+function extractOrderTarget(
+order,
+requestData
+) {
+return (
+requestData.link ??
+requestData.target ??
+requestData.url ??
+requestData.data ??
+order.target ??
+null
+);
+}
+
+function extractOrderQuantity(
+order,
+requestData
+) {
+return (
+requestData.quantity ??
+order.quantity ??
+null
+);
+}
+
+function normalizeProviderStatus(
+value
+) {
+return clean(
+value,
+128
+) || null;
+}
+
+function normalizeProviderAmount(
+value
+) {
+if (
+value ===
+undefined ||
+value === null ||
+value === ""
+) {
+return null;
+}
+
+const number =
+Number(value);
+
+if (
+!Number.isFinite(
+number
+) ||
+number < 0
+) {
+return null;
+}
+
+return number;
+}
+
+function normalizeProviderCount(
+value
+) {
+if (
+value ===
+undefined ||
+value === null ||
+value === ""
+) {
+return null;
+}
+
+const number =
+Number(value);
+
+if (
+!Number.isFinite(
+number
+) ||
+number < 0
+) {
+return null;
+}
+
+return number;
+}
+
+function normalizeCreateResult(
+data
+) {
+const order =
+extractOrder(data);
+
+if (!order) {
+throw new BuzzerPanelError(
+"BuzzerPanel tidak mengembalikan ID order.",
+{
+status: 502,
+code:
+"BUZZERPANEL_ORDER_ID_MISSING",
+details:
+data
+}
+);
+}
+
+const nested =
+unwrapData(data);
+
+const charge =
+normalizeProviderAmount(
+nested?.charge ??
+nested?.cost ??
+data?.charge ??
+data?.cost
+);
+
+return {
+externalOrderId:
+String(
+order.id
+).trim(),
+
+status:
+  "PENDING",
+
+providerStatus:
+  normalizeProviderStatus(
+    nested?.status ??
+      data?.status ??
+      null
+  ),
+
+providerData:
+  order.raw ??
+  data,
+
+providerCharge:
+  charge,
+
+fields: {
+  startCount:
+    normalizeProviderCount(
+      nested?.start_count ??
+        data?.start_count
+    ),
+
+  remains:
+    normalizeProviderCount(
+      nested?.remains ??
+        data?.remains
+    )
+},
+
+failureReason:
+  null,
+
+uncertain:
+  false
+
+};
+}
+
+function normalizeStatusResult(
+data
+) {
+const order =
+extractStatus(data);
+
+if (!order) {
+throw new BuzzerPanelError(
+"Respons status order BuzzerPanel tidak valid.",
+{
+status: 502,
+code:
+"BUZZERPANEL_STATUS_INVALID",
+details:
+data
+}
+);
+}
+
+const nested =
+unwrapData(data);
+
+const providerStatus =
+normalizeProviderStatus(
+order.status
+);
+
+const mappedStatus =
+mapStatus(
+providerStatus
+);
+
+const charge =
+normalizeProviderAmount(
+nested?.charge ??
+nested?.cost ??
+data?.charge ??
+data?.cost
+);
+
+const startCount =
+normalizeProviderCount(
+nested?.start_count ??
+data?.start_count
+);
+
+const remains =
+normalizeProviderCount(
+nested?.remains ??
+data?.remains
+);
+
+const failureReason =
+clean(
+nested?.error ??
+nested?.message ??
+data?.error ??
+data?.message ??
+"",
+1000
+) || null;
+
+return {
+externalOrderId:
+clean(
+nested?.order ??
+nested?.order_id ??
+nested?.id ??
+data?.order ??
+data?.order_id ??
+data?.id ??
+"",
+MAX_ID_LENGTH
+) || null,
+
+status:
+  mappedStatus,
+
+providerStatus,
+
+providerData:
+  order.raw ??
+  data,
+
+providerCharge:
+  charge,
+
+fields: {
+  startCount,
+  remains
+},
+
+failureReason:
+  mappedStatus ===
+    "FAILED"
+    ? failureReason ||
+      "BuzzerPanel melaporkan order gagal."
+    : null,
+
+uncertain:
+  false
+
+};
 }
 
 export async function createOrder(
-  env,
-  params = {}
+env,
+context = {}
 ) {
-  const service = requireText(
-    params.service ??
-      params.serviceId ??
-      params.service_id,
-    "Service BuzzerPanel wajib diisi.",
-    "BUZZERPANEL_SERVICE_MISSING",
-    MAX_ID_LENGTH
-  );
+const order =
+getOrderContext(
+context
+);
 
-  const link = requireText(
-    params.link ??
-      params.data ??
-      params.target,
-    "Target BuzzerPanel wajib diisi.",
-    "BUZZERPANEL_TARGET_MISSING",
-    MAX_LINK_LENGTH
-  );
+const requestData =
+getRequestData(
+context
+);
 
-  const quantity = requireText(
-    params.quantity,
-    "Quantity BuzzerPanel wajib diisi.",
-    "BUZZERPANEL_QUANTITY_MISSING",
-    MAX_QUANTITY_LENGTH
-  );
+const service =
+requireText(
+extractOrderService(
+order,
+requestData
+),
+"Service BuzzerPanel wajib diisi.",
+"BUZZERPANEL_SERVICE_MISSING",
+MAX_ID_LENGTH
+);
 
-  const numericQuantity = Number(
-    quantity
-  );
+const link =
+requireText(
+extractOrderTarget(
+order,
+requestData
+),
+"Target BuzzerPanel wajib diisi.",
+"BUZZERPANEL_TARGET_MISSING",
+MAX_LINK_LENGTH
+);
 
-  if (
-    !Number.isFinite(numericQuantity) ||
-    numericQuantity <= 0 ||
-    !Number.isInteger(numericQuantity)
-  ) {
-    throw new BuzzerPanelError(
-      "Quantity BuzzerPanel tidak valid.",
-      {
-        status: 400,
-        code: "BUZZERPANEL_QUANTITY_INVALID"
-      }
-    );
-  }
+const quantity =
+requireText(
+extractOrderQuantity(
+order,
+requestData
+),
+"Quantity BuzzerPanel wajib diisi.",
+"BUZZERPANEL_QUANTITY_MISSING",
+MAX_QUANTITY_LENGTH
+);
 
-  const payload = {
-    action: "order",
-    service,
-    data: link,
-    quantity: String(
-      Math.floor(numericQuantity)
-    )
-  };
+const numericQuantity =
+Number(quantity);
 
-  const optionalFields = [
-    "komen",
-    "comments",
-    "usernames",
-    "runs",
-    "interval"
-  ];
+if (
+!Number.isFinite(
+numericQuantity
+) ||
+numericQuantity <= 0 ||
+!Number.isInteger(
+numericQuantity
+)
+) {
+throw new BuzzerPanelError(
+"Quantity BuzzerPanel tidak valid.",
+{
+status: 400,
+code:
+"BUZZERPANEL_QUANTITY_INVALID"
+}
+);
+}
 
-  for (
-    const field of optionalFields
-  ) {
-    const value = normalizeOptional(
-      params[field]
-    );
+const payload = {
+action:
+"order",
+service,
+data:
+link,
+quantity:
+String(
+Math.floor(
+numericQuantity
+)
+)
+};
 
-    if (
-      value !== undefined
-    ) {
-      payload[field] = value;
-    }
-  }
+const optionalFields = [
+"komen",
+"comments",
+"usernames",
+"runs",
+"interval"
+];
 
-  const data = await request(
-    env,
-    payload
-  );
+for (
+const field of optionalFields
+) {
+const value =
+normalizeOptional(
+requestData[field]
+);
 
-  const order = extractOrder(
-    data
-  );
+if (
+  value !==
+  undefined
+) {
+  payload[field] =
+    value;
+}
 
-  if (!order) {
-    throw new BuzzerPanelError(
-      "BuzzerPanel tidak mengembalikan ID order.",
-      {
-        status: 502,
-        code: "BUZZERPANEL_ORDER_ID_MISSING",
-        details: data
-      }
-    );
-  }
+}
 
-  return order;
+const data =
+await request(
+env,
+payload
+);
+
+return normalizeCreateResult(
+data
+);
 }
 
 export async function getOrder(
-  env,
-  orderId
+env,
+context = {}
 ) {
-  const id = requireText(
-    orderId,
-    "ID order BuzzerPanel wajib diisi.",
-    "BUZZERPANEL_ORDER_ID_MISSING",
-    MAX_ID_LENGTH
-  );
+const order =
+getOrderContext(
+context
+);
 
-  const data = await request(
-    env,
-    {
-      action: "status",
-      id
-    }
-  );
+const id =
+requireText(
+context.externalOrderId ??
+order.external_order_id,
+"ID order BuzzerPanel wajib diisi.",
+"BUZZERPANEL_ORDER_ID_MISSING",
+MAX_ID_LENGTH
+);
 
-  const order = extractStatus(
-    data
-  );
+const data =
+await request(
+env,
+{
+action:
+"status",
+id
+}
+);
 
-  if (!order) {
-    throw new BuzzerPanelError(
-      "Respons status order BuzzerPanel tidak valid.",
-      {
-        status: 502,
-        code: "BUZZERPANEL_STATUS_INVALID",
-        details: data
-      }
-    );
-  }
+return normalizeStatusResult(
+data
+);
+}
 
-  return order;
+export async function getStatus(
+env,
+context = {}
+) {
+return getOrder(
+env,
+context
+);
+}
+
+export async function cancelOrder(
+env,
+context = {}
+) {
+const order =
+getOrderContext(
+context
+);
+
+const id =
+requireText(
+context.externalOrderId ??
+order.external_order_id,
+"ID order BuzzerPanel wajib diisi.",
+"BUZZERPANEL_ORDER_ID_MISSING",
+MAX_ID_LENGTH
+);
+
+return {
+supported:
+false,
+externalOrderId:
+id,
+status:
+"UNKNOWN",
+providerStatus:
+null,
+providerData:
+null,
+providerCharge:
+null,
+fields: {},
+failureReason:
+"BuzzerPanel tidak menyediakan operasi cancel melalui adapter ini.",
+uncertain:
+true
+};
 }
 
 export async function requestRefill(
-  env,
-  orderId
+env,
+orderId
 ) {
-  const id = requireText(
-    orderId,
-    "ID order BuzzerPanel wajib diisi.",
-    "BUZZERPANEL_ORDER_ID_MISSING",
-    MAX_ID_LENGTH
-  );
+const id =
+requireText(
+orderId,
+"ID order BuzzerPanel wajib diisi.",
+"BUZZERPANEL_ORDER_ID_MISSING",
+MAX_ID_LENGTH
+);
 
-  return request(
-    env,
-    {
-      action: "refill",
-      id
-    }
-  );
+return request(
+env,
+{
+action:
+"refill",
+id
+}
+);
 }
 
 export async function refillStatus(
-  env,
-  refillId
+env,
+refillId
 ) {
-  const id = requireText(
-    refillId,
-    "ID refill BuzzerPanel wajib diisi.",
-    "BUZZERPANEL_REFILL_ID_MISSING",
-    MAX_ID_LENGTH
-  );
+const id =
+requireText(
+refillId,
+"ID refill BuzzerPanel wajib diisi.",
+"BUZZERPANEL_REFILL_ID_MISSING",
+MAX_ID_LENGTH
+);
 
-  return request(
-    env,
-    {
-      action: "status_refill",
-      id
-    }
-  );
+return request(
+env,
+{
+action:
+"status_refill",
+id
+}
+);
 }
 
 export async function getBalance(
-  env
+env
 ) {
-  return request(
-    env,
-    {
-      action: "balance"
-    }
-  );
+return request(
+env,
+{
+action:
+"balance"
+}
+);
 }
 
-export function mapStatus(status) {
-  const value = clean(
-    status,
-    128
-  )
-    .toUpperCase()
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+export function mapStatus(
+status
+) {
+const value =
+clean(
+status,
+128
+)
+.toUpperCase()
+.replace(
+/[_-]+/g,
+" "
+)
+.replace(
+/\s+/g,
+" "
+)
+.trim();
 
-  if (!value) {
-    return "UNKNOWN";
-  }
-
-  if (
-    [
-      "PENDING",
-      "WAITING",
-      "QUEUED",
-      "QUEUE",
-      "IN QUEUE",
-      "AWAITING"
-    ].includes(value)
-  ) {
-    return "PENDING";
-  }
-
-  if (
-    [
-      "PROCESSING",
-      "IN PROGRESS",
-      "INPROGRESS",
-      "RUNNING",
-      "STARTED",
-      "WORKING"
-    ].includes(value)
-  ) {
-    return "PROCESSING";
-  }
-
-  if (
-    [
-      "COMPLETED",
-      "COMPLETE",
-      "DONE",
-      "SUCCESS",
-      "SUCCESSFUL"
-    ].includes(value)
-  ) {
-    return "COMPLETED";
-  }
-
-  if (
-    [
-      "PARTIAL",
-      "PARTIALLY COMPLETED",
-      "PARTIALLY"
-    ].includes(value)
-  ) {
-    return "PROCESSING";
-  }
-
-  if (
-    [
-      "CANCELED",
-      "CANCELLED",
-      "CANCEL",
-      "STOPPED"
-    ].includes(value)
-  ) {
-    return "CANCELLED";
-  }
-
-  if (
-    [
-      "REFUNDED",
-      "REFUND"
-    ].includes(value)
-  ) {
-    return "REFUNDED";
-  }
-
-  if (
-    [
-      "FAILED",
-      "FAIL",
-      "ERROR",
-      "REJECTED",
-      "REJECT",
-      "FAILURE"
-    ].includes(value)
-  ) {
-    return "FAILED";
-  }
-
-  return "UNKNOWN";
+if (!value) {
+return "UNKNOWN";
 }
+
+if (
+[
+"PENDING",
+"WAITING",
+"QUEUED",
+"QUEUE",
+"IN QUEUE",
+"AWAITING"
+].includes(value)
+) {
+return "PENDING";
+}
+
+if (
+[
+"PROCESSING",
+"IN PROGRESS",
+"INPROGRESS",
+"RUNNING",
+"STARTED",
+"WORKING"
+].includes(value)
+) {
+return "PROCESSING";
+}
+
+if (
+[
+"COMPLETED",
+"COMPLETE",
+"DONE",
+"SUCCESS",
+"SUCCESSFUL"
+].includes(value)
+) {
+return "COMPLETED";
+}
+
+if (
+[
+"PARTIAL",
+"PARTIALLY COMPLETED",
+"PARTIALLY"
+].includes(value)
+) {
+return "PARTIAL";
+}
+
+if (
+[
+"CANCELED",
+"CANCELLED",
+"CANCEL",
+"STOPPED"
+].includes(value)
+) {
+return "CANCELLED";
+}
+
+if (
+[
+"EXPIRED",
+"EXPIRE",
+"TIMEOUT",
+"TIMED OUT"
+].includes(value)
+) {
+return "EXPIRED";
+}
+
+if (
+[
+"REFUNDED",
+"REFUND"
+].includes(value)
+) {
+return "REFUNDED";
+}
+
+if (
+[
+"FAILED",
+"FAIL",
+"ERROR",
+"REJECTED",
+"REJECT",
+"FAILURE"
+].includes(value)
+) {
+return "FAILED";
+}
+
+return "UNKNOWN";
+}
+
+export default {
+createOrder,
+getOrder,
+getStatus,
+cancelOrder,
+getServices,
+normalizeService,
+requestRefill,
+refillStatus,
+getBalance,
+mapStatus
+};
