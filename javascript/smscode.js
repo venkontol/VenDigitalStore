@@ -1,1070 +1,1001 @@
 const DEFAULT_BASE_URL = "https://api.smscode.gg/v2";
-const DEFAULT_TIMEOUT = 15000;
+const DEFAULT_TIMEOUT_MS = 30000;
 
 class SMSCodeError extends Error {
-  constructor(message, details = {}) {
+  constructor(message, options = {}) {
     super(message);
     this.name = "SMSCodeError";
-    this.status = Number(details.status || 502);
-    this.code = details.code || null;
-    this.providerData = details.providerData ?? null;
+    this.status = options.status ?? null;
+    this.code = options.code ?? null;
+    this.details = options.details ?? null;
+    this.uncertain = options.uncertain === true;
   }
 }
 
-function getBaseUrl(env) {
-  const value = String(
+function getConfig(env) {
+  const baseUrl = String(
     env?.SMSCODE_API_URL ||
+    env?.SMSCODE_BASE_URL ||
     DEFAULT_BASE_URL
-  ).trim();
+  ).replace(/\/+$/, "");
 
-  if (!value) {
-    throw new SMSCodeError(
-      "SMSCode API URL belum dikonfigurasi.",
-      {
-        status: 500,
-        code: "SMSCODE_URL_MISSING"
-      }
-    );
-  }
-
-  try {
-    return new URL(
-      value.endsWith("/")
-        ? value
-        : `${value}/`
-    );
-  } catch {
-    throw new SMSCodeError(
-      "SMSCode API URL tidak valid.",
-      {
-        status: 500,
-        code: "SMSCODE_URL_INVALID"
-      }
-    );
-  }
-}
-
-function getToken(env) {
   const token = String(
-    env?.SMSCODE_TOKEN || ""
+    env?.SMSCODE_TOKEN ||
+    env?.SMSCODE_API_TOKEN ||
+    ""
   ).trim();
+
+  const timeoutMs = Number(
+    env?.SMSCODE_API_TIMEOUT ||
+    env?.DEFAULT_TIMEOUT_MS ||
+    DEFAULT_TIMEOUT_MS
+  );
 
   if (!token) {
+    throw new SMSCodeError("SMSCode token belum dikonfigurasi.", {
+      code: "SMSCODE_TOKEN_MISSING"
+    });
+  }
+
+  return {
+    baseUrl,
+    token,
+    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? timeoutMs
+      : DEFAULT_TIMEOUT_MS
+  };
+}
+
+function createHeaders(token, extra = {}) {
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+    ...extra
+  };
+}
+
+async function request(env, path, options = {}) {
+  const config = getConfig(env);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+
+  let response;
+
+  try {
+    response = await fetch(`${config.baseUrl}${path}`, {
+      method: options.method || "GET",
+      headers: createHeaders(config.token, options.headers || {}),
+      body: options.body === undefined
+        ? undefined
+        : JSON.stringify(options.body),
+      signal: controller.signal
+    });
+  } catch (error) {
+    clearTimeout(timer);
+
+    if (error?.name === "AbortError") {
+      throw new SMSCodeError("Request ke SMSCode timeout.", {
+        code: "SMSCODE_TIMEOUT",
+        uncertain: true
+      });
+    }
+
     throw new SMSCodeError(
-      "SMSCode API token belum dikonfigurasi.",
+      error?.message || "Gagal menghubungi SMSCode.",
       {
-        status: 500,
-        code: "SMSCODE_TOKEN_MISSING"
+        code: "SMSCODE_NETWORK_ERROR",
+        uncertain: true,
+        details: error
       }
     );
   }
 
-  return token;
-}
+  clearTimeout(timer);
 
-function normalizeData(data) {
+  const text = await response.text();
+
+  let data = null;
+
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+
+  if (!response.ok) {
+    const message =
+      data?.message ||
+      data?.error?.message ||
+      data?.error ||
+      `SMSCode HTTP ${response.status}`;
+
+    throw new SMSCodeError(String(message), {
+      status: response.status,
+      code:
+        data?.code ||
+        data?.error?.code ||
+        `HTTP_${response.status}`,
+      details: data,
+      uncertain: response.status >= 500 || response.status === 429
+    });
+  }
+
   if (
     data &&
-    typeof data === "object" &&
-    Object.prototype.hasOwnProperty.call(
-      data,
-      "data"
-    )
+    data.success === false
   ) {
-    return data.data;
+    throw new SMSCodeError(
+      String(
+        data.message ||
+        data.error?.message ||
+        data.error ||
+        "SMSCode menolak request."
+      ),
+      {
+        status: response.status,
+        code:
+          data.code ||
+          data.error?.code ||
+          "SMSCODE_API_ERROR",
+        details: data,
+        uncertain: false
+      }
+    );
   }
 
   return data;
 }
 
-function normalizeProviderPayload(data) {
-  const normalized =
-    normalizeData(data);
-
-  if (
-    normalized &&
-    typeof normalized === "object" &&
-    normalized.order &&
-    typeof normalized.order === "object"
-  ) {
-    return normalized.order;
+function firstValue(...values) {
+  for (const value of values) {
+    if (
+      value !== undefined &&
+      value !== null &&
+      value !== ""
+    ) {
+      return value;
+    }
   }
 
-  return normalized;
+  return null;
 }
 
-function getErrorMessage(data, status) {
-  if (
-    typeof data === "string" &&
-    data.trim()
-  ) {
-    return data.trim();
+function unwrap(data) {
+  if (!data || typeof data !== "object") {
+    return data;
   }
 
-  if (
-    data &&
-    typeof data === "object"
-  ) {
-    return String(
-      data.error ||
-      data.message ||
-      data.detail ||
-      data.error_message ||
-      data.errors?.message ||
-      `SMSCode API gagal (${status}).`
-    );
-  }
-
-  return `SMSCode API gagal (${status}).`;
-}
-
-function getErrorCode(data) {
-  if (
-    !data ||
-    typeof data !== "object"
-  ) {
-    return null;
-  }
-
-  return (
-    data.code ||
-    data.error_code ||
-    data.errorCode ||
-    data.errors?.code ||
-    null
+  return firstValue(
+    data.data,
+    data.result,
+    data.order,
+    data
   );
 }
 
-function buildQuery(params = {}) {
-  const query =
-    new URLSearchParams();
-
-  for (
-    const [key, value]
-    of Object.entries(params)
-  ) {
-    if (
-      value === undefined ||
-      value === null ||
-      value === ""
-    ) {
-      continue;
-    }
-
-    query.set(
-      key,
-      String(value)
-    );
-  }
-
-  const result =
-    query.toString();
-
-  return result
-    ? `?${result}`
-    : "";
-}
-
-function normalizePositiveInteger(
-  value,
-  label,
-  required = false
-) {
+function normalizeId(value) {
   if (
     value === undefined ||
     value === null ||
     value === ""
   ) {
-    if (required) {
-      throw new SMSCodeError(
-        `${label} wajib diisi.`,
-        {
-          status: 400,
-          code: `${label
-            .toUpperCase()
-            .replace(/\s+/g, "_")}_REQUIRED`
-        }
-      );
-    }
-
     return null;
   }
 
-  const parsed =
-    Number(value);
+  return String(value);
+}
 
+function normalizeNumber(value) {
   if (
-    !Number.isSafeInteger(parsed) ||
-    parsed < 1
+    value === undefined ||
+    value === null ||
+    value === ""
   ) {
-    throw new SMSCodeError(
-      `${label} tidak valid.`,
-      {
-        status: 400,
-        code: `INVALID_${label
-          .toUpperCase()
-          .replace(/\s+/g, "_")}`
-      }
-    );
+    return null;
   }
 
-  return parsed;
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : null;
 }
 
-async function request(
-  env,
-  path,
-  options = {}
-) {
-  const token =
-    getToken(env);
+function normalizeInteger(value) {
+  const number = normalizeNumber(value);
 
-  const baseUrl =
-    getBaseUrl(env);
-
-  const controller =
-    new AbortController();
-
-  const timeoutMs =
-    Number(options.timeout) > 0
-      ? Number(options.timeout)
-      : DEFAULT_TIMEOUT;
-
-  const timeout =
-    setTimeout(
-      () => controller.abort(),
-      timeoutMs
-    );
-
-  try {
-    const url =
-      new URL(
-        String(path).replace(
-          /^\/+/,
-          ""
-        ),
-        baseUrl
-      );
-
-    const headers =
-      new Headers(
-        options.headers || {}
-      );
-
-    headers.set(
-      "Authorization",
-      `Bearer ${token}`
-    );
-
-    headers.set(
-      "Accept",
-      "application/json"
-    );
-
-    if (
-      options.body !== undefined &&
-      !headers.has(
-        "Content-Type"
-      )
-    ) {
-      headers.set(
-        "Content-Type",
-        "application/json"
-      );
-    }
-
-    const response =
-      await fetch(
-        url,
-        {
-          method:
-            options.method || "GET",
-          headers,
-          body:
-            options.body !== undefined
-              ? JSON.stringify(
-                  options.body
-                )
-              : undefined,
-          signal:
-            controller.signal
-        }
-      );
-
-    const contentType =
-      response.headers.get(
-        "content-type"
-      ) || "";
-
-    let data = null;
-
-    if (
-      contentType.includes(
-        "application/json"
-      )
-    ) {
-      try {
-        data =
-          await response.json();
-      } catch {
-        data = null;
-      }
-    } else {
-      try {
-        const text =
-          await response.text();
-
-        data =
-          text.trim()
-            ? text
-            : null;
-      } catch {
-        data = null;
-      }
-    }
-
-    if (!response.ok) {
-      throw new SMSCodeError(
-        getErrorMessage(
-          data,
-          response.status
-        ),
-        {
-          status:
-            response.status >= 500
-              ? 502
-              : response.status,
-          code:
-            getErrorCode(data),
-          providerData:
-            data
-        }
-      );
-    }
-
-    return data;
-  } catch (error) {
-    if (
-      error instanceof SMSCodeError
-    ) {
-      throw error;
-    }
-
-    if (
-      error?.name ===
-      "AbortError"
-    ) {
-      throw new SMSCodeError(
-        "SMSCode API timeout.",
-        {
-          status: 504,
-          code: "SMSCODE_TIMEOUT"
-        }
-      );
-    }
-
-    throw new SMSCodeError(
-      "Tidak dapat terhubung ke SMSCode API.",
-      {
-        status: 502,
-        code:
-          "SMSCODE_NETWORK_ERROR",
-        providerData:
-          error?.message || null
-      }
-    );
-  } finally {
-    clearTimeout(timeout);
+  if (number === null) {
+    return null;
   }
+
+  return Number.isSafeInteger(number)
+    ? number
+    : Math.trunc(number);
 }
 
-export async function getCountries(
-  env
-) {
-  const response =
-    await request(
-      env,
-      "/catalog/countries"
-    );
+function normalizeTimestamp(value) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
 
-  const data =
-    normalizeData(response);
+  if (typeof value === "number") {
+    if (value > 100000000000) {
+      return Math.trunc(value);
+    }
 
-  if (Array.isArray(data)) {
-    return data;
+    if (value > 1000000000) {
+      return Math.trunc(value * 1000);
+    }
+
+    return Math.trunc(value);
+  }
+
+  const numeric = Number(value);
+
+  if (Number.isFinite(numeric)) {
+    if (numeric > 100000000000) {
+      return Math.trunc(numeric);
+    }
+
+    if (numeric > 1000000000) {
+      return Math.trunc(numeric * 1000);
+    }
+  }
+
+  const parsed = Date.parse(String(value));
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : null;
+}
+
+function mapStatus(value) {
+  const status = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (!status) {
+    return "UNKNOWN";
   }
 
   if (
-    Array.isArray(
-      data?.countries
+    [
+      "PENDING",
+      "WAITING",
+      "QUEUED",
+      "QUEUE",
+      "CREATED"
+    ].includes(status)
+  ) {
+    return "PENDING";
+  }
+
+  if (
+    [
+      "ACTIVE",
+      "PROCESSING",
+      "IN_PROGRESS",
+      "INPROGRESS",
+      "RUNNING"
+    ].includes(status)
+  ) {
+    return "PROCESSING";
+  }
+
+  if (
+    [
+      "OTP_RECEIVED",
+      "OTP",
+      "CODE_RECEIVED"
+    ].includes(status)
+  ) {
+    return "OTP_RECEIVED";
+  }
+
+  if (
+    [
+      "COMPLETED",
+      "COMPLETE",
+      "DONE",
+      "SUCCESS",
+      "SUCCESSFUL",
+      "FINISHED"
+    ].includes(status)
+  ) {
+    return "COMPLETED";
+  }
+
+  if (
+    [
+      "CANCELED",
+      "CANCELLED",
+      "CANCEL"
+    ].includes(status)
+  ) {
+    return "CANCELLED";
+  }
+
+  if (
+    [
+      "EXPIRED",
+      "EXPIRE",
+      "TIMEOUT",
+      "TIMED_OUT"
+    ].includes(status)
+  ) {
+    return "EXPIRED";
+  }
+
+  if (
+    [
+      "FAILED",
+      "FAIL",
+      "ERROR",
+      "REJECTED",
+      "REJECT",
+      "FAILURE"
+    ].includes(status)
+  ) {
+    return "FAILED";
+  }
+
+  if (
+    [
+      "REFUNDED",
+      "REFUND"
+    ].includes(status)
+  ) {
+    return "REFUNDED";
+  }
+
+  return "UNKNOWN";
+}
+
+function normalizeOrder(data) {
+  const root = unwrap(data);
+
+  const order =
+    root?.order &&
+    typeof root.order === "object"
+      ? root.order
+      : root;
+
+  const providerStatus = firstValue(
+    order?.status,
+    order?.order_status,
+    order?.state,
+    root?.status,
+    root?.order_status,
+    root?.state
+  );
+
+  const externalOrderId = normalizeId(
+    firstValue(
+      order?.id,
+      order?.order_id,
+      root?.id,
+      root?.order_id
     )
-  ) {
-    return data.countries;
-  }
+  );
 
-  return data;
-}
-
-export async function getServices(
-  env,
-  countryId
-) {
-  const query =
-    buildQuery({
-      country_id:
-        countryId
-    });
-
-  const response =
-    await request(
-      env,
-      `/catalog/services${query}`
-    );
-
-  const data =
-    normalizeData(response);
-
-  if (Array.isArray(data)) {
-    return data;
-  }
-
-  if (
-    Array.isArray(
-      data?.services
+  const amount = normalizeNumber(
+    firstValue(
+      order?.amount,
+      order?.price,
+      order?.charge,
+      order?.cost,
+      root?.amount,
+      root?.price,
+      root?.charge,
+      root?.cost
     )
-  ) {
-    return data.services;
-  }
+  );
 
-  return data;
-}
+  const phoneNumber = firstValue(
+    order?.phone_number,
+    order?.phone,
+    order?.number,
+    order?.mobile,
+    root?.phone_number,
+    root?.phone,
+    root?.number,
+    root?.mobile
+  );
 
-export async function getOperators(
-  env,
-  {
-    countryId,
-    platformId
-  } = {}
-) {
-  const query =
-    buildQuery({
-      country_id:
-        countryId,
-      platform_id:
-        platformId
-    });
+  const otpCode = firstValue(
+    order?.otp_code,
+    order?.otp,
+    order?.code,
+    root?.otp_code,
+    root?.otp,
+    root?.code
+  );
 
-  const response =
-    await request(
-      env,
-      `/catalog/operators${query}`
-    );
+  const otpMessage = firstValue(
+    order?.otp_message,
+    order?.message,
+    root?.otp_message
+  );
 
-  const data =
-    normalizeData(response);
-
-  if (Array.isArray(data)) {
-    return data;
-  }
-
-  if (
-    Array.isArray(
-      data?.operators
+  const otpReceivedAt = normalizeTimestamp(
+    firstValue(
+      order?.otp_received_at,
+      order?.code_received_at,
+      root?.otp_received_at,
+      root?.code_received_at
     )
-  ) {
-    return data.operators;
-  }
+  );
 
-  return data;
-}
-
-export async function getProducts(
-  env,
-  filters = {}
-) {
-  const query =
-    buildQuery({
-      country_id:
-        filters.countryId,
-      platform_id:
-        filters.platformId,
-      service_id:
-        filters.serviceId,
-      operator_id:
-        filters.operatorId,
-      available:
-        filters.available,
-      active:
-        filters.active
-    });
-
-  const response =
-    await request(
-      env,
-      `/catalog/products${query}`
-    );
-
-  const data =
-    normalizeData(response);
-
-  if (Array.isArray(data)) {
-    return data;
-  }
-
-  if (
-    Array.isArray(
-      data?.products
+  const providerExpiresAt = normalizeTimestamp(
+    firstValue(
+      order?.expires_at,
+      order?.expired_at,
+      order?.expiry,
+      order?.expiration,
+      root?.expires_at,
+      root?.expired_at,
+      root?.expiry,
+      root?.expiration
     )
-  ) {
-    return data.products;
-  }
+  );
 
-  return [];
+  const failureReason = firstValue(
+    order?.failed_reason,
+    order?.failure_reason,
+    order?.failureReason,
+    order?.error,
+    root?.failed_reason,
+    root?.failure_reason,
+    root?.failureReason,
+    root?.error
+  );
+
+  const status = mapStatus(providerStatus);
+
+  return {
+    externalOrderId,
+    status,
+    providerStatus:
+      providerStatus === null
+        ? null
+        : String(providerStatus),
+    providerData: data ?? null,
+    providerCharge: amount,
+    fields: {
+      phoneNumber:
+        phoneNumber === null
+          ? null
+          : String(phoneNumber),
+      otpCode:
+        otpCode === null
+          ? null
+          : String(otpCode),
+      otpMessage:
+        otpMessage === null
+          ? null
+          : String(otpMessage),
+      otpReceivedAt,
+      providerExpiresAt
+    },
+    failureReason:
+      failureReason === null
+        ? null
+        : String(failureReason),
+    uncertain: false
+  };
 }
 
-export async function getProduct(
-  env,
-  productId
-) {
-  const parsedProductId =
-    normalizePositiveInteger(
-      productId,
-      "Product ID SMSCode",
-      true
-    );
+function getOrderIdFromContext(context = {}) {
+  const order = context.order || {};
 
-  const products =
-    await getProducts(
-      env
-    );
-
-  return (
-    products.find(
-      product =>
-        String(
-          product.id
-        ) ===
-        String(
-          parsedProductId
-        )
-    ) || null
+  return normalizeId(
+    firstValue(
+      context.externalOrderId,
+      context.external_order_id,
+      order.externalOrderId,
+      order.external_order_id
+    )
   );
 }
 
-export async function getBalance(
-  env
-) {
-  const response =
-    await request(
-      env,
-      "/balance"
-    );
+function getRequestData(context = {}) {
+  const requestData =
+    context.requestData &&
+    typeof context.requestData === "object"
+      ? context.requestData
+      : {};
 
-  const data =
-    normalizeData(response);
-
-  if (
-    typeof data ===
-    "number"
-  ) {
-    return {
-      balance: data,
-      currency: "IDR"
-    };
-  }
-
-  if (
-    typeof data ===
-    "string" &&
-    data.trim() &&
-    Number.isFinite(
-      Number(data)
-    )
-  ) {
-    return {
-      balance:
-        Number(data),
-      currency: "IDR"
-    };
-  }
+  const order =
+    context.order &&
+    typeof context.order === "object"
+      ? context.order
+      : {};
 
   return {
-    balance:
-      Number(
-        data?.balance ??
-        data?.amount ??
-        0
-      ),
-    currency:
-      String(
-        data?.currency ||
-        "IDR"
-      ).toUpperCase(),
-    raw: data
+    ...requestData,
+    ...order.requestData
   };
 }
 
-export async function createOrder(
-  env,
-  {
-    productId,
-    catalogProductId,
-    operatorId,
-    minPrice,
-    maxPrice,
-    quantity = 1,
-    idempotencyKey
-  } = {}
-) {
-  const parsedProductId =
-    productId !== undefined &&
-    productId !== null &&
-    productId !== ""
-      ? normalizePositiveInteger(
-          productId,
-          "Product ID SMSCode"
-        )
-      : null;
+function buildCreatePayload(context = {}) {
+  const order =
+    context.order &&
+    typeof context.order === "object"
+      ? context.order
+      : {};
 
-  const parsedCatalogProductId =
-    catalogProductId !== undefined &&
-    catalogProductId !== null &&
-    catalogProductId !== ""
-      ? normalizePositiveInteger(
-          catalogProductId,
-          "Catalog Product ID SMSCode"
-        )
-      : null;
+  const requestData = getRequestData(context);
 
-  if (
-    !parsedProductId &&
-    !parsedCatalogProductId
-  ) {
-    throw new SMSCodeError(
-      "Product ID SMSCode wajib diisi.",
-      {
-        status: 400,
-        code:
-          "PRODUCT_ID_REQUIRED"
-      }
-    );
-  }
+  const productId = firstValue(
+    requestData.product_id,
+    requestData.productId,
+    requestData.catalog_product_id,
+    requestData.catalogProductId,
+    order.service_id,
+    order.serviceId
+  );
 
-  const parsedQuantity =
-    normalizePositiveInteger(
-      quantity,
-      "Quantity SMSCode",
-      true
-    );
+  const catalogProductId = firstValue(
+    requestData.catalog_product_id,
+    requestData.catalogProductId,
+    order.catalog_product_id,
+    order.catalogProductId
+  );
 
-  const body = {
-    quantity:
-      parsedQuantity
+  const operatorId = firstValue(
+    requestData.operator_id,
+    requestData.operatorId,
+    order.operator_id,
+    order.operatorId
+  );
+
+  const quantity = firstValue(
+    requestData.quantity,
+    order.quantity,
+    1
+  );
+
+  const minPrice = firstValue(
+    requestData.min_price,
+    requestData.minPrice,
+    order.min_price,
+    order.minPrice
+  );
+
+  const maxPrice = firstValue(
+    requestData.max_price,
+    requestData.maxPrice,
+    order.max_price,
+    order.maxPrice
+  );
+
+  const payload = {
+    quantity: normalizeInteger(quantity)
   };
 
   if (
-    parsedProductId
+    productId !== null &&
+    productId !== undefined &&
+    productId !== ""
   ) {
-    body.product_id =
-      parsedProductId;
-  } else {
-    body.catalog_product_id =
-      parsedCatalogProductId;
+    payload.product_id = String(productId);
+  } else if (
+    catalogProductId !== null &&
+    catalogProductId !== undefined &&
+    catalogProductId !== ""
+  ) {
+    payload.catalog_product_id = String(catalogProductId);
   }
 
   if (
-    operatorId !== undefined &&
     operatorId !== null &&
+    operatorId !== undefined &&
     operatorId !== ""
   ) {
-    body.operator_id =
-      normalizePositiveInteger(
-        operatorId,
-        "Operator ID SMSCode"
-      );
+    payload.operator_id = String(operatorId);
   }
 
   if (
-    minPrice !== undefined &&
     minPrice !== null &&
+    minPrice !== undefined &&
     minPrice !== ""
   ) {
-    const parsedMinPrice =
-      Number(minPrice);
-
-    if (
-      !Number.isFinite(
-        parsedMinPrice
-      ) ||
-      parsedMinPrice < 0
-    ) {
-      throw new SMSCodeError(
-        "Minimum price SMSCode tidak valid.",
-        {
-          status: 400,
-          code:
-            "INVALID_MIN_PRICE"
-        }
-      );
-    }
-
-    body.min_price =
-      parsedMinPrice;
+    payload.min_price = normalizeNumber(minPrice);
   }
 
   if (
-    maxPrice !== undefined &&
     maxPrice !== null &&
+    maxPrice !== undefined &&
     maxPrice !== ""
   ) {
-    const parsedMaxPrice =
-      Number(maxPrice);
-
-    if (
-      !Number.isFinite(
-        parsedMaxPrice
-      ) ||
-      parsedMaxPrice < 0
-    ) {
-      throw new SMSCodeError(
-        "Maximum price SMSCode tidak valid.",
-        {
-          status: 400,
-          code:
-            "INVALID_MAX_PRICE"
-        }
-      );
-    }
-
-    body.max_price =
-      parsedMaxPrice;
+    payload.max_price = normalizeNumber(maxPrice);
   }
 
+  return payload;
+}
+
+function getIdempotencyKey(context = {}) {
+  const order =
+    context.order &&
+    typeof context.order === "object"
+      ? context.order
+      : {};
+
+  return firstValue(
+    context.idempotencyKey,
+    context.idempotency_key,
+    order.idempotencyKey,
+    order.idempotency_key
+  );
+}
+
+async function createOrder(env, context = {}) {
+  const payload = buildCreatePayload(context);
+
   if (
-    body.min_price !== undefined &&
-    body.max_price !== undefined &&
-    body.min_price >
-      body.max_price
+    !Number.isSafeInteger(payload.quantity) ||
+    payload.quantity <= 0
   ) {
     throw new SMSCodeError(
-      "Minimum price tidak boleh lebih besar dari maximum price.",
+      "Quantity order SMSCode tidak valid.",
       {
-        status: 400,
-        code:
-          "INVALID_PRICE_RANGE"
+        code: "INVALID_QUANTITY"
       }
     );
   }
+
+  if (
+    !payload.product_id &&
+    !payload.catalog_product_id
+  ) {
+    throw new SMSCodeError(
+      "Product ID SMSCode belum ditentukan.",
+      {
+        code: "PRODUCT_ID_MISSING"
+      }
+    );
+  }
+
+  const idempotencyKey = getIdempotencyKey(context);
 
   const headers = {};
 
-  if (
-    idempotencyKey !== undefined &&
-    idempotencyKey !== null &&
-    String(
-      idempotencyKey
-    ).trim()
-  ) {
-    headers[
-      "Idempotency-Key"
-    ] = String(
-      idempotencyKey
-    ).trim();
+  if (idempotencyKey) {
+    headers["Idempotency-Key"] = String(idempotencyKey);
   }
 
-  const response =
-    await request(
+  let data;
+
+  try {
+    data = await request(env, "/orders/create", {
+      method: "POST",
+      headers,
+      body: payload
+    });
+  } catch (error) {
+    if (error instanceof SMSCodeError) {
+      throw error;
+    }
+
+    throw new SMSCodeError(
+      error?.message || "SMSCode create order gagal.",
+      {
+        code: "CREATE_ORDER_ERROR",
+        uncertain: true,
+        details: error
+      }
+    );
+  }
+
+  return normalizeOrder(data);
+}
+
+async function getOrder(env, context = {}) {
+  const orderId = getOrderIdFromContext(context);
+
+  if (!orderId) {
+    throw new SMSCodeError(
+      "External order ID SMSCode belum tersedia.",
+      {
+        code: "EXTERNAL_ORDER_ID_MISSING"
+      }
+    );
+  }
+
+  let data;
+
+  try {
+    data = await request(
       env,
-      "/orders/create",
+      `/orders/${encodeURIComponent(orderId)}`
+    );
+  } catch (error) {
+    if (error instanceof SMSCodeError) {
+      throw error;
+    }
+
+    throw new SMSCodeError(
+      error?.message || "SMSCode get order gagal.",
+      {
+        code: "GET_ORDER_ERROR",
+        uncertain: true,
+        details: error
+      }
+    );
+  }
+
+  return normalizeOrder(data);
+}
+
+async function getStatus(env, context = {}) {
+  return getOrder(env, context);
+}
+
+async function cancelOrder(env, context = {}) {
+  const orderId = getOrderIdFromContext(context);
+
+  if (!orderId) {
+    throw new SMSCodeError(
+      "External order ID SMSCode belum tersedia.",
+      {
+        code: "EXTERNAL_ORDER_ID_MISSING"
+      }
+    );
+  }
+
+  let data;
+
+  try {
+    data = await request(
+      env,
+      `/orders/${encodeURIComponent(orderId)}/cancel`,
       {
         method: "POST",
-        headers,
-        body
+        body: {}
       }
     );
+  } catch (error) {
+    if (error instanceof SMSCodeError) {
+      throw error;
+    }
 
-  return normalizeData(
-    response
-  );
+    throw new SMSCodeError(
+      error?.message || "SMSCode cancel order gagal.",
+      {
+        code: "CANCEL_ORDER_ERROR",
+        uncertain: true,
+        details: error
+      }
+    );
+  }
+
+  return normalizeOrder(data);
 }
 
-export async function getOrder(
-  env,
-  orderId
-) {
-  const normalizedOrderId =
-    String(
-      orderId ?? ""
-    ).trim();
+async function finishOrder(env, context = {}) {
+  const orderId = getOrderIdFromContext(context);
 
+  if (!orderId) {
+    throw new SMSCodeError(
+      "External order ID SMSCode belum tersedia.",
+      {
+        code: "EXTERNAL_ORDER_ID_MISSING"
+      }
+    );
+  }
+
+  let data;
+
+  try {
+    data = await request(
+      env,
+      `/orders/${encodeURIComponent(orderId)}/finish`,
+      {
+        method: "POST",
+        body: {}
+      }
+    );
+  } catch (error) {
+    if (error instanceof SMSCodeError) {
+      throw error;
+    }
+
+    throw new SMSCodeError(
+      error?.message || "SMSCode finish order gagal.",
+      {
+        code: "FINISH_ORDER_ERROR",
+        uncertain: true,
+        details: error
+      }
+    );
+  }
+
+  return normalizeOrder(data);
+}
+
+async function resendOrder(env, context = {}) {
+  const orderId = getOrderIdFromContext(context);
+
+  if (!orderId) {
+    throw new SMSCodeError(
+      "External order ID SMSCode belum tersedia.",
+      {
+        code: "EXTERNAL_ORDER_ID_MISSING"
+      }
+    );
+  }
+
+  let data;
+
+  try {
+    data = await request(
+      env,
+      `/orders/${encodeURIComponent(orderId)}/resend`,
+      {
+        method: "POST",
+        body: {}
+      }
+    );
+  } catch (error) {
+    if (error instanceof SMSCodeError) {
+      throw error;
+    }
+
+    throw new SMSCodeError(
+      error?.message || "SMSCode resend order gagal.",
+      {
+        code: "RESEND_ORDER_ERROR",
+        uncertain: true,
+        details: error
+      }
+    );
+  }
+
+  return normalizeOrder(data);
+}
+
+async function getCountries(env) {
+  return request(env, "/countries");
+}
+
+async function getServices(env, params = {}) {
+  const query = new URLSearchParams();
+
+  if (params.countryId !== undefined) {
+    query.set("country_id", String(params.countryId));
+  }
+
+  if (params.country_id !== undefined) {
+    query.set("country_id", String(params.country_id));
+  }
+
+  if (params.page !== undefined) {
+    query.set("page", String(params.page));
+  }
+
+  if (params.limit !== undefined) {
+    query.set("limit", String(params.limit));
+  }
+
+  const suffix = query.toString()
+    ? `?${query.toString()}`
+    : "";
+
+  return request(env, `/services${suffix}`);
+}
+
+async function getOperators(env, params = {}) {
+  const query = new URLSearchParams();
+
+  if (params.countryId !== undefined) {
+    query.set("country_id", String(params.countryId));
+  }
+
+  if (params.country_id !== undefined) {
+    query.set("country_id", String(params.country_id));
+  }
+
+  if (params.serviceId !== undefined) {
+    query.set("service_id", String(params.serviceId));
+  }
+
+  if (params.service_id !== undefined) {
+    query.set("service_id", String(params.service_id));
+  }
+
+  const suffix = query.toString()
+    ? `?${query.toString()}`
+    : "";
+
+  return request(env, `/operators${suffix}`);
+}
+
+async function getProducts(env, params = {}) {
+  const query = new URLSearchParams();
+
+  if (params.countryId !== undefined) {
+    query.set("country_id", String(params.countryId));
+  }
+
+  if (params.country_id !== undefined) {
+    query.set("country_id", String(params.country_id));
+  }
+
+  if (params.operatorId !== undefined) {
+    query.set("operator_id", String(params.operatorId));
+  }
+
+  if (params.operator_id !== undefined) {
+    query.set("operator_id", String(params.operator_id));
+  }
+
+  if (params.serviceId !== undefined) {
+    query.set("service_id", String(params.serviceId));
+  }
+
+  if (params.service_id !== undefined) {
+    query.set("service_id", String(params.service_id));
+  }
+
+  const suffix = query.toString()
+    ? `?${query.toString()}`
+    : "";
+
+  return request(env, `/products${suffix}`);
+}
+
+async function getProduct(env, productId) {
   if (
-    !normalizedOrderId
+    productId === undefined ||
+    productId === null ||
+    productId === ""
   ) {
     throw new SMSCodeError(
-      "Order ID SMSCode wajib diisi.",
+      "Product ID SMSCode belum tersedia.",
       {
-        status: 400,
-        code:
-          "ORDER_ID_REQUIRED"
+        code: "PRODUCT_ID_MISSING"
       }
     );
   }
 
-  const response =
-    await request(
-      env,
-      `/orders/${encodeURIComponent(
-        normalizedOrderId
-      )}`
-    );
-
-  return normalizeData(
-    response
-  );
-}
-
-export async function getActiveOrders(
-  env
-) {
-  const response =
-    await request(
-      env,
-      "/orders/active"
-    );
-
-  const data =
-    normalizeData(response);
-
-  if (Array.isArray(data)) {
-    return data;
-  }
-
-  if (
-    Array.isArray(
-      data?.orders
-    )
-  ) {
-    return data.orders;
-  }
-
-  return [];
-}
-
-async function executeOrderAction(
-  env,
-  orderId,
-  action
-) {
-  const normalizedOrderId =
-    String(
-      orderId ?? ""
-    ).trim();
-
-  if (
-    !normalizedOrderId
-  ) {
-    throw new SMSCodeError(
-      "Order ID SMSCode wajib diisi.",
-      {
-        status: 400,
-        code:
-          "ORDER_ID_REQUIRED"
-      }
-    );
-  }
-
-  const response =
-    await request(
-      env,
-      `/orders/${encodeURIComponent(
-        normalizedOrderId
-      )}/${action}`,
-      {
-        method: "POST"
-      }
-    );
-
-  return normalizeData(
-    response
-  );
-}
-
-export async function cancelOrder(
-  env,
-  orderId
-) {
-  return executeOrderAction(
+  return request(
     env,
-    orderId,
-    "cancel"
+    `/products/${encodeURIComponent(String(productId))}`
   );
 }
 
-export async function finishOrder(
-  env,
-  orderId
-) {
-  return executeOrderAction(
-    env,
-    orderId,
-    "finish"
-  );
+async function getBalance(env) {
+  return request(env, "/balance");
 }
 
-export async function resendOrder(
-  env,
-  orderId
-) {
-  return executeOrderAction(
-    env,
-    orderId,
-    "resend"
-  );
-}
-
-export function mapStatus(
-  providerStatus
-) {
-  const status =
-    String(
-      providerStatus || ""
-    )
-      .trim()
-      .toUpperCase();
-
-  switch (status) {
-    case "ACTIVE":
-      return "PROCESSING";
-
-    case "OTP_RECEIVED":
-      return "OTP_RECEIVED";
-
-    case "COMPLETED":
-      return "COMPLETED";
-
-    case "CANCELED":
-    case "CANCELLED":
-      return "CANCELLED";
-
-    case "EXPIRED":
-      return "EXPIRED";
-
-    case "FAILED":
-    case "FAIL":
-      return "FAILED";
-
-    case "PENDING":
-      return "PENDING";
-
-    case "PROCESSING":
-      return "PROCESSING";
-
-    default:
-      return "UNKNOWN";
-  }
-}
-
-export function normalizeOrder(
-  data
-) {
-  if (!data) {
-    return null;
-  }
-
-  const order =
-    normalizeProviderPayload(
-      data
-    );
-
-  if (
-    !order ||
-    typeof order !==
-      "object"
-  ) {
-    return null;
-  }
-
-  const rawStatus =
-    order.status ??
-    order.provider_status ??
-    null;
-
-  const amount =
-    Number(
-      order.amount ??
-      order.price ??
-      order.charge ??
-      0
-    );
-
-  return {
-    id:
-      order.id ??
-      order.order_id ??
-      null,
-
-    status:
-      mapStatus(
-        rawStatus
-      ),
-
-    provider_status:
-      rawStatus,
-
-    product_id:
-      order.product_id ??
-      null,
-
-    catalog_product_id:
-      order.catalog_product_id ??
-      null,
-
-    operator_id:
-      order.operator_id ??
-      null,
-
-    phone_number:
-      order.phone_number ??
-      order.phone ??
-      order.number ??
-      null,
-
-    amount:
-      Number.isFinite(
-        amount
-      )
-        ? amount
-        : 0,
-
-    otp_code:
-      order.otp_code ??
-      order.otp ??
-      order.code ??
-      null,
-
-    otp_received_at:
-      order.otp_received_at ??
-      null,
-
-    expires_at:
-      order.expires_at ??
-      order.expired_at ??
-      null,
-
-    canceled_at:
-      order.canceled_at ??
-      null,
-
-    failed_reason:
-      order.failed_reason ??
-      order.failure_reason ??
-      order.error ??
-      null,
-
-    raw: data
-  };
+async function getActiveOrders(env) {
+  return request(env, "/orders/active");
 }
 
 export {
-  SMSCodeError
+  SMSCodeError,
+  mapStatus,
+  normalizeOrder,
+  createOrder,
+  getOrder,
+  getStatus,
+  cancelOrder,
+  finishOrder,
+  resendOrder,
+  getCountries,
+  getServices,
+  getOperators,
+  getProducts,
+  getProduct,
+  getBalance,
+  getActiveOrders
 };
