@@ -4,18 +4,26 @@ import {
 } from "./auth.js";
 
 import {
-  debitBalance,
-  refundBalance
-} from "./wallet.js";
+  createOrder as createCoreOrder,
+  getOrderById,
+  getOrderByNumber,
+  getUserOrder,
+  syncOrder,
+  cancelOrder as cancelCoreOrder,
+  updateOrderStatus,
+  getOrderEvents,
+  listOrdersByUser,
+  adminGetOrders,
+  refundExistingOrder,
+  formatOrder
+} from "./order-core.js";
 
 import {
   getProduct,
   getProducts,
-  createOrder,
-  getOrder,
-  cancelOrder,
-  finishOrder,
-  resendOrder,
+  getOrder as getProviderOrder,
+  finishOrder as finishProviderOrder,
+  resendOrder as resendProviderOrder,
   mapStatus
 } from "./smscode.js";
 
@@ -26,12 +34,12 @@ import {
   getUrl,
   cleanString,
   parsePositiveInteger,
-  generateOrderNumber,
   nowUnix
 } from "./utils.js";
 
 const NOKOS_PROVIDER = "SMSCODE";
 const ORDER_TYPE = "NOKOS";
+const RATE_UNIT = "FIXED";
 
 const ORDER_STATUSES = new Set([
   "CREATING",
@@ -39,6 +47,7 @@ const ORDER_STATUSES = new Set([
   "PROCESSING",
   "OTP_RECEIVED",
   "COMPLETED",
+  "PARTIAL",
   "CANCELLED",
   "EXPIRED",
   "REFUNDED",
@@ -46,242 +55,30 @@ const ORDER_STATUSES = new Set([
   "UNKNOWN"
 ]);
 
-const ORDER_COLUMNS = `
-  id,
-  user_id,
-  order_number,
-  type,
-  provider,
-  external_order_id,
-  service_id,
-  service_name,
-  target,
-  quantity,
-  rate_unit,
-  provider_rate,
-  selling_rate,
-  provider_amount,
-  customer_amount,
-  provider_charge,
-  provider_currency,
-  status,
-  provider_status,
-  provider_data,
-  request_data,
-  idempotency_key,
-  failure_reason,
-  phone_number,
-  otp_code,
-  otp_message,
-  otp_received_at,
-  provider_expires_at,
-  start_count,
-  remains,
-  created_at,
-  updated_at,
-  completed_at,
-  cancelled_at
-`;
-
-function internalStatus(providerStatus) {
-  const status =
-    mapStatus(providerStatus);
-
-  return ORDER_STATUSES.has(status)
-    ? status
-    : "UNKNOWN";
-}
-
-function getProviderStatus(data) {
-  return String(
-    data?.status ||
-    data?.provider_status ||
-    data?.order?.status ||
-    ""
-  )
-    .trim()
-    .toUpperCase();
-}
-
-function getProviderOrderId(data) {
-  return (
-    data?.id ??
-    data?.order_id ??
-    data?.order?.id ??
-    null
-  );
-}
-
-function getProviderAmount(data) {
-  const values = [
-    data?.amount,
-    data?.price,
-    data?.charge,
-    data?.order?.amount,
-    data?.order?.price,
-    data?.order?.charge
-  ];
-
-  for (const value of values) {
-    const number =
-      Number(value);
-
-    if (
-      value !== null &&
-      value !== undefined &&
-      value !== "" &&
-      Number.isFinite(number)
-    ) {
-      return Math.max(
-        0,
-        Math.round(number)
-      );
-    }
-  }
-
-  return 0;
-}
-
-function getProviderPhone(data) {
-  return (
-    data?.phone_number ||
-    data?.phone ||
-    data?.number ||
-    data?.order?.phone_number ||
-    data?.order?.phone ||
-    null
-  );
-}
-
-function getProviderOtp(data) {
-  return (
-    data?.otp_code ||
-    data?.otp ||
-    data?.code ||
-    data?.order?.otp_code ||
-    data?.order?.otp ||
-    null
-  );
-}
-
-function getProviderOtpMessage(data) {
-  return (
-    data?.otp_message ||
-    data?.message ||
-    data?.order?.otp_message ||
-    null
-  );
-}
-
-function getProviderExpiresAt(data) {
-  const value =
-    data?.expires_at ??
-    data?.expired_at ??
-    data?.order?.expires_at ??
-    null;
-
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
-    return null;
-  }
-
-  if (
-    typeof value === "number" ||
-    /^\d+$/.test(String(value))
-  ) {
-    const number =
-      Number(value);
-
-    if (
-      number > 100000000000
-    ) {
-      return Math.floor(
-        number / 1000
-      );
-    }
-
-    return number;
-  }
-
-  const timestamp =
-    Math.floor(
-      new Date(value).getTime() /
-        1000
-    );
-
-  return Number.isFinite(timestamp)
-    ? timestamp
-    : null;
-}
-
-function getProviderFailure(data) {
-  return (
-    data?.failed_reason ||
-    data?.failure_reason ||
-    data?.error ||
-    data?.message ||
-    null
-  );
-}
-
-function getProviderData(data) {
-  try {
-    return JSON.stringify(
-      data ?? null
-    );
-  } catch {
-    return null;
-  }
-}
-
-function normalizeTarget(value) {
-  return cleanString(
-    value,
-    500
-  );
-}
-
 function normalizeProductId(value) {
-  return (
-    parsePositiveInteger(
-      value
-    ) || null
-  );
+  return parsePositiveInteger(value) || null;
 }
 
 function normalizeCatalogProductId(value) {
-  return (
-    parsePositiveInteger(
-      value
-    ) || null
-  );
+  return parsePositiveInteger(value) || null;
 }
 
 function normalizeOperatorId(value) {
-  return (
-    parsePositiveInteger(
-      value
-    ) || null
-  );
+  return parsePositiveInteger(value) || null;
 }
 
 function normalizeQuantity(value) {
+  const quantity =
+    parsePositiveInteger(value);
+
   if (
-    value === undefined ||
-    value === null ||
-    value === ""
+    !quantity ||
+    quantity > 100
   ) {
-    return 1;
+    return null;
   }
 
-  return (
-    parsePositiveInteger(
-      value
-    ) || 0
-  );
+  return quantity;
 }
 
 function normalizePrice(value) {
@@ -293,12 +90,14 @@ function normalizePrice(value) {
     return null;
   }
 
-  const number =
-    Number(value);
+  const number = Number(value);
 
   if (
     !Number.isFinite(number) ||
-    number < 0
+    number < 0 ||
+    !Number.isSafeInteger(
+      Math.round(number)
+    )
   ) {
     return null;
   }
@@ -306,316 +105,77 @@ function normalizePrice(value) {
   return Math.round(number);
 }
 
-function normalizeIdempotencyKey(
-  value
-) {
-  const key =
-    cleanString(
-      value ?? "",
-      120
-    );
-
-  return key || null;
-}
-
-function validateCreatePayload(
-  payload
-) {
-  const productId =
-    normalizeProductId(
-      payload?.product_id ??
-      payload?.productId
-    );
-
-  const catalogProductId =
-    normalizeCatalogProductId(
-      payload?.catalog_product_id ??
-      payload?.catalogProductId
-    );
-
-  const operatorId =
-    normalizeOperatorId(
-      payload?.operator_id ??
-      payload?.operatorId
-    );
-
-  const quantity =
-    normalizeQuantity(
-      payload?.quantity
-    );
-
-  const minPrice =
-    normalizePrice(
-      payload?.min_price ??
-      payload?.minPrice
-    );
-
-  const maxPrice =
-    normalizePrice(
-      payload?.max_price ??
-      payload?.maxPrice
-    );
-
-  const target =
-    normalizeTarget(
-      payload?.target ??
-      payload?.phone_number ??
-      ""
-    );
-
-  const idempotencyKey =
-    normalizeIdempotencyKey(
-      payload?.idempotency_key ??
-      payload?.idempotencyKey
-    );
-
-  if (
-    !productId &&
-    !catalogProductId
-  ) {
-    return {
-      error:
-        "product_id atau catalog_product_id wajib diisi."
-    };
-  }
-
-  if (!quantity) {
-    return {
-      error:
-        "quantity tidak valid."
-    };
-  }
-
-  if (
-    minPrice !== null &&
-    maxPrice !== null &&
-    minPrice > maxPrice
-  ) {
-    return {
-      error:
-        "min_price tidak boleh lebih besar dari max_price."
-    };
-  }
-
-  return {
-    value: {
-      productId,
-      catalogProductId,
-      operatorId,
-      quantity,
-      minPrice,
-      maxPrice,
-      target,
-      idempotencyKey
-    }
-  };
-}
-
-async function findOrderById(
-  env,
-  userId,
-  orderId
-) {
-  return env.DB
-    .prepare(`
-      SELECT ${ORDER_COLUMNS}
-      FROM orders
-      WHERE id = ?
-        AND user_id = ?
-        AND type = ?
-      LIMIT 1
-    `)
-    .bind(
-      orderId,
-      userId,
-      ORDER_TYPE
-    )
-    .first();
-}
-
-async function findOrderByNumber(
-  env,
-  userId,
-  orderNumber
-) {
-  return env.DB
-    .prepare(`
-      SELECT ${ORDER_COLUMNS}
-      FROM orders
-      WHERE order_number = ?
-        AND user_id = ?
-        AND type = ?
-      LIMIT 1
-    `)
-    .bind(
-      orderNumber,
-      userId,
-      ORDER_TYPE
-    )
-    .first();
-}
-
-async function findOrderByExternalId(
-  env,
-  externalOrderId
-) {
-  if (!externalOrderId) {
-    return null;
-  }
-
-  return env.DB
-    .prepare(`
-      SELECT ${ORDER_COLUMNS}
-      FROM orders
-      WHERE provider = ?
-        AND external_order_id = ?
-      LIMIT 1
-    `)
-    .bind(
-      NOKOS_PROVIDER,
-      String(
-        externalOrderId
-      )
-    )
-    .first();
-}
-
-async function findOrderByIdempotency(
-  env,
-  userId,
-  idempotencyKey
-) {
-  if (!idempotencyKey) {
-    return null;
-  }
-
-  return env.DB
-    .prepare(`
-      SELECT ${ORDER_COLUMNS}
-      FROM orders
-      WHERE user_id = ?
-        AND idempotency_key = ?
-        AND type = ?
-      LIMIT 1
-    `)
-    .bind(
-      userId,
-      idempotencyKey,
-      ORDER_TYPE
-    )
-    .first();
-}
-
-async function findOrderIdentifier(
-  request,
-  env,
-  userId,
-  body = null
-) {
-  const url =
-    getUrl(request);
-
-  const id =
-    parsePositiveInteger(
-      url.searchParams.get(
-        "id"
-      ) ??
-      body?.id ??
-      body?.order_id ??
-      body?.orderId
-    );
-
-  const orderNumber =
-    cleanString(
-      url.searchParams.get(
-        "order_number"
-      ) ??
-      body?.order_number ??
-      body?.orderNumber ??
-      "",
-      120
-    );
-
-  if (id) {
-    return findOrderById(
-      env,
-      userId,
-      id
-    );
-  }
-
-  if (orderNumber) {
-    return findOrderByNumber(
-      env,
-      userId,
-      orderNumber
-    );
-  }
-
-  return null;
-}
-
-function getProductPrice(
-  product
-) {
-  const values = [
-    product?.price,
-    product?.selling_price,
-    product?.amount
-  ];
-
-  for (const value of values) {
-    const number =
-      Number(value);
-
-    if (
-      Number.isFinite(number) &&
-      number > 0
-    ) {
-      return Math.round(
-        number
-      );
-    }
-  }
-
-  return 0;
-}
-
-function getProductName(
-  product
-) {
+function normalizeIdempotencyKey(value) {
   return (
-    product?.name ||
-    product?.service_name ||
-    product?.product_name ||
-    "NOKOS"
+    cleanString(
+      value,
+      255
+    ) || null
   );
 }
 
-function getProductServiceId(
-  product
-) {
+function normalizeTarget(value) {
+  return (
+    cleanString(
+      value,
+      500
+    ) || null
+  );
+}
+
+function getProductId(product) {
   return (
     product?.id ??
     product?.product_id ??
-    product?.productId ??
     null
   );
 }
 
-function getCatalogProductId(
-  product
-) {
+function getCatalogProductId(product) {
   return (
     product?.catalog_product_id ??
     product?.catalogProductId ??
+    product?.catalog_id ??
     null
   );
 }
 
-function getProductCountry(
-  product
-) {
+function getProductPrice(product) {
+  const value =
+    product?.price ??
+    product?.amount ??
+    product?.cost ??
+    product?.rate ??
+    product?.selling_price ??
+    product?.provider_price ??
+    null;
+
+  const number =
+    Number(value);
+
+  if (
+    !Number.isFinite(number)
+  ) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    Math.round(number)
+  );
+}
+
+function getProductName(product) {
+  return (
+    product?.name ||
+    product?.product_name ||
+    product?.service_name ||
+    product?.title ||
+    `NOKOS ${getProductId(product) || ""}`.trim()
+  );
+}
+
+function getProductCountry(product) {
   return (
     product?.country_name ||
     product?.country ||
@@ -623,9 +183,7 @@ function getProductCountry(
   );
 }
 
-function getProductPlatform(
-  product
-) {
+function getProductPlatform(product) {
   return (
     product?.platform_name ||
     product?.platform ||
@@ -633,9 +191,7 @@ function getProductPlatform(
   );
 }
 
-function getProductOperator(
-  product
-) {
+function getProductOperator(product) {
   return (
     product?.operator_name ||
     product?.operator ||
@@ -643,70 +199,38 @@ function getProductOperator(
   );
 }
 
-async function getProductForOrder(
-  env,
-  {
-    productId,
-    catalogProductId,
-    operatorId,
-    minPrice,
-    maxPrice
-  }
-) {
-  if (productId) {
-    const product =
-      await getProduct(
-        env,
-        productId
-      );
+function getProductCountryId(product) {
+  return (
+    normalizeProductId(
+      product?.country_id
+    )
+  );
+}
 
-    if (!product) {
-      throw new Error(
-        "Produk NOKOS tidak ditemukan."
-      );
-    }
+function getProductPlatformId(product) {
+  return (
+    normalizeProductId(
+      product?.platform_id
+    )
+  );
+}
 
-    return product;
-  }
+function getProductOperatorId(product) {
+  return (
+    normalizeOperatorId(
+      product?.operator_id
+    )
+  );
+}
 
-  const products =
-    await getProducts(
-      env,
-      {
-        platformId:
-          undefined,
-        serviceId:
-          undefined,
-        operatorId,
-        minPrice,
-        maxPrice
-      }
+function serializeProviderData(product) {
+  try {
+    return JSON.stringify(
+      product ?? null
     );
-
-  if (
-    !Array.isArray(products) ||
-    !products.length
-  ) {
-    throw new Error(
-      "Produk NOKOS tidak tersedia."
-    );
+  } catch {
+    return null;
   }
-
-  const matched =
-    products.find(
-      product =>
-        String(
-          getCatalogProductId(
-            product
-          ) ?? ""
-        ) ===
-        String(
-          catalogProductId
-        )
-    );
-
-  return matched ||
-    products[0];
 }
 
 async function saveNokosService(
@@ -714,68 +238,27 @@ async function saveNokosService(
   product
 ) {
   const productId =
-    Number(
-      getProductServiceId(
-        product
-      )
+    normalizeProductId(
+      getProductId(product)
     );
 
-  if (
-    !Number.isInteger(
-      productId
-    ) ||
-    productId <= 0
-  ) {
+  if (!productId) {
     return null;
   }
 
   const catalogProductId =
-    Number(
-      getCatalogProductId(
-        product
-      )
+    normalizeCatalogProductId(
+      getCatalogProductId(product)
     ) ||
     productId;
-
-  const countryId =
-    Number(
-      product?.country_id
-    ) || null;
-
-  const platformId =
-    Number(
-      product?.platform_id
-    ) || null;
-
-  const operatorId =
-    Number(
-      product?.operator_id
-    ) || null;
-
-  const countryName =
-    getProductCountry(
-      product
-    );
-
-  const platformName =
-    getProductPlatform(
-      product
-    );
-
-  const operatorName =
-    getProductOperator(
-      product
-    );
-
-  const serviceName =
-    getProductName(
-      product
-    );
 
   const providerPrice =
     getProductPrice(
       product
     );
+
+  const sellingPrice =
+    providerPrice;
 
   const available =
     product?.available === false
@@ -786,11 +269,6 @@ async function saveNokosService(
     product?.active === false
       ? 0
       : 1;
-
-  const metadata =
-    getProviderData(
-      product
-    );
 
   const timestamp =
     nowUnix();
@@ -836,18 +314,34 @@ async function saveNokosService(
     .bind(
       productId,
       catalogProductId,
-      countryId,
-      countryName,
-      platformId,
-      platformName,
-      operatorId,
-      operatorName,
-      serviceName,
+      getProductCountryId(
+        product
+      ),
+      getProductCountry(
+        product
+      ),
+      getProductPlatformId(
+        product
+      ),
+      getProductPlatform(
+        product
+      ),
+      getProductOperatorId(
+        product
+      ),
+      getProductOperator(
+        product
+      ),
+      getProductName(
+        product
+      ),
       providerPrice,
-      providerPrice,
+      sellingPrice,
       available,
       active,
-      metadata,
+      serializeProviderData(
+        product
+      ),
       timestamp,
       timestamp
     )
@@ -856,637 +350,406 @@ async function saveNokosService(
   return true;
 }
 
-async function createLocalOrder(
+async function getProductForOrder(
   env,
   {
-    userId,
-    product,
-    quantity,
-    target,
-    idempotencyKey,
-    requestData,
-    customerAmount
-  }
-) {
-  const timestamp =
-    nowUnix();
-
-  const productId =
-    getProductServiceId(
-      product
-    );
-
-  const catalogProductId =
-    getCatalogProductId(
-      product
-    );
-
-  const serviceName =
-    getProductName(
-      product
-    );
-
-  const providerRate =
-    getProductPrice(
-      product
-    );
-
-  const orderNumber =
-    generateOrderNumber(
-      "NK"
-    );
-
-  const result =
-    await env.DB
-      .prepare(`
-        INSERT INTO orders (
-          user_id,
-          order_number,
-          type,
-          provider,
-          external_order_id,
-          service_id,
-          service_name,
-          target,
-          quantity,
-          rate_unit,
-          provider_rate,
-          selling_rate,
-          provider_amount,
-          customer_amount,
-          provider_charge,
-          provider_currency,
-          status,
-          provider_status,
-          provider_data,
-          request_data,
-          idempotency_key,
-          failure_reason,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          ?,
-          ?,
-          ?,
-          ?,
-          NULL,
-          ?,
-          ?,
-          ?,
-          ?,
-          'FIXED',
-          ?,
-          ?,
-          ?,
-          ?,
-          NULL,
-          'IDR',
-          'CREATING',
-          NULL,
-          NULL,
-          ?,
-          ?,
-          NULL,
-          ?,
-          ?
-        )
-      `)
-      .bind(
-        userId,
-        orderNumber,
-        ORDER_TYPE,
-        NOKOS_PROVIDER,
-        String(
-          productId ??
-          catalogProductId
-        ),
-        serviceName,
-        target || null,
-        quantity,
-        providerRate,
-        providerRate,
-        providerRate *
-          quantity,
-        customerAmount,
-        requestData,
-        idempotencyKey,
-        timestamp,
-        timestamp
-      )
-      .run();
-
-  const id =
-    Number(
-      result?.meta?.last_row_id
-    );
-
-  if (!id) {
-    throw new Error(
-      "Gagal membuat order NOKOS."
-    );
-  }
-
-  return {
-    id,
-    orderNumber,
-    customerAmount,
-    providerRate,
-    serviceName,
     productId,
-    catalogProductId
-  };
-}
-
-async function addOrderEvent(
-  env,
-  orderId,
-  status,
-  providerStatus = null,
-  message = null,
-  providerData = null
+    catalogProductId,
+    operatorId,
+    minPrice,
+    maxPrice
+  }
 ) {
-  await env.DB
-    .prepare(`
-      INSERT INTO order_events (
-        order_id,
-        status,
-        provider_status,
-        message,
-        provider_data,
-        created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?)
-    `)
-    .bind(
-      orderId,
-      status,
-      providerStatus,
-      message,
-      providerData,
-      nowUnix()
-    )
-    .run();
-}
-
-async function updateLocalOrder(
-  env,
-  orderId,
-  updates = {}
-) {
-  const current =
-    await env.DB
-      .prepare(`
-        SELECT
-          status,
-          external_order_id,
-          provider_status,
-          provider_data,
-          failure_reason,
-          provider_amount,
-          provider_charge,
-          phone_number,
-          otp_code,
-          otp_message,
-          otp_received_at,
-          provider_expires_at,
-          start_count,
-          remains,
-          completed_at,
-          cancelled_at
-        FROM orders
-        WHERE id = ?
-        LIMIT 1
-      `)
-      .bind(
-        orderId
-      )
-      .first();
-
-  if (!current) {
-    throw new Error(
-      "Order NOKOS tidak ditemukan."
+  if (productId) {
+    return getProduct(
+      env,
+      productId
     );
   }
 
-  const status =
-    updates.status ??
-    current.status ??
-    "UNKNOWN";
-
-  const externalOrderId =
-    updates.externalOrderId ??
-    current.external_order_id ??
-    null;
-
-  const providerStatus =
-    updates.providerStatus ??
-    current.provider_status ??
-    null;
-
-  const providerData =
-    updates.providerData ??
-    current.provider_data ??
-    null;
-
-  const failureReason =
-    updates.failureReason !== undefined
-      ? updates.failureReason
-      : current.failure_reason;
-
-  const providerAmount =
-    updates.providerAmount ??
-    current.provider_amount ??
-    0;
-
-  const providerCharge =
-    updates.providerCharge ??
-    current.provider_charge ??
-    null;
-
-  const phoneNumber =
-    updates.phoneNumber ??
-    current.phone_number ??
-    null;
-
-  const otpCode =
-    updates.otpCode ??
-    current.otp_code ??
-    null;
-
-  const otpMessage =
-    updates.otpMessage ??
-    current.otp_message ??
-    null;
-
-  const otpReceivedAt =
-    updates.otpReceivedAt ??
-    current.otp_received_at ??
-    null;
-
-  const providerExpiresAt =
-    updates.providerExpiresAt ??
-    current.provider_expires_at ??
-    null;
-
-  const startCount =
-    updates.startCount ??
-    current.start_count ??
-    null;
-
-  const remains =
-    updates.remains ??
-    current.remains ??
-    null;
-
-  const completedAt =
-    updates.completedAt !== undefined
-      ? updates.completedAt
-      : current.completed_at;
-
-  const cancelledAt =
-    updates.cancelledAt !== undefined
-      ? updates.cancelledAt
-      : current.cancelled_at;
-
-  await env.DB
-    .prepare(`
-      UPDATE orders
-      SET
-        external_order_id = ?,
-        status = ?,
-        provider_status = ?,
-        provider_data = ?,
-        failure_reason = ?,
-        provider_amount = ?,
-        provider_charge = ?,
-        phone_number = ?,
-        otp_code = ?,
-        otp_message = ?,
-        otp_received_at = ?,
-        provider_expires_at = ?,
-        start_count = ?,
-        remains = ?,
-        completed_at = ?,
-        cancelled_at = ?,
-        updated_at = ?
-      WHERE id = ?
-    `)
-    .bind(
-      externalOrderId,
-      status,
-      providerStatus,
-      providerData,
-      failureReason,
-      providerAmount,
-      providerCharge,
-      phoneNumber,
-      otpCode,
-      otpMessage,
-      otpReceivedAt,
-      providerExpiresAt,
-      startCount,
-      remains,
-      completedAt,
-      cancelledAt,
-      nowUnix(),
-      orderId
-    )
-    .run();
-
-  await addOrderEvent(
-    env,
-    orderId,
-    status,
-    providerStatus,
-    failureReason,
-    providerData
-  );
-}
-
-function isDefiniteProviderFailure(
-  error
-) {
-  const status =
-    Number(
-      error?.status
-    );
-
-  return (
-    status >= 400 &&
-    status < 500 &&
-    status !== 408 &&
-    status !== 409 &&
-    status !== 429
-  );
-}
-
-async function refundFailedCreation(
-  env,
-  {
-    orderId,
-    userId,
-    amount,
-    orderNumber
-  }
-) {
-  if (
-    !Number.isSafeInteger(
-      Number(amount)
-    ) ||
-    Number(amount) <= 0
-  ) {
-    return false;
-  }
-
-  const refund =
-    await refundBalance(
+  const products =
+    await getProducts(
       env,
       {
-        userId,
-        amount,
-        reference:
-          `REFUND:${orderNumber}`,
-        description:
-          `Refund NOKOS ${orderNumber}`,
-        orderId
+        operatorId,
+        minPrice,
+        maxPrice
       }
     );
 
-  await updateLocalOrder(
-    env,
-    orderId,
-    {
-      status:
-        refund?.success === false
-          ? "FAILED"
-          : "REFUNDED",
-      failureReason:
-        refund?.success === false
-          ? "Provider gagal dan refund saldo belum berhasil."
-          : "Order provider gagal dan saldo dikembalikan."
-    }
-  );
-
-  return (
-    refund?.success !== false
-  );
-}
-
-function serializeOrder(
-  order
-) {
-  if (!order) {
+  if (
+    !Array.isArray(products) ||
+    !products.length
+  ) {
     return null;
   }
 
+  if (
+    catalogProductId
+  ) {
+    const matched =
+      products.find(
+        product =>
+          String(
+            getCatalogProductId(
+              product
+            ) ?? ""
+          ) ===
+          String(
+            catalogProductId
+          )
+      );
+
+    if (matched) {
+      return matched;
+    }
+  }
+
+  return products[0];
+}
+
+function getMarkupPercent(env) {
+  const value =
+    Number(
+      env?.MARKUP_PERCENT ??
+      20
+    );
+
+  if (
+    !Number.isFinite(value) ||
+    value < 0
+  ) {
+    return 0;
+  }
+
+  return value;
+}
+
+function calculateCustomerAmount(
+  providerAmount,
+  markupPercent
+) {
+  const amount =
+    Number(
+      providerAmount
+    );
+
+  if (
+    !Number.isFinite(amount) ||
+    amount <= 0
+  ) {
+    return null;
+  }
+
+  const multiplier =
+    1 +
+    (
+      Number(markupPercent) /
+      100
+    );
+
+  const result =
+    Math.ceil(
+      amount *
+      multiplier
+    );
+
+  return Number.isSafeInteger(
+    result
+  ) && result > 0
+    ? result
+    : null;
+}
+
+function calculateSellingRate(
+  providerRate,
+  markupPercent
+) {
+  const rate =
+    Number(
+      providerRate
+    );
+
+  if (
+    !Number.isFinite(rate) ||
+    rate <= 0
+  ) {
+    return null;
+  }
+
+  const result =
+    Math.ceil(
+      rate *
+      (
+        1 +
+        Number(markupPercent) /
+        100
+      )
+    );
+
+  return Number.isSafeInteger(
+    result
+  ) && result > 0
+    ? result
+    : null;
+}
+
+function validateCreatePayload(
+  payload
+) {
+  const productId =
+    normalizeProductId(
+      payload?.product_id ??
+      payload?.productId
+    );
+
+  const catalogProductId =
+    normalizeCatalogProductId(
+      payload?.catalog_product_id ??
+      payload?.catalogProductId
+    );
+
+  const operatorId =
+    normalizeOperatorId(
+      payload?.operator_id ??
+      payload?.operatorId
+    );
+
+  const quantity =
+    normalizeQuantity(
+      payload?.quantity ??
+      1
+    );
+
+  const minPrice =
+    normalizePrice(
+      payload?.min_price ??
+      payload?.minPrice
+    );
+
+  const maxPrice =
+    normalizePrice(
+      payload?.max_price ??
+      payload?.maxPrice
+    );
+
+  const target =
+    normalizeTarget(
+      payload?.target ??
+      payload?.phone_number ??
+      payload?.phone
+    );
+
+  const idempotencyKey =
+    normalizeIdempotencyKey(
+      payload?.idempotency_key ??
+      payload?.idempotencyKey
+    );
+
+  if (
+    !productId &&
+    !catalogProductId
+  ) {
+    return {
+      error:
+        "product_id atau catalog_product_id wajib diisi."
+    };
+  }
+
+  if (!quantity) {
+    return {
+      error:
+        "Quantity NOKOS tidak valid."
+    };
+  }
+
+  if (
+    minPrice !== null &&
+    maxPrice !== null &&
+    minPrice > maxPrice
+  ) {
+    return {
+      error:
+        "min_price tidak boleh lebih besar dari max_price."
+    };
+  }
+
+  if (!idempotencyKey) {
+    return {
+      error:
+        "Idempotency-Key wajib diisi."
+    };
+  }
+
   return {
-    id: Number(order.id),
-    order_number:
-      order.order_number,
-    type:
-      order.type,
-    provider:
-      order.provider,
-    external_order_id:
-      order.external_order_id,
-    service_id:
-      order.service_id,
-    service_name:
-      order.service_name,
-    target:
-      order.target,
-    quantity:
-      Number(order.quantity || 0),
-    rate_unit:
-      order.rate_unit,
-    provider_rate:
-      Number(
-        order.provider_rate || 0
-      ),
-    selling_rate:
-      Number(
-        order.selling_rate || 0
-      ),
-    provider_amount:
-      Number(
-        order.provider_amount || 0
-      ),
-    customer_amount:
-      Number(
-        order.customer_amount || 0
-      ),
-    provider_charge:
-      Number(
-        order.provider_charge || 0
-      ),
-    provider_currency:
-      order.provider_currency,
-    status:
-      order.status,
-    provider_status:
-      order.provider_status,
-    failure_reason:
-      order.failure_reason,
-    phone_number:
-      order.phone_number,
-    otp_code:
-      order.otp_code,
-    otp_message:
-      order.otp_message,
-    otp_received_at:
-      order.otp_received_at,
-    provider_expires_at:
-      order.provider_expires_at,
-    start_count:
-      order.start_count,
-    remains:
-      order.remains,
-    created_at:
-      order.created_at,
-    updated_at:
-      order.updated_at,
-    completed_at:
-      order.completed_at,
-    cancelled_at:
-      order.cancelled_at
+    value: {
+      productId,
+      catalogProductId,
+      operatorId,
+      quantity,
+      minPrice,
+      maxPrice,
+      target,
+      idempotencyKey
+    }
   };
 }
 
-async function loadOrderEvents(
+async function resolveOrder(
+  request,
   env,
-  orderId
+  userId,
+  payload = null
 ) {
-  const result =
-    await env.DB
-      .prepare(`
-        SELECT
-          id,
-          status,
-          provider_status,
-          message,
-          provider_data,
-          created_at
-        FROM order_events
-        WHERE order_id = ?
-        ORDER BY id DESC
-        LIMIT 100
-      `)
-      .bind(orderId)
-      .all();
+  const body =
+    payload || {};
 
-  return Array.isArray(
-    result?.results
-  )
-    ? result.results
-    : [];
+  const url =
+    getUrl(request);
+
+  const id =
+    parsePositiveInteger(
+      body.id ??
+      body.order_id ??
+      url.searchParams.get(
+        "id"
+      )
+    );
+
+  const orderNumber =
+    cleanString(
+      body.order_number ??
+      body.orderNumber ??
+      url.searchParams.get(
+        "order_number"
+      ),
+      120
+    );
+
+  if (id) {
+    return getUserOrder(
+      env,
+      userId,
+      {
+        id
+      }
+    );
+  }
+
+  if (orderNumber) {
+    return getUserOrder(
+      env,
+      userId,
+      {
+        orderNumber
+      }
+    );
+  }
+
+  return null;
 }
 
-async function applyProviderOrder(
-  env,
-  order,
-  providerOrder
-) {
-  const providerStatus =
-    getProviderStatus(
-      providerOrder
-    );
+async function resolveAdapter() {
+  return {
+    createOrder: async (
+      env,
+      context
+    ) => {
+      const {
+        createOrder
+      } = await import(
+        "./smscode.js"
+      );
 
-  const status =
-    internalStatus(
-      providerStatus
-    );
+      return createOrder(
+        env,
+        context
+      );
+    },
 
-  const providerAmount =
-    getProviderAmount(
-      providerOrder
-    );
+    getStatus: async (
+      env,
+      context
+    ) => {
+      const {
+        getStatus
+      } = await import(
+        "./smscode.js"
+      );
 
-  const normalizedStatus =
-    status === "UNKNOWN" &&
-    order.status !== "UNKNOWN"
-      ? "PROCESSING"
-      : status;
+      return getStatus(
+        env,
+        context
+      );
+    },
 
-  const completedAt =
-    normalizedStatus ===
-    "COMPLETED"
-      ? (
-          order.completed_at ||
-          nowUnix()
-        )
-      : order.completed_at;
+    cancelOrder: async (
+      env,
+      context
+    ) => {
+      const {
+        cancelOrder
+      } = await import(
+        "./smscode.js"
+      );
 
-  const cancelledAt =
-    normalizedStatus ===
-    "CANCELLED"
-      ? (
-          order.cancelled_at ||
-          nowUnix()
-        )
-      : order.cancelled_at;
-
-  const otpReceivedAt =
-    providerStatus ===
-    "OTP_RECEIVED"
-      ? (
-          order.otp_received_at ||
-          nowUnix()
-        )
-      : order.otp_received_at;
-
-  await updateLocalOrder(
-    env,
-    order.id,
-    {
-      externalOrderId:
-        getProviderOrderId(
-          providerOrder
-        ) ||
-        order.external_order_id,
-      status:
-        normalizedStatus,
-      providerStatus,
-      providerData:
-        getProviderData(
-          providerOrder
-        ),
-      failureReason:
-        getProviderFailure(
-          providerOrder
-        ),
-      providerAmount:
-        providerAmount > 0
-          ? providerAmount
-          : order.provider_amount,
-      providerCharge:
-        providerAmount > 0
-          ? providerAmount
-          : order.provider_charge,
-      phoneNumber:
-        getProviderPhone(
-          providerOrder
-        ),
-      otpCode:
-        getProviderOtp(
-          providerOrder
-        ),
-      otpMessage:
-        getProviderOtpMessage(
-          providerOrder
-        ),
-      otpReceivedAt,
-      providerExpiresAt:
-        getProviderExpiresAt(
-          providerOrder
-        ),
-      completedAt,
-      cancelledAt
+      return cancelOrder(
+        env,
+        context
+      );
     }
-  );
-
-  return normalizedStatus;
+  };
 }
+
+const SMSCODE_ADAPTER = {
+  createOrder: async (
+    env,
+    context
+  ) => {
+    const {
+      createOrder
+    } = await import(
+      "./smscode.js"
+    );
+
+    return createOrder(
+      env,
+      context
+    );
+  },
+
+  getStatus: async (
+    env,
+    context
+  ) => {
+    const {
+      getStatus
+    } = await import(
+      "./smscode.js"
+    );
+
+    return getStatus(
+      env,
+      context
+    );
+  },
+
+  cancelOrder: async (
+    env,
+    context
+  ) => {
+    const {
+      cancelOrder
+    } = await import(
+      "./smscode.js"
+    );
+
+    return cancelOrder(
+      env,
+      context
+    );
+  }
+};
 
 export async function listNokosProducts(
   request,
@@ -1565,9 +828,7 @@ export async function listNokosProducts(
             {
               operatorId,
               minPrice,
-              maxPrice,
-              available: true,
-              active: true
+              maxPrice
             }
           );
 
@@ -1598,88 +859,41 @@ export async function listNokosProducts(
       } catch {}
     }
 
+    const markup =
+      getMarkupPercent(
+        env
+      );
+
+    const result =
+      filtered.map(
+        product => {
+          const providerPrice =
+            getProductPrice(
+              product
+            );
+
+          return {
+            ...product,
+            provider_price:
+              providerPrice,
+            selling_price:
+              calculateSellingRate(
+                providerPrice,
+                markup
+              )
+          };
+        }
+      );
+
     return successResponse({
-      products: filtered
+      products: result
     });
   } catch (error) {
     return errorResponse(
       error?.message ||
         "Gagal mengambil produk NOKOS.",
-      error?.status || 500
-    );
-  }
-}
-
-export async function getNokosOrder(
-  request,
-  env
-) {
-  try {
-    const auth =
-      await requireAuth(
-        request,
-        env
-      );
-
-    if (auth?.response) {
-      return auth.response;
-    }
-
-    let order =
-      await findOrderIdentifier(
-        request,
-        env,
-        auth.user.id
-      );
-
-    if (!order) {
-      return errorResponse(
-        "Order NOKOS tidak ditemukan.",
-        404
-      );
-    }
-
-    if (
-      order.external_order_id
-    ) {
-      try {
-        const providerOrder =
-          await getOrder(
-            env,
-            order.external_order_id
-          );
-
-        await applyProviderOrder(
-          env,
-          order,
-          providerOrder
-        );
-
-        order =
-          await findOrderById(
-            env,
-            auth.user.id,
-            order.id
-          );
-      } catch {}
-    }
-
-    const events =
-      await loadOrderEvents(
-        env,
-        order.id
-      );
-
-    return successResponse({
-      order:
-        serializeOrder(order),
-      events
-    });
-  } catch (error) {
-    return errorResponse(
-      error?.message ||
-        "Gagal mengambil order NOKOS.",
-      error?.status || 500
+      error?.status ||
+        500
     );
   }
 }
@@ -1688,12 +902,6 @@ export async function createNokosOrder(
   request,
   env
 ) {
-  let orderId = null;
-  let userId = null;
-  let customerAmount = 0;
-  let orderNumber = null;
-  let debited = false;
-
   try {
     const auth =
       await requireAuth(
@@ -1705,18 +913,19 @@ export async function createNokosOrder(
       return auth.response;
     }
 
-    userId =
-      auth.user.id;
-
     const payload =
-      await readJson(request);
+      await readJson(
+        request
+      );
 
     const validation =
       validateCreatePayload(
         payload
       );
 
-    if (validation.error) {
+    if (
+      validation.error
+    ) {
       return errorResponse(
         validation.error,
         400
@@ -1734,25 +943,6 @@ export async function createNokosOrder(
       idempotencyKey
     } =
       validation.value;
-
-    if (idempotencyKey) {
-      const existing =
-        await findOrderByIdempotency(
-          env,
-          userId,
-          idempotencyKey
-        );
-
-      if (existing) {
-        return successResponse({
-          idempotent: true,
-          order:
-            serializeOrder(
-              existing
-            )
-        });
-      }
-    }
 
     const product =
       await getProductForOrder(
@@ -1805,282 +995,247 @@ export async function createNokosOrder(
       );
     }
 
-    customerAmount =
+    const providerAmount =
       providerRate *
       quantity;
 
     if (
       !Number.isSafeInteger(
-        customerAmount
+        providerAmount
       ) ||
-      customerAmount <= 0
+      providerAmount <= 0
     ) {
       return errorResponse(
-        "Total harga NOKOS tidak valid.",
-        400
+        "Total harga provider NOKOS tidak valid.",
+        409
       );
     }
 
-    const requestData =
-      JSON.stringify({
-        product_id:
-          productId,
-        catalog_product_id:
-          catalogProductId,
-        operator_id:
-          operatorId,
-        quantity,
-        min_price:
-          minPrice,
-        max_price:
-          maxPrice,
-        target:
-          target || null
-      });
-
-    const local =
-      await createLocalOrder(
-        env,
-        {
-          userId,
-          product,
-          quantity,
-          target,
-          idempotencyKey,
-          requestData,
-          customerAmount
-        }
+    const markup =
+      getMarkupPercent(
+        env
       );
 
-    orderId =
-      local.id;
+    const sellingRate =
+      calculateSellingRate(
+        providerRate,
+        markup
+      );
 
-    orderNumber =
-      local.orderNumber;
-
-    await addOrderEvent(
-      env,
-      orderId,
-      "CREATING",
-      null,
-      "Order NOKOS dibuat.",
-      null
-    );
-
-    const debit =
-      await debitBalance(
-        env,
-        {
-          userId,
-          amount:
-            customerAmount,
-          type:
-            "PURCHASE",
-          reference:
-            `ORDER:${orderNumber}`,
-          description:
-            `Pembelian NOKOS ${orderNumber}`,
-          orderId
-        }
+    const customerAmount =
+      calculateCustomerAmount(
+        providerAmount,
+        markup
       );
 
     if (
-      debit?.insufficient ||
-      debit?.success === false
+      !sellingRate ||
+      !customerAmount
     ) {
-      await updateLocalOrder(
-        env,
-        orderId,
-        {
-          status:
-            "FAILED",
-          failureReason:
-            "Saldo tidak mencukupi."
-        }
-      );
-
       return errorResponse(
-        "Saldo tidak mencukupi.",
-        402
+        "Harga jual NOKOS tidak valid.",
+        409
       );
     }
 
-    debited = true;
+    const productServiceId =
+      getProductId(
+        product
+      );
 
-    await updateLocalOrder(
-      env,
-      orderId,
-      {
-        status:
-          "PROCESSING"
-      }
-    );
+    const productCatalogId =
+      getCatalogProductId(
+        product
+      );
 
-    let providerOrder;
+    const productOperatorId =
+      getProductOperatorId(
+        product
+      );
 
-    try {
-      providerOrder =
-        await createOrder(
-          env,
-          {
-            productId:
-              product?.id ??
-              product?.product_id ??
-              productId,
-            catalogProductId:
-              product?.catalog_product_id ??
-              catalogProductId,
-            operatorId:
-              product?.operator_id ??
-              operatorId,
+    const requestData = {
+      product_id:
+        productServiceId ??
+        productId,
+      catalog_product_id:
+        productCatalogId ??
+        catalogProductId,
+      operator_id:
+        productOperatorId ??
+        operatorId,
+      quantity,
+      min_price:
+        minPrice,
+      max_price:
+        maxPrice,
+      target:
+        target || null
+    };
+
+    const result =
+      await createCoreOrder(
+        env,
+        {
+          adapter:
+            SMSCODE_ADAPTER,
+          requestData,
+          description:
+            `Pembelian NOKOS`,
+          order: {
+            userId:
+              auth.user.id,
+            type:
+              ORDER_TYPE,
+            provider:
+              NOKOS_PROVIDER,
+            serviceId:
+              String(
+                productServiceId ??
+                productId
+              ),
+            serviceName:
+              getProductName(
+                product
+              ),
+            target:
+              target,
             quantity,
-            minPrice,
-            maxPrice,
-            idempotencyKey:
-              idempotencyKey ||
-              orderNumber
+            rateUnit:
+              RATE_UNIT,
+            providerRate,
+            sellingRate,
+            providerAmount,
+            customerAmount,
+            providerCurrency:
+              "IDR",
+            idempotencyKey
           }
-        );
-    } catch (error) {
-      if (
-        isDefiniteProviderFailure(
-          error
-        )
-      ) {
-        const refunded =
-          await refundFailedCreation(
-            env,
-            {
-              orderId,
-              userId,
-              amount:
-                customerAmount,
-              orderNumber
-            }
-          );
-
-        return errorResponse(
-          refunded
-            ? (
-                error?.message ||
-                "Provider menolak order NOKOS."
-              )
-            : "Provider menolak order dan refund belum berhasil.",
-          502
-        );
-      }
-
-      await updateLocalOrder(
-        env,
-        orderId,
-        {
-          status:
-            "UNKNOWN",
-          failureReason:
-            "Status provider tidak dapat dipastikan."
         }
       );
 
-      return errorResponse(
-        "Order sedang diproses tetapi status provider belum dapat dipastikan.",
-        202
-      );
-    }
-
-    const externalOrderId =
-      getProviderOrderId(
-        providerOrder
-      );
-
-    if (!externalOrderId) {
-      await updateLocalOrder(
-        env,
-        orderId,
-        {
-          status:
-            "UNKNOWN",
-          providerData:
-            getProviderData(
-              providerOrder
-            ),
-          failureReason:
-            "Provider tidak mengembalikan ID order."
-        }
-      );
-
-      return errorResponse(
-        "Order provider dibuat tetapi ID order tidak dapat dipastikan.",
-        202
-      );
-    }
-
-    const localOrder =
-      await findOrderById(
-        env,
-        userId,
-        orderId
-      );
-
-    const status =
-      await applyProviderOrder(
-        env,
-        localOrder,
-        providerOrder
-      );
-
-    const saved =
-      await findOrderById(
-        env,
-        userId,
-        orderId
+    const responseOrder =
+      formatOrder(
+        result.order
       );
 
     return successResponse(
       {
         order:
-          serializeOrder(
-            saved
-          )
+          responseOrder,
+        created:
+          result.created,
+        idempotent:
+          result.idempotent,
+        providerCalled:
+          result.providerCalled,
+        uncertain:
+          result.uncertain || false
       },
-      status === "COMPLETED"
-        ? 201
+      result.insufficient
+        ? 402
         : 201
     );
   } catch (error) {
-    if (
-      orderId &&
-      userId &&
-      debited
-    ) {
-      try {
-        await updateLocalOrder(
-          env,
-          orderId,
-          {
-            status:
-              "UNKNOWN",
-            failureReason:
-              error?.message ||
-              "Terjadi kesalahan yang belum dapat dipastikan."
-          }
-        );
-      } catch {}
-    }
-
-    if (
-      error?.message ===
-      "Saldo tidak mencukupi."
-    ) {
-      return errorResponse(
-        error.message,
-        402
-      );
-    }
-
     return errorResponse(
       error?.message ||
         "Gagal membuat order NOKOS.",
-      error?.status || 500
+      error?.status ||
+        500
+    );
+  }
+}
+
+export async function getNokosOrder(
+  request,
+  env
+) {
+  try {
+    const auth =
+      await requireAuth(
+        request,
+        env
+      );
+
+    if (auth?.response) {
+      return auth.response;
+    }
+
+    const order =
+      await resolveOrder(
+        request,
+        env,
+        auth.user.id
+      );
+
+    if (!order) {
+      return errorResponse(
+        "Order NOKOS tidak ditemukan.",
+        404
+      );
+    }
+
+    if (
+      order.type !==
+      ORDER_TYPE
+    ) {
+      return errorResponse(
+        "Order bukan order NOKOS.",
+        400
+      );
+    }
+
+    let current =
+      order;
+
+    if (
+      ![
+        "COMPLETED",
+        "PARTIAL",
+        "CANCELLED",
+        "EXPIRED",
+        "REFUNDED",
+        "FAILED"
+      ].includes(
+        current.status
+      ) &&
+      current.external_order_id
+    ) {
+      try {
+        const synced =
+          await syncOrder(
+            env,
+            {
+              orderId:
+                current.id,
+              adapter:
+                SMSCODE_ADAPTER
+            }
+          );
+
+        current =
+          synced.order;
+      } catch {}
+    }
+
+    const events =
+      await getOrderEvents(
+        env,
+        current.id
+      );
+
+    return successResponse({
+      order:
+        formatOrder(
+          current
+        ),
+      events
+    });
+  } catch (error) {
+    return errorResponse(
+      error?.message ||
+        "Gagal mengambil order NOKOS.",
+      error?.status ||
+        500
     );
   }
 }
@@ -2101,10 +1256,12 @@ export async function cancelNokosOrder(
     }
 
     const payload =
-      await readJson(request);
+      await readJson(
+        request
+      );
 
     const order =
-      await findOrderIdentifier(
+      await resolveOrder(
         request,
         env,
         auth.user.id,
@@ -2119,175 +1276,46 @@ export async function cancelNokosOrder(
     }
 
     if (
-      [
-        "COMPLETED",
-        "CANCELLED",
-        "EXPIRED",
-        "REFUNDED",
-        "FAILED"
-      ].includes(
-        order.status
-      )
-    ) {
-      return successResponse({
-        order:
-          serializeOrder(
-            order
-          ),
-        refunded:
-          order.status ===
-          "REFUNDED"
-      });
-    }
-
-    if (
-      !order.external_order_id
+      order.type !==
+      ORDER_TYPE
     ) {
       return errorResponse(
-        "Order belum memiliki ID provider.",
-        409
+        "Order bukan order NOKOS.",
+        400
       );
     }
 
-    let providerOrder;
-
-    try {
-      providerOrder =
-        await cancelOrder(
-          env,
-          order.external_order_id
-        );
-    } catch (error) {
-      await updateLocalOrder(
-        env,
-        order.id,
-        {
-          status:
-            "UNKNOWN",
-          failureReason:
-            error?.message ||
-            "Pembatalan provider belum dapat dipastikan."
-        }
-      );
-
-      return errorResponse(
-        "Pembatalan belum dapat dipastikan. Jangan melakukan pembayaran ulang.",
-        502
-      );
-    }
-
-    const providerStatus =
-      getProviderStatus(
-        providerOrder
-      );
-
-    const status =
-      internalStatus(
-        providerStatus
-      );
-
-    if (
-      status !==
-      "CANCELLED"
-    ) {
-      await updateLocalOrder(
-        env,
-        order.id,
-        {
-          status:
-            status ===
-            "UNKNOWN"
-              ? "UNKNOWN"
-              : status,
-          providerStatus,
-          providerData:
-            getProviderData(
-              providerOrder
-            ),
-          failureReason:
-            getProviderFailure(
-              providerOrder
-            )
-        }
-      );
-
-      return successResponse({
-        order:
-          serializeOrder(
-            await findOrderById(
-              env,
-              auth.user.id,
-              order.id
-            )
-          ),
-        refunded: false
-      });
-    }
-
-    const refund =
-      await refundBalance(
+    const result =
+      await cancelCoreOrder(
         env,
         {
-          userId:
-            auth.user.id,
-          amount:
-            Number(
-              order.customer_amount
-            ),
-          reference:
-            `REFUND:${order.order_number}`,
-          description:
-            `Refund NOKOS ${order.order_number}`,
           orderId:
-            order.id
+            order.id,
+          adapter:
+            SMSCODE_ADAPTER,
+          reason:
+            "Order NOKOS dibatalkan."
         }
-      );
-
-    const refunded =
-      refund?.success !== false;
-
-    await updateLocalOrder(
-      env,
-      order.id,
-      {
-        status:
-          refunded
-            ? "REFUNDED"
-            : "CANCELLED",
-        providerStatus,
-        providerData:
-          getProviderData(
-            providerOrder
-          ),
-        failureReason:
-          refunded
-            ? null
-            : "Provider berhasil membatalkan order tetapi refund wallet belum berhasil.",
-        cancelledAt:
-          order.cancelled_at ||
-          nowUnix()
-      }
-    );
-
-    const saved =
-      await findOrderById(
-        env,
-        auth.user.id,
-        order.id
       );
 
     return successResponse({
       order:
-        serializeOrder(
-          saved
+        formatOrder(
+          result.order
         ),
-      refunded
+      cancelled:
+        result.cancelled,
+      refunded:
+        result.refunded || false,
+      uncertain:
+        result.uncertain || false
     });
   } catch (error) {
     return errorResponse(
       error?.message ||
         "Gagal membatalkan order NOKOS.",
-      error?.status || 500
+      error?.status ||
+        500
     );
   }
 }
@@ -2308,10 +1336,12 @@ export async function finishNokosOrder(
     }
 
     const payload =
-      await readJson(request);
+      await readJson(
+        request
+      );
 
     const order =
-      await findOrderIdentifier(
+      await resolveOrder(
         request,
         env,
         auth.user.id,
@@ -2326,12 +1356,22 @@ export async function finishNokosOrder(
     }
 
     if (
+      order.type !==
+      ORDER_TYPE
+    ) {
+      return errorResponse(
+        "Order bukan order NOKOS.",
+        400
+      );
+    }
+
+    if (
       order.status ===
       "COMPLETED"
     ) {
       return successResponse({
         order:
-          serializeOrder(
+          formatOrder(
             order
           )
       });
@@ -2346,57 +1386,63 @@ export async function finishNokosOrder(
       );
     }
 
-    let providerOrder;
-
-    try {
-      providerOrder =
-        await finishOrder(
-          env,
-          order.external_order_id
-        );
-    } catch (error) {
-      await updateLocalOrder(
+    const providerOrder =
+      await finishProviderOrder(
         env,
-        order.id,
         {
-          status:
-            "UNKNOWN",
-          failureReason:
-            error?.message ||
-            "Penyelesaian order belum dapat dipastikan."
+          order:
+            order
         }
       );
 
-      return errorResponse(
-        "Status penyelesaian order belum dapat dipastikan.",
-        502
+    const normalizedStatus =
+      mapStatus(
+        providerOrder?.providerStatus ||
+        providerOrder?.status
       );
-    }
 
-    await applyProviderOrder(
-      env,
-      order,
-      providerOrder
-    );
-
-    const saved =
-      await findOrderById(
+    const updated =
+      await updateOrderStatus(
         env,
-        auth.user.id,
-        order.id
+        order.id,
+        normalizedStatus,
+        {
+          externalOrderId:
+            providerOrder.externalOrderId ??
+            order.external_order_id,
+          providerStatus:
+            providerOrder.providerStatus,
+          providerData:
+            providerOrder.providerData,
+          providerCharge:
+            providerOrder.providerCharge,
+          phoneNumber:
+            providerOrder.fields?.phoneNumber,
+          otpCode:
+            providerOrder.fields?.otpCode,
+          otpMessage:
+            providerOrder.fields?.otpMessage,
+          otpReceivedAt:
+            providerOrder.fields?.otpReceivedAt,
+          providerExpiresAt:
+            providerOrder.fields?.providerExpiresAt,
+          failureReason:
+            providerOrder.failureReason
+        }
       );
 
     return successResponse({
       order:
-        serializeOrder(
-          saved
+        formatOrder(
+          updated
         )
     });
   } catch (error) {
     return errorResponse(
       error?.message ||
         "Gagal menyelesaikan order NOKOS.",
-      error?.status || 500
+      error?.status ||
+        502
     );
   }
 }
@@ -2417,10 +1463,12 @@ export async function resendNokosOrder(
     }
 
     const payload =
-      await readJson(request);
+      await readJson(
+        request
+      );
 
     const order =
-      await findOrderIdentifier(
+      await resolveOrder(
         request,
         env,
         auth.user.id,
@@ -2435,6 +1483,16 @@ export async function resendNokosOrder(
     }
 
     if (
+      order.type !==
+      ORDER_TYPE
+    ) {
+      return errorResponse(
+        "Order bukan order NOKOS.",
+        400
+      );
+    }
+
+    if (
       !order.external_order_id
     ) {
       return errorResponse(
@@ -2444,35 +1502,148 @@ export async function resendNokosOrder(
     }
 
     const providerOrder =
-      await resendOrder(
+      await resendProviderOrder(
         env,
-        order.external_order_id
+        {
+          order
+        }
       );
 
-    await applyProviderOrder(
-      env,
-      order,
-      providerOrder
-    );
+    const normalizedStatus =
+      mapStatus(
+        providerOrder?.providerStatus ||
+        providerOrder?.status
+      );
 
-    const saved =
-      await findOrderById(
+    const updated =
+      await updateOrderStatus(
         env,
-        auth.user.id,
-        order.id
+        order.id,
+        normalizedStatus,
+        {
+          externalOrderId:
+            providerOrder.externalOrderId ??
+            order.external_order_id,
+          providerStatus:
+            providerOrder.providerStatus,
+          providerData:
+            providerOrder.providerData,
+          providerCharge:
+            providerOrder.providerCharge,
+          phoneNumber:
+            providerOrder.fields?.phoneNumber,
+          otpCode:
+            providerOrder.fields?.otpCode,
+          otpMessage:
+            providerOrder.fields?.otpMessage,
+          otpReceivedAt:
+            providerOrder.fields?.otpReceivedAt,
+          providerExpiresAt:
+            providerOrder.fields?.providerExpiresAt,
+          failureReason:
+            providerOrder.failureReason
+        }
       );
 
     return successResponse({
       order:
-        serializeOrder(
-          saved
+        formatOrder(
+          updated
         )
     });
   } catch (error) {
     return errorResponse(
       error?.message ||
         "Gagal meminta OTP ulang.",
-      error?.status || 502
+      error?.status ||
+        502
+    );
+  }
+}
+
+export async function syncNokosOrder(
+  request,
+  env
+) {
+  try {
+    const auth =
+      await requireAuth(
+        request,
+        env
+      );
+
+    if (auth?.response) {
+      return auth.response;
+    }
+
+    const payload =
+      await readJson(
+        request
+      );
+
+    const order =
+      await resolveOrder(
+        request,
+        env,
+        auth.user.id,
+        payload
+      );
+
+    if (!order) {
+      return errorResponse(
+        "Order NOKOS tidak ditemukan.",
+        404
+      );
+    }
+
+    if (
+      order.type !==
+      ORDER_TYPE
+    ) {
+      return errorResponse(
+        "Order bukan order NOKOS.",
+        400
+      );
+    }
+
+    if (
+      !order.external_order_id
+    ) {
+      return errorResponse(
+        "Order belum memiliki ID provider.",
+        409
+      );
+    }
+
+    const result =
+      await syncOrder(
+        env,
+        {
+          orderId:
+            order.id,
+          adapter:
+            SMSCODE_ADAPTER
+        }
+      );
+
+    return successResponse({
+      order:
+        formatOrder(
+          result.order
+        ),
+      synced:
+        result.synced,
+      uncertain:
+        result.uncertain || false,
+      refundFailed:
+        result.refundFailed || false
+    });
+  } catch (error) {
+    return errorResponse(
+      error?.message ||
+        "Gagal sinkronisasi order NOKOS.",
+      error?.status ||
+        502
     );
   }
 }
@@ -2495,31 +1666,6 @@ export async function listMyNokosOrders(
     const url =
       getUrl(request);
 
-    const limit =
-      Math.min(
-        parsePositiveInteger(
-          url.searchParams.get(
-            "limit"
-          )
-        ) || 20,
-        100
-      );
-
-    const offsetValue =
-      Number(
-        url.searchParams.get(
-          "offset"
-        )
-      );
-
-    const offset =
-      Number.isInteger(
-        offsetValue
-      ) &&
-      offsetValue >= 0
-        ? offsetValue
-        : 0;
-
     const status =
       cleanString(
         url.searchParams.get(
@@ -2540,133 +1686,39 @@ export async function listMyNokosOrders(
       );
     }
 
-    let query = `
-      SELECT ${ORDER_COLUMNS}
-      FROM orders
-      WHERE user_id = ?
-        AND type = ?
-    `;
-
-    const binds = [
-      auth.user.id,
-      ORDER_TYPE
-    ];
-
-    if (status) {
-      query +=
-        " AND status = ?";
-      binds.push(status);
-    }
-
-    query +=
-      " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?";
-
-    binds.push(
-      limit,
-      offset
-    );
-
     const result =
-      await env.DB
-        .prepare(query)
-        .bind(...binds)
-        .all();
-
-    const orders =
-      Array.isArray(
-        result?.results
-      )
-        ? result.results.map(
-            serializeOrder
-          )
-        : [];
+      await listOrdersByUser(
+        env,
+        auth.user.id,
+        {
+          type:
+            ORDER_TYPE,
+          status,
+          limit:
+            url.searchParams.get(
+              "limit"
+            ) || 20,
+          offset:
+            url.searchParams.get(
+              "offset"
+            ) || 0
+        }
+      );
 
     return successResponse({
-      orders,
-      limit,
-      offset
+      orders:
+        result.orders.map(
+          formatOrder
+        ),
+      pagination:
+        result.pagination
     });
   } catch (error) {
     return errorResponse(
       error?.message ||
         "Gagal mengambil daftar order NOKOS.",
-      error?.status || 500
-    );
-  }
-}
-
-export async function syncNokosOrder(
-  request,
-  env
-) {
-  try {
-    const auth =
-      await requireAuth(
-        request,
-        env
-      );
-
-    if (auth?.response) {
-      return auth.response;
-    }
-
-    const payload =
-      await readJson(request);
-
-    const order =
-      await findOrderIdentifier(
-        request,
-        env,
-        auth.user.id,
-        payload
-      );
-
-    if (!order) {
-      return errorResponse(
-        "Order NOKOS tidak ditemukan.",
-        404
-      );
-    }
-
-    if (
-      !order.external_order_id
-    ) {
-      return errorResponse(
-        "Order belum memiliki ID provider.",
-        409
-      );
-    }
-
-    const providerOrder =
-      await getOrder(
-        env,
-        order.external_order_id
-      );
-
-    await applyProviderOrder(
-      env,
-      order,
-      providerOrder
-    );
-
-    const saved =
-      await findOrderById(
-        env,
-        auth.user.id,
-        order.id
-      );
-
-    return successResponse({
-      order:
-        serializeOrder(
-          saved
-        )
-    });
-  } catch (error) {
-    return errorResponse(
-      error?.message ||
-        "Gagal sinkronisasi order NOKOS.",
-      error?.status || 502
+      error?.status ||
+        500
     );
   }
 }
@@ -2689,31 +1741,6 @@ export async function adminListNokosOrders(
     const url =
       getUrl(request);
 
-    const limit =
-      Math.min(
-        parsePositiveInteger(
-          url.searchParams.get(
-            "limit"
-          )
-        ) || 50,
-        200
-      );
-
-    const offsetValue =
-      Number(
-        url.searchParams.get(
-          "offset"
-        )
-      );
-
-    const offset =
-      Number.isInteger(
-        offsetValue
-      ) &&
-      offsetValue >= 0
-        ? offsetValue
-        : 0;
-
     const status =
       cleanString(
         url.searchParams.get(
@@ -2721,13 +1748,6 @@ export async function adminListNokosOrders(
         ) || "",
         40
       ).toUpperCase();
-
-    const userId =
-      parsePositiveInteger(
-        url.searchParams.get(
-          "user_id"
-        )
-      );
 
     if (
       status &&
@@ -2741,62 +1761,58 @@ export async function adminListNokosOrders(
       );
     }
 
-    let query = `
-      SELECT
-        o.*,
-        u.username,
-        u.first_name
-      FROM orders o
-      INNER JOIN users u
-        ON u.id = o.user_id
-      WHERE o.type = ?
-    `;
-
-    const binds = [
-      ORDER_TYPE
-    ];
-
-    if (status) {
-      query +=
-        " AND o.status = ?";
-      binds.push(status);
-    }
-
-    if (userId) {
-      query +=
-        " AND o.user_id = ?";
-      binds.push(userId);
-    }
-
-    query +=
-      " ORDER BY o.created_at DESC, o.id DESC LIMIT ? OFFSET ?";
-
-    binds.push(
-      limit,
-      offset
-    );
+    const userId =
+      parsePositiveInteger(
+        url.searchParams.get(
+          "user_id"
+        )
+      );
 
     const result =
-      await env.DB
-        .prepare(query)
-        .bind(...binds)
-        .all();
+      await adminGetOrders(
+        env,
+        {
+          type:
+            ORDER_TYPE,
+          provider:
+            NOKOS_PROVIDER,
+          status,
+          userId,
+          limit:
+            url.searchParams.get(
+              "limit"
+            ) || 50,
+          offset:
+            url.searchParams.get(
+              "offset"
+            ) || 0
+        }
+      );
 
     return successResponse({
       orders:
-        Array.isArray(
-          result?.results
-        )
-          ? result.results
-          : [],
-      limit,
-      offset
+        result.orders.map(
+          row => ({
+            ...formatOrder(
+              row
+            ),
+            username:
+              row.username ||
+              null,
+            first_name:
+              row.first_name ||
+              null
+          })
+        ),
+      pagination:
+        result.pagination
     });
   } catch (error) {
     return errorResponse(
       error?.message ||
-        "Gagal mengambil order NOKOS.",
-      error?.status || 500
+        "Gagal mengambil order NOKOS admin.",
+      error?.status ||
+        500
     );
   }
 }
@@ -2819,39 +1835,31 @@ export async function adminGetNokosOrder(
     const url =
       getUrl(request);
 
-    const orderId =
+    const id =
       parsePositiveInteger(
         url.searchParams.get(
           "id"
         )
       );
 
-    if (!orderId) {
-      return errorResponse(
-        "id order wajib diisi.",
-        400
+    const orderNumber =
+      cleanString(
+        url.searchParams.get(
+          "order_number"
+        ) || "",
+        120
       );
-    }
 
     const order =
-      await env.DB
-        .prepare(`
-          SELECT
-            o.*,
-            u.username,
-            u.first_name
-          FROM orders o
-          INNER JOIN users u
-            ON u.id = o.user_id
-          WHERE o.id = ?
-            AND o.type = ?
-          LIMIT 1
-        `)
-        .bind(
-          orderId,
-          ORDER_TYPE
-        )
-        .first();
+      id
+        ? await getOrderById(
+            env,
+            id
+          )
+        : await getOrderByNumber(
+            env,
+            orderNumber
+          );
 
     if (!order) {
       return errorResponse(
@@ -2860,56 +1868,131 @@ export async function adminGetNokosOrder(
       );
     }
 
+    if (
+      order.type !==
+      ORDER_TYPE
+    ) {
+      return errorResponse(
+        "Order bukan order NOKOS.",
+        400
+      );
+    }
+
     const events =
-      await loadOrderEvents(
+      await getOrderEvents(
         env,
         order.id
       );
 
     return successResponse({
-      order,
+      order:
+        formatOrder(
+          order
+        ),
       events
     });
   } catch (error) {
     return errorResponse(
       error?.message ||
         "Gagal mengambil detail order NOKOS.",
-      error?.status || 500
+      error?.status ||
+        500
     );
   }
 }
 
 export async function syncNokosProviderOrder(
-  env,
-  order
+  request,
+  env
 ) {
-  if (
-    !order?.external_order_id
-  ) {
-    return order;
-  }
+  try {
+    const auth =
+      await requireAdmin(
+        request,
+        env
+      );
 
-  const providerOrder =
-    await getOrder(
-      env,
-      order.external_order_id
+    if (auth?.response) {
+      return auth.response;
+    }
+
+    const payload =
+      await readJson(
+        request
+      );
+
+    const id =
+      parsePositiveInteger(
+        payload.id ??
+        payload.order_id
+      );
+
+    const orderNumber =
+      cleanString(
+        payload.order_number ??
+        payload.orderNumber,
+        120
+      );
+
+    const order =
+      id
+        ? await getOrderById(
+            env,
+            id
+          )
+        : await getOrderByNumber(
+            env,
+            orderNumber
+          );
+
+    if (!order) {
+      return errorResponse(
+        "Order NOKOS tidak ditemukan.",
+        404
+      );
+    }
+
+    if (
+      order.type !==
+      ORDER_TYPE ||
+      order.provider !==
+      NOKOS_PROVIDER
+    ) {
+      return errorResponse(
+        "Order bukan order NOKOS SMSCode.",
+        400
+      );
+    }
+
+    const result =
+      await syncOrder(
+        env,
+        {
+          orderId:
+            order.id,
+          adapter:
+            SMSCODE_ADAPTER
+        }
+      );
+
+    return successResponse({
+      order:
+        formatOrder(
+          result.order
+        ),
+      synced:
+        result.synced,
+      uncertain:
+        result.uncertain || false
+    });
+  } catch (error) {
+    return errorResponse(
+      error?.message ||
+        "Gagal sinkronisasi order provider NOKOS.",
+      error?.status ||
+        502
     );
-
-  await applyProviderOrder(
-    env,
-    order,
-    providerOrder
-  );
-
-  return env.DB
-    .prepare(`
-      SELECT *
-      FROM orders
-      WHERE id = ?
-      LIMIT 1
-    `)
-    .bind(order.id)
-    .first();
+  }
 }
 
 export async function getNokosStats(
@@ -2927,139 +2010,122 @@ export async function getNokosStats(
       return auth.response;
     }
 
-    const result =
+    const total =
+      await env.DB
+        .prepare(`
+          SELECT COUNT(*) AS total
+          FROM orders
+          WHERE type = ?
+            AND provider = ?
+        `)
+        .bind(
+          ORDER_TYPE,
+          NOKOS_PROVIDER
+        )
+        .first();
+
+    const completed =
+      await env.DB
+        .prepare(`
+          SELECT COUNT(*) AS total
+          FROM orders
+          WHERE type = ?
+            AND provider = ?
+            AND status = 'COMPLETED'
+        `)
+        .bind(
+          ORDER_TYPE,
+          NOKOS_PROVIDER
+        )
+        .first();
+
+    const processing =
+      await env.DB
+        .prepare(`
+          SELECT COUNT(*) AS total
+          FROM orders
+          WHERE type = ?
+            AND provider = ?
+            AND status IN (
+              'CREATING',
+              'PENDING',
+              'PROCESSING',
+              'OTP_RECEIVED',
+              'UNKNOWN'
+            )
+        `)
+        .bind(
+          ORDER_TYPE,
+          NOKOS_PROVIDER
+        )
+        .first();
+
+    const failed =
+      await env.DB
+        .prepare(`
+          SELECT COUNT(*) AS total
+          FROM orders
+          WHERE type = ?
+            AND provider = ?
+            AND status IN (
+              'FAILED',
+              'CANCELLED',
+              'EXPIRED',
+              'REFUNDED'
+            )
+        `)
+        .bind(
+          ORDER_TYPE,
+          NOKOS_PROVIDER
+        )
+        .first();
+
+    const revenue =
       await env.DB
         .prepare(`
           SELECT
-            COUNT(*) AS total,
-            SUM(
-              CASE
-                WHEN status = 'CREATING'
-                THEN 1
-                ELSE 0
-              END
-            ) AS creating,
-            SUM(
-              CASE
-                WHEN status = 'PROCESSING'
-                THEN 1
-                ELSE 0
-              END
-            ) AS processing,
-            SUM(
-              CASE
-                WHEN status = 'OTP_RECEIVED'
-                THEN 1
-                ELSE 0
-              END
-            ) AS otp_received,
-            SUM(
-              CASE
-                WHEN status = 'COMPLETED'
-                THEN 1
-                ELSE 0
-              END
-            ) AS completed,
-            SUM(
-              CASE
-                WHEN status = 'CANCELLED'
-                THEN 1
-                ELSE 0
-              END
-            ) AS cancelled,
-            SUM(
-              CASE
-                WHEN status = 'EXPIRED'
-                THEN 1
-                ELSE 0
-              END
-            ) AS expired,
-            SUM(
-              CASE
-                WHEN status = 'REFUNDED'
-                THEN 1
-                ELSE 0
-              END
-            ) AS refunded,
-            SUM(
-              CASE
-                WHEN status = 'FAILED'
-                THEN 1
-                ELSE 0
-              END
-            ) AS failed,
-            SUM(
-              CASE
-                WHEN status = 'UNKNOWN'
-                THEN 1
-                ELSE 0
-              END
-            ) AS unknown,
             COALESCE(
               SUM(customer_amount),
               0
-            ) AS customer_amount
+            ) AS total
           FROM orders
           WHERE type = ?
+            AND provider = ?
         `)
         .bind(
-          ORDER_TYPE
+          ORDER_TYPE,
+          NOKOS_PROVIDER
         )
         .first();
 
     return successResponse({
-      stats: {
-        total:
-          Number(
-            result?.total || 0
-          ),
-        creating:
-          Number(
-            result?.creating || 0
-          ),
-        processing:
-          Number(
-            result?.processing || 0
-          ),
-        otp_received:
-          Number(
-            result?.otp_received || 0
-          ),
-        completed:
-          Number(
-            result?.completed || 0
-          ),
-        cancelled:
-          Number(
-            result?.cancelled || 0
-          ),
-        expired:
-          Number(
-            result?.expired || 0
-          ),
-        refunded:
-          Number(
-            result?.refunded || 0
-          ),
-        failed:
-          Number(
-            result?.failed || 0
-          ),
-        unknown:
-          Number(
-            result?.unknown || 0
-          ),
-        customer_amount:
-          Number(
-            result?.customer_amount || 0
-          )
-      }
+      total:
+        Number(
+          total?.total || 0
+        ),
+      completed:
+        Number(
+          completed?.total || 0
+        ),
+      processing:
+        Number(
+          processing?.total || 0
+        ),
+      failed:
+        Number(
+          failed?.total || 0
+        ),
+      customer_amount:
+        Number(
+          revenue?.total || 0
+        )
     });
   } catch (error) {
     return errorResponse(
       error?.message ||
         "Gagal mengambil statistik NOKOS.",
-      error?.status || 500
+      error?.status ||
+        500
     );
   }
 }
@@ -3072,11 +2138,10 @@ export async function handleNokos(
     getUrl(request);
 
   const path =
-    url.pathname
-      .replace(
-        /\/+$/,
-        ""
-      ) || "/";
+    url.pathname.replace(
+      /\/+$/,
+      ""
+    ) || "/";
 
   if (
     request.method ===
@@ -3197,6 +2262,18 @@ export async function handleNokos(
       "/api/admin/nokos/order"
   ) {
     return adminGetNokosOrder(
+      request,
+      env
+    );
+  }
+
+  if (
+    request.method ===
+      "POST" &&
+    path ===
+      "/api/admin/nokos/order/sync"
+  ) {
+    return syncNokosProviderOrder(
       request,
       env
     );
