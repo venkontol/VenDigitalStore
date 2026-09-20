@@ -1,6 +1,25 @@
-APP_NAME=NexusBase
-NODE_ENV=production
-MARKUP_PERCENT=20
-MAX_SERVICES=300
-CACHE_TTL=60
-DEFAULT_SORT=price_asc
+{
+  "app": {
+    "name": "NexusBase",
+    "environment": "production"
+  },
+  "services": {
+    "max_services": 300,
+    "cache_ttl": 60,
+    "default_sort": "price_asc"
+  },
+  "markup": {
+    "sosmed_percent": 20,
+    "nokos_percent": 20
+  },
+  "sosmed": {
+    "default_server": "server_1",
+    "servers": [
+      {
+        "id": "server_1",
+        "name": "SERVER 1",
+        "active": true
+      }
+    ]
+  }
+}
