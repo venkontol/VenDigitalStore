@@ -1,0 +1,1665 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deposit | NexusBase</title>
+<style>
+.deposit-page{
+  max-width:760px;
+  margin:0 auto;
+}
+
+.deposit-tabs{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  padding:6px;
+  margin-bottom:22px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:rgba(10,10,21,.8);
+}
+
+.deposit-tab{
+  height:44px;
+  border:1px solid transparent;
+  border-radius:11px;
+  background:transparent;
+  color:var(--muted);
+  font:inherit;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.08em;
+}
+
+.deposit-tab.active{
+  color:#fff;
+  border-color:rgba(164,139,255,.25);
+  background:linear-gradient(135deg,rgba(212,20,47,.18),rgba(109,67,240,.16));
+  box-shadow:0 0 25px -12px var(--violet);
+}
+
+.deposit-title{
+  margin-bottom:18px;
+}
+
+.deposit-title h1{
+  margin:0 0 5px;
+}
+
+.deposit-title p{
+  margin:0;
+  color:var(--muted);
+  font-size:10px;
+}
+
+.deposit-card{
+  position:relative;
+  overflow:hidden;
+  padding:22px;
+  border:1px solid transparent;
+  border-radius:20px;
+  background:
+    linear-gradient(160deg,#12102a,#090912) padding-box,
+    var(--edge) border-box;
+  box-shadow:
+    0 25px 55px -32px rgba(109,67,240,.7),
+    -12px 0 35px -25px rgba(212,20,47,.55),
+    12px 0 35px -25px rgba(109,67,240,.55);
+}
+
+.deposit-card::before{
+  content:"";
+  position:absolute;
+  top:0;
+  left:15%;
+  right:15%;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);
+}
+
+.deposit-card h2{
+  margin:0 0 5px;
+  font-size:15px;
+}
+
+.deposit-desc{
+  margin:0 0 21px;
+  color:var(--muted);
+  font-size:9px;
+}
+
+.input-label{
+  display:block;
+  margin-bottom:8px;
+  color:#c8c3dc;
+  font-size:9px;
+  font-weight:600;
+  letter-spacing:.06em;
+}
+
+.amount-box{
+  display:grid;
+  grid-template-columns:52px 1fr;
+  overflow:hidden;
+  border:1px solid var(--line2);
+  border-radius:13px;
+  background:#07070e;
+}
+
+.amount-prefix{
+  display:grid;
+  place-items:center;
+  border-right:1px solid var(--line);
+  color:var(--muted);
+  font-size:11px;
+}
+
+.amount-input{
+  width:100%;
+  height:49px;
+  padding:0 14px;
+  border:0;
+  outline:0;
+  background:transparent;
+  color:#fff;
+  font:inherit;
+  font-size:12px;
+}
+
+.amount-input::placeholder{
+  color:#5f5b75;
+}
+
+.amount-min{
+  margin-top:7px;
+  color:var(--muted);
+  font-size:8px;
+}
+
+.quick-values{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:8px;
+  margin:15px 0 18px;
+}
+
+.quick-values button{
+  height:38px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:rgba(255,255,255,.025);
+  color:#c8c3dc;
+  font:inherit;
+  font-size:9px;
+}
+
+.quick-values button:hover{
+  color:#fff;
+  border-color:rgba(164,139,255,.35);
+  background:rgba(109,67,240,.08);
+}
+
+.payment-button{
+  width:100%;
+  height:47px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:12px;
+  background:linear-gradient(110deg,#d4142f,#6d43f0);
+  color:#fff;
+  font:inherit;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.08em;
+  box-shadow:
+    0 14px 30px -14px rgba(240,37,63,.8),
+    0 10px 30px -15px rgba(109,67,240,.8);
+}
+
+.payment-button:disabled{
+  opacity:.5;
+  cursor:not-allowed;
+}
+
+.terms{
+  margin-top:15px;
+  padding:18px 20px;
+  border:1px solid var(--line);
+  border-radius:17px;
+  background:linear-gradient(160deg,rgba(16,16,31,.9),rgba(8,8,16,.9));
+}
+
+.terms h3{
+  margin:0 0 11px;
+  font-size:11px;
+}
+
+.terms ul{
+  margin:0;
+  padding-left:17px;
+}
+
+.terms li{
+  margin:7px 0;
+  color:var(--muted);
+  font-size:9px;
+  line-height:1.65;
+}
+
+.pending-card{
+  padding:22px;
+}
+
+.pending-card .download-button,
+.pending-card .cancel-button{
+  display:block;
+}
+
+.pending-card .qr-box{
+  width:min(300px,78vw);
+  height:min(300px,78vw);
+  flex:none;
+}
+
+.pending-card .qr-section{
+  width:100%;
+}
+
+.pending-card .alert-box{
+  align-items:flex-start;
+}
+
+.pending-card .proof-section{
+  padding-top:2px;
+}
+
+.pending-card .cancel-button{
+  margin-bottom:2px;
+}
+
+.pending-top{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:15px;
+  margin-bottom:18px;
+}
+
+.pending-top h2{
+  margin:0 0 5px;
+  font-size:16px;
+}
+
+.pending-top p{
+  margin:0;
+  color:var(--muted);
+  font-size:9px;
+}
+
+.timer{
+  min-width:78px;
+  padding:8px 10px;
+  border:1px solid rgba(240,37,63,.3);
+  border-radius:11px;
+  background:rgba(212,20,47,.06);
+  text-align:center;
+}
+
+.timer small{
+  display:block;
+  margin-bottom:2px;
+  color:var(--muted);
+  font-size:7px;
+}
+
+.timer b{
+  color:#ff536a;
+  font-size:13px;
+}
+
+.pending-info{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:8px;
+  margin-bottom:20px;
+}
+
+.info-box{
+  padding:12px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:rgba(255,255,255,.018);
+}
+
+.info-box small{
+  display:block;
+  margin-bottom:4px;
+  color:var(--muted);
+  font-size:7px;
+}
+
+.info-box b{
+  display:block;
+  color:#fff;
+  font-size:9px;
+}
+
+.qr-section{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:8px 0 2px;
+}
+
+.qr-box{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:min(300px,82vw);
+  height:min(300px,82vw);
+  overflow:hidden;
+  border-radius:3px;
+  background:#fff;
+}
+
+.qr-box canvas{
+  display:block;
+  width:100%;
+  height:100%;
+}
+
+.qr-placeholder{
+  color:#777;
+  font-family:Arial,sans-serif;
+  font-size:11px;
+  text-align:center;
+}
+
+.qr-caption{
+  margin:11px 0 0;
+  color:var(--muted);
+  font-size:9px;
+  text-align:center;
+}
+
+.download-button{
+  width:100%;
+  height:44px;
+  margin-top:16px;
+  border:1px solid rgba(164,139,255,.28);
+  border-radius:11px;
+  background:rgba(109,67,240,.07);
+  color:#fff;
+  font:inherit;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.06em;
+}
+
+.alert-box{
+  display:flex;
+  gap:11px;
+  margin-top:17px;
+  padding:16px;
+  border:1px solid rgba(240,37,63,.24);
+  border-radius:16px;
+  background:rgba(212,20,47,.045);
+}
+
+.alert-icon{
+  flex:0 0 34px;
+  width:34px;
+  height:34px;
+  display:grid;
+  place-items:center;
+  border:1px solid rgba(240,37,63,.35);
+  border-radius:50%;
+  color:#ff5269;
+  font-size:16px;
+}
+
+.alert-box strong{
+  display:block;
+  margin-bottom:5px;
+  color:#fff;
+  font-size:9px;
+}
+
+.alert-box p{
+  margin:0;
+  color:var(--muted);
+  font-size:8px;
+  line-height:1.7;
+}
+
+.proof-section{
+  margin-top:19px;
+}
+
+.proof-section h3{
+  margin:0 0 10px;
+  font-size:10px;
+}
+
+.upload-options{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+
+.upload-option{
+  display:grid;
+  place-items:center;
+  min-height:43px;
+  border:1px solid var(--line2);
+  border-radius:11px;
+  background:rgba(255,255,255,.025);
+  color:#fff;
+  font-size:9px;
+  cursor:pointer;
+}
+
+.upload-option:hover{
+  border-color:rgba(164,139,255,.35);
+  background:rgba(109,67,240,.07);
+}
+
+.upload-option input{
+  display:none;
+}
+
+.proof-preview{
+  display:none;
+  margin-top:10px;
+  padding:8px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:rgba(255,255,255,.018);
+}
+
+.proof-preview.show{
+  display:block;
+}
+
+.proof-preview img{
+  display:block;
+  width:100%;
+  max-height:300px;
+  object-fit:contain;
+  border-radius:8px;
+  background:#05050b;
+}
+
+.proof-status{
+  margin-top:8px;
+  color:var(--muted);
+  font-size:8px;
+  line-height:1.6;
+}
+
+.cancel-button{
+  width:100%;
+  height:43px;
+  margin-top:17px;
+  border:1px solid rgba(240,37,63,.25);
+  border-radius:11px;
+  background:rgba(212,20,47,.045);
+  color:#ff6174;
+  font:inherit;
+  font-size:9px;
+  font-weight:700;
+}
+
+.empty-pending{
+  padding:35px 18px;
+  text-align:center;
+}
+
+.empty-icon{
+  width:55px;
+  height:55px;
+  display:grid;
+  place-items:center;
+  margin:0 auto 14px;
+  border:1px solid rgba(240,37,63,.35);
+  border-radius:50%;
+  background:rgba(212,20,47,.06);
+  color:#ff5269;
+  font-size:25px;
+}
+
+.empty-pending h2{
+  margin:0 0 7px;
+  font-size:13px;
+}
+
+.empty-pending p{
+  margin:0;
+  color:var(--muted);
+  font-size:9px;
+  line-height:1.7;
+}
+
+.modal{
+  position:fixed;
+  inset:0;
+  z-index:80;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+  background:rgba(2,2,6,.78);
+  backdrop-filter:blur(5px);
+}
+
+.modal.show{
+  display:flex;
+}
+
+.modal-card{
+  width:min(390px,100%);
+  padding:24px;
+  border:1px solid transparent;
+  border-radius:19px;
+  background:
+    linear-gradient(160deg,#151126,#090912) padding-box,
+    var(--edge) border-box;
+  box-shadow:
+    0 30px 80px -25px #000,
+    0 0 50px -18px var(--violet);
+  text-align:center;
+}
+
+.modal-icon{
+  width:55px;
+  height:55px;
+  display:grid;
+  place-items:center;
+  margin:0 auto 14px;
+  border:1px solid rgba(240,37,63,.35);
+  border-radius:50%;
+  background:rgba(212,20,47,.07);
+  color:#ff5269;
+  font-size:24px;
+}
+
+.modal-card h3{
+  margin:0 0 7px;
+  font-size:13px;
+}
+
+.modal-card p{
+  margin:0;
+  color:var(--muted);
+  font-size:9px;
+  line-height:1.7;
+}
+
+.modal-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-top:18px;
+}
+
+.modal-actions.single{
+  grid-template-columns:minmax(120px,180px);
+  justify-content:center;
+}
+
+.modal-actions button{
+  height:41px;
+  border:1px solid var(--line2);
+  border-radius:10px;
+  background:rgba(255,255,255,.025);
+  color:#fff;
+  font:inherit;
+  font-size:9px;
+  font-weight:700;
+}
+
+.modal-actions .primary{
+  border-color:rgba(164,139,255,.3);
+  background:linear-gradient(110deg,#d4142f,#6d43f0);
+}
+
+.toast{
+  position:fixed;
+  left:50%;
+  bottom:25px;
+  z-index:100;
+  transform:translate(-50%,20px);
+  opacity:0;
+  pointer-events:none;
+  width:min(390px,calc(100% - 30px));
+  padding:13px 15px;
+  border:1px solid var(--line2);
+  border-radius:12px;
+  background:#10101f;
+  color:#fff;
+  font-size:9px;
+  text-align:center;
+  box-shadow:0 20px 45px -20px #000;
+  transition:.2s;
+}
+
+.toast.show{
+  opacity:1;
+  transform:translate(-50%,0);
+}
+
+.hidden{
+  display:none!important;
+}
+
+@media(max-width:600px){
+  .deposit-card{
+    padding:18px;
+  }
+
+  .quick-values{
+    grid-template-columns:repeat(2,1fr);
+  }
+
+  .pending-info{
+    grid-template-columns:1fr;
+  }
+
+  .pending-top{
+    align-items:stretch;
+  }
+
+  .timer{
+    min-width:70px;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<div id="nexusControls"></div>
+<div id="nexusIcons"></div>
+<div id="nexusHeader"></div>
+<div id="nexusSidebar"></div>
+<div id="nexusScrim"></div>
+
+<main>
+  <div class="deposit-page">
+
+    <div class="deposit-tabs">
+      <button class="deposit-tab active" id="depositTab" type="button">DEPOSIT</button>
+      <button class="deposit-tab" id="pendingTab" type="button">PENDING</button>
+    </div>
+
+    <section id="depositView">
+
+      <div class="deposit-title">
+        <h1>DEPOSIT</h1>
+        <p>Tambah saldo dengan sistem otomatis Easy &amp; Fast</p>
+      </div>
+
+      <div class="deposit-card">
+
+        <h2>Deposit Saldo</h2>
+        <p class="deposit-desc">Masukkan nominal deposit anda</p>
+
+        <label class="input-label" for="depositAmount">
+          INPUT DEPOSIT
+        </label>
+
+        <div class="amount-box">
+          <span class="amount-prefix">Rp</span>
+          <input
+            class="amount-input"
+            id="depositAmount"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
+            placeholder="Masukkan nominal"
+          >
+        </div>
+
+        <div class="amount-min">
+          Minimal deposit Rp1.000
+        </div>
+
+        <div class="quick-values">
+          <button type="button" data-value="1000">Rp1.000</button>
+          <button type="button" data-value="5000">Rp5.000</button>
+          <button type="button" data-value="10000">Rp10.000</button>
+          <button type="button" data-value="25000">Rp25.000</button>
+          <button type="button" data-value="50000">Rp50.000</button>
+          <button type="button" data-value="100000">Rp100.000</button>
+        </div>
+
+        <button
+          class="payment-button"
+          id="paymentButton"
+          type="button"
+        >
+          PEMBAYARAN
+        </button>
+
+      </div>
+
+      <div class="terms">
+        <h3>S&amp;K</h3>
+
+        <ul>
+          <li>Pembayaran akan otomatis dikonfirmasi sistem setelah pembayaran 5–10 menit</li>
+          <li>Anda hanya bisa melakukan 1x deposit pending, jadi jangan melakukan spam</li>
+          <li>Max QR pending 15 menit</li>
+          <li>Setelah pembayaran "wajib" upload bukti transfer agar sistem mendeteksi</li>
+          <li>Saldo masuk setelah sistem mengkonfirmasi</li>
+        </ul>
+      </div>
+
+    </section>
+
+    <section id="pendingView" class="hidden">
+      <div class="deposit-card pending-card" id="pendingContent">
+        <div class="pending-top">
+          <div>
+            <h2>Deposit Pending</h2>
+            <p>Segera lakukan pembayaran</p>
+          </div>
+
+          <div class="timer">
+            <small>QR BERLAKU</small>
+            <b id="depositTimer">--:--</b>
+          </div>
+        </div>
+
+        <div class="pending-info">
+          <div class="info-box">
+            <small>NOMINAL</small>
+            <b id="pendingAmount">-</b>
+          </div>
+
+          <div class="info-box">
+            <small>METODE</small>
+            <b id="pendingMethod">QR</b>
+          </div>
+
+          <div class="info-box">
+            <small>STATUS</small>
+            <b id="pendingStatus">Menunggu pembayaran</b>
+          </div>
+        </div>
+
+        <div class="qr-section">
+          <div class="qr-box" id="qrBox">
+            <span class="qr-placeholder">QR pembayaran</span>
+          </div>
+
+          <p class="qr-caption">Scan QR untuk melakukan pembayaran</p>
+        </div>
+
+        <button class="download-button" id="downloadQr" type="button">
+          DOWNLOAD QR
+        </button>
+
+        <div class="alert-box">
+          <div class="alert-icon">!</div>
+          <div>
+            <strong>Wajib upload bukti setelah pembayaran</strong>
+            <p>
+              Sistem hanya akan mendeteksi jika anda upload foto, jika tidak upload pembayaran tidak akan diproses sistem, ada kendala hubungi pusat bantuan
+            </p>
+          </div>
+        </div>
+
+        <div class="proof-section">
+          <h3>UPLOAD BUKTI TRANSFER ANDA</h3>
+
+          <div class="upload-options">
+            <label class="upload-option">
+              Pilih dari Foto
+              <input id="galleryInput" type="file" accept="image/*">
+            </label>
+
+            <label class="upload-option">
+              Pilih dari Kamera
+              <input id="cameraInput" type="file" accept="image/*" capture="environment">
+            </label>
+          </div>
+
+          <div class="proof-preview" id="proofPreview">
+            <img id="proofImage" alt="Bukti transfer">
+            <div class="proof-status" id="proofStatus"></div>
+          </div>
+        </div>
+
+        <button class="cancel-button" id="cancelDeposit" type="button">
+          BATALKAN DEPOSIT
+        </button>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<div class="modal" id="modal">
+  <div class="modal-card">
+    <div class="modal-icon" id="modalIcon">×</div>
+    <h3 id="modalTitle"></h3>
+    <p id="modalText"></p>
+    <div class="modal-actions" id="modalActions"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $=id=>document.getElementById(id)
+
+const state={
+  pending:null,
+  timer:null,
+  proofObjectUrl:null
+}
+
+function formatRupiah(value){
+  return "Rp"+Number(value||0).toLocaleString("id-ID")
+}
+
+function digits(value){
+  return String(value||"").replace(/\D/g,"")
+}
+
+function showToast(text){
+  const toast=$("toast")
+  toast.textContent=text
+  toast.classList.add("show")
+
+  clearTimeout(showToast.timer)
+
+  showToast.timer=setTimeout(()=>{
+    toast.classList.remove("show")
+  },2800)
+}
+
+function closeModal(){
+  $("modal").classList.remove("show")
+}
+
+function openModal(title,text,actions){
+  $("modalTitle").textContent=title
+  $("modalText").textContent=text
+  $("modalActions").innerHTML=""
+  $("modalActions").classList.toggle("single",actions.length===1)
+  $("modalIcon").textContent="×"
+
+  actions.forEach(action=>{
+    const button=document.createElement("button")
+
+    button.type="button"
+    button.textContent=action.text
+
+    if(action.primary){
+      button.className="primary"
+    }
+
+    button.onclick=action.click
+
+    $("modalActions").appendChild(button)
+  })
+
+  $("modal").classList.add("show")
+}
+
+function setTab(name){
+  const depositView=$("depositView")
+  const pendingView=$("pendingView")
+
+  if(name==="pending"){
+    depositView.classList.add("hidden")
+    pendingView.classList.remove("hidden")
+    $("depositTab").classList.remove("active")
+    $("pendingTab").classList.add("active")
+  }else{
+    depositView.classList.remove("hidden")
+    pendingView.classList.add("hidden")
+    $("depositTab").classList.add("active")
+    $("pendingTab").classList.remove("active")
+    stopTimer()
+  }
+}
+
+function remaining(expiresAt){
+  return Math.max(0,Number(expiresAt)-Date.now())
+}
+
+function timerText(milliseconds){
+  const seconds=Math.max(
+    0,
+    Math.ceil(milliseconds/1000)
+  )
+
+  const minutes=Math.floor(seconds/60)
+  const rest=seconds%60
+
+  return String(minutes).padStart(2,"0")+
+    ":"+
+    String(rest).padStart(2,"0")
+}
+
+function startTimer(){
+  stopTimer()
+
+  state.timer=setInterval(()=>{
+    if(!state.pending){
+      stopTimer()
+      return
+    }
+
+    const left=remaining(
+      state.pending.expires_at
+    )
+
+    const timer=$("depositTimer")
+
+    if(timer){
+      timer.textContent=timerText(left)
+    }
+
+    if(left<=0){
+      stopTimer()
+      state.pending=null
+      renderEmptyPending()
+      setTab("deposit")
+      showToast("Deposit telah kedaluwarsa")
+    }
+  },1000)
+}
+
+function stopTimer(){
+  if(state.timer){
+    clearInterval(state.timer)
+    state.timer=null
+  }
+}
+
+function renderEmptyPending(){
+  $("pendingContent").innerHTML=`
+    <div class="empty-pending">
+      <div class="empty-icon">×</div>
+      <h2>Anda belum mempunyai deposit pending/aktif</h2>
+      <p>Silahkan melakukan deposit dahulu</p>
+    </div>
+  `
+}
+
+function renderPending(data){
+  state.pending=data
+
+  $("pendingContent").innerHTML=`
+    <div class="pending-top">
+      <div>
+        <h2>Deposit Pending</h2>
+        <p>Segera lakukan pembayaran</p>
+      </div>
+
+      <div class="timer">
+        <small>QR BERLAKU</small>
+        <b id="depositTimer">
+          ${timerText(remaining(data.expires_at))}
+        </b>
+      </div>
+    </div>
+
+    <div class="pending-info">
+
+      <div class="info-box">
+        <small>NOMINAL</small>
+        <b>${formatRupiah(data.amount)}</b>
+      </div>
+
+      <div class="info-box">
+        <small>METODE</small>
+        <b>${data.method||"QR"}</b>
+      </div>
+
+      <div class="info-box">
+        <small>STATUS</small>
+        <b>${data.status_label||"Menunggu pembayaran"}</b>
+      </div>
+
+    </div>
+
+    <div class="qr-section">
+
+      <div class="qr-box" id="qrBox">
+        <span class="qr-placeholder">
+          Menyiapkan QR...
+        </span>
+      </div>
+
+      <p class="qr-caption">
+        Scan QR untuk melakukan pembayaran
+      </p>
+
+    </div>
+
+    <button
+      class="download-button"
+      id="downloadQr"
+      type="button"
+    >
+      DOWNLOAD QR
+    </button>
+
+    <div class="alert-box">
+
+      <div class="alert-icon">!</div>
+
+      <div>
+        <strong>Wajib upload bukti setelah pembayaran</strong>
+
+        <p>
+          Sistem hanya akan mendeteksi jika anda upload foto, jika tidak upload pembayaran tidak akan diproses sistem, ada kendala hubungi pusat bantuan
+        </p>
+      </div>
+
+    </div>
+
+    <div class="proof-section">
+
+      <h3>UPLOAD BUKTI TRANSFER ANDA</h3>
+
+      <div class="upload-options">
+
+        <label class="upload-option">
+          Pilih dari Foto
+          <input
+            id="galleryInput"
+            type="file"
+            accept="image/*"
+          >
+        </label>
+
+        <label class="upload-option">
+          Pilih dari Kamera
+          <input
+            id="cameraInput"
+            type="file"
+            accept="image/*"
+            capture="environment"
+          >
+        </label>
+
+      </div>
+
+      <div class="proof-preview" id="proofPreview">
+        <img id="proofImage" alt="Bukti transfer">
+        <div class="proof-status" id="proofStatus"></div>
+      </div>
+
+    </div>
+
+    <button
+      class="cancel-button"
+      id="cancelDeposit"
+      type="button"
+    >
+      BATALKAN DEPOSIT
+    </button>
+  `
+
+  renderQr(data.qr_payload)
+
+  $("downloadQr").onclick=downloadQr
+
+  $("galleryInput").onchange=event=>{
+    handleProof(event.target.files[0])
+    event.target.value=""
+  }
+
+  $("cameraInput").onchange=event=>{
+    handleProof(event.target.files[0])
+    event.target.value=""
+  }
+
+  $("cancelDeposit").onclick=confirmCancel
+
+  startTimer()
+}
+
+function renderQr(payload){
+  const box=$("qrBox")
+
+  if(!box){
+    return
+  }
+
+  if(!payload){
+    box.innerHTML=`
+      <span class="qr-placeholder">
+        QR belum tersedia
+      </span>
+    `
+    return
+  }
+
+  if(typeof QRious==="undefined"){
+    box.innerHTML=`
+      <span class="qr-placeholder">
+        QR belum dapat ditampilkan
+      </span>
+    `
+    return
+  }
+
+  const canvas=document.createElement("canvas")
+
+  new QRious({
+    element:canvas,
+    value:String(payload),
+    size:300,
+    level:"H",
+    padding:0,
+    background:"#fff",
+    foreground:"#000"
+  })
+
+  box.innerHTML=""
+  box.appendChild(canvas)
+}
+
+function downloadQr(){
+  const canvas=$("qrBox")?.querySelector("canvas")
+
+  if(!canvas){
+    showToast("QR belum tersedia")
+    return
+  }
+
+  const link=document.createElement("a")
+
+  link.download=
+    (state.pending?.id||"deposit")+
+    "-qris.png"
+
+  link.href=canvas.toDataURL("image/png")
+  link.click()
+}
+
+async function handleProof(file){
+  if(!file||!state.pending){
+    return
+  }
+
+  if(state.pending.proof_attempts>=2){
+    showToast("Batas upload bukti sudah habis")
+    return
+  }
+
+  if(!file.type.startsWith("image/")){
+    showToast("File harus berupa foto")
+    return
+  }
+
+  if(state.proofObjectUrl){
+    URL.revokeObjectURL(
+      state.proofObjectUrl
+    )
+  }
+
+  state.proofObjectUrl=
+    URL.createObjectURL(file)
+
+  $("proofPreview").classList.add("show")
+  $("proofImage").src=
+    state.proofObjectUrl
+
+  $("proofStatus").textContent=
+    "Memproses bukti pembayaran..."
+
+  const form=new FormData()
+
+  form.append("deposit_id",state.pending.id)
+  form.append("proof",file)
+
+  try{
+    const response=await fetch(
+      "/api/deposit/proof",
+      {
+        method:"POST",
+        body:form
+      }
+    )
+
+    const result=await response.json()
+
+    if(!response.ok){
+      throw Error(
+        result.message||
+        "Bukti pembayaran gagal diproses"
+      )
+    }
+
+    state.pending=result.deposit||
+      state.pending
+
+    const attempts=
+      state.pending.proof_attempts||
+      result.proof_attempts||
+      1
+
+    $("proofStatus").textContent=
+      result.message||
+      "Bukti pembayaran berhasil diterima"
+
+    window.dispatchEvent(
+      new CustomEvent(
+        "nexusbase:deposit-proof",
+        {
+          detail:{
+            deposit:state.pending,
+            result
+          }
+        }
+      )
+    )
+
+    if(
+      result.deposit?.status==="CANCELLED"||
+      result.status==="CANCELLED"||
+      attempts>=2&&result.failed===true
+    ){
+      setTimeout(()=>{
+        state.pending=null
+        renderEmptyPending()
+        setTab("deposit")
+      },1200)
+    }
+
+  }catch(error){
+    $("proofStatus").textContent=
+      error.message||
+      "Bukti pembayaran gagal diproses"
+
+    showToast(
+      error.message||
+      "Bukti pembayaran gagal diproses"
+    )
+  }
+}
+
+async function createDeposit(){
+  const amount=Number(
+    digits(
+      $("depositAmount").value
+    )
+  )
+
+  if(amount<1000){
+    showToast(
+      "Minimal deposit Rp1.000"
+    )
+    return
+  }
+
+  const button=$("paymentButton")
+
+  button.disabled=true
+  button.textContent="MEMPROSES..."
+
+  try{
+    const response=await fetch(
+      "/api/deposit",
+      {
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json"
+        },
+        body:JSON.stringify({
+          amount
+        })
+      }
+    )
+
+    const contentType=response.headers.get("content-type")||""
+    if(!contentType.includes("application/json"))throw Error("Sistem deposit belum terhubung")
+    const result=await response.json()
+
+    if(!response.ok){
+      if(
+        response.status===409&&
+        result.deposit
+      ){
+        renderPending(result.deposit)
+        setTab("pending")
+        return
+      }
+
+      throw Error(
+        result.message||
+        "Deposit gagal dibuat"
+      )
+    }
+
+    if(!result.deposit){
+      throw Error(
+        "Data deposit tidak diterima sistem"
+      )
+    }
+
+    renderPending(result.deposit)
+    setTab("pending")
+
+    window.dispatchEvent(
+      new CustomEvent(
+        "nexusbase:deposit-created",
+        {
+          detail:result.deposit
+        }
+      )
+    )
+
+  }catch(error){
+    showToast(
+      error.message||
+      "Deposit gagal dibuat"
+    )
+  }finally{
+    button.disabled=false
+    button.textContent="PEMBAYARAN"
+  }
+}
+
+async function loadPending(showMessage=false){
+  try{
+    const response=await fetch(
+      "/api/deposit/pending",
+      {
+        method:"GET",
+        cache:"no-store"
+      }
+    )
+
+    if(response.status===404){
+      state.pending=null
+      renderEmptyPending()
+
+      if(showMessage){
+        setTab("deposit")
+
+        openModal(
+          "Anda belum mempunyai deposit pending/aktif",
+          "Silahkan melakukan deposit dahulu",
+          [
+            {
+              text:"OK",
+              primary:true,
+              click:closeModal
+            }
+          ]
+        )
+      }
+
+      return null
+    }
+
+    const result=await response.json()
+
+    if(!response.ok){
+      throw Error(
+        result.message||
+        "Deposit pending gagal dimuat"
+      )
+    }
+
+    if(!result.deposit){
+      state.pending=null
+      renderEmptyPending()
+
+      if(showMessage){
+        setTab("deposit")
+
+        openModal(
+          "Anda belum mempunyai deposit pending/aktif",
+          "Silahkan melakukan deposit dahulu",
+          [
+            {
+              text:"OK",
+              primary:true,
+              click:closeModal
+            }
+          ]
+        )
+      }
+
+      return null
+    }
+
+    if(
+      Number(result.deposit.expires_at)<=Date.now()
+    ){
+      state.pending=null
+      renderEmptyPending()
+
+      if(showMessage){
+        setTab("deposit")
+
+        showToast(
+          "Deposit sudah kedaluwarsa"
+        )
+      }
+
+      return null
+    }
+
+    renderPending(result.deposit)
+    return result.deposit
+
+  }catch(error){
+
+    if(showMessage){
+      setTab("deposit")
+
+      showToast(
+        error.message||
+        "Gagal memeriksa deposit"
+      )
+    }
+
+    return null
+  }
+}
+
+function confirmCancel(){
+  if(!state.pending){
+    return
+  }
+
+  openModal(
+    "Batalkan deposit?",
+    "Jika dibatalkan, anda harus membuat deposit baru",
+    [
+      {
+        text:"NO",
+        click:closeModal
+      },
+      {
+        text:"OK",
+        primary:true,
+        click:cancelDeposit
+      }
+    ]
+  )
+}
+
+async function cancelDeposit(){
+  closeModal()
+
+  if(!state.pending){
+    return
+  }
+
+  try{
+    const response=await fetch(
+      "/api/deposit/cancel",
+      {
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json"
+        },
+        body:JSON.stringify({
+          deposit_id:state.pending.id
+        })
+      }
+    )
+
+    const result=await response.json()
+
+    if(!response.ok){
+      throw Error(
+        result.message||
+        "Deposit gagal dibatalkan"
+      )
+    }
+
+    const oldDeposit=state.pending
+
+    state.pending=null
+    stopTimer()
+    renderEmptyPending()
+    setTab("deposit")
+
+    window.dispatchEvent(
+      new CustomEvent(
+        "nexusbase:deposit-cancelled",
+        {
+          detail:{
+            deposit:oldDeposit,
+            result
+          }
+        }
+      )
+    )
+
+  }catch(error){
+    showToast(
+      error.message||
+      "Deposit gagal dibatalkan"
+    )
+  }
+}
+
+const DESIGN_SOURCE="desain.html"
+
+function insertTemplate(id,html){
+  const mount=document.getElementById(id)
+  if(!mount)return
+  mount.outerHTML=html||""
+}
+
+async function loadNexusDesign(){
+  const response=await fetch(new URL(DESIGN_SOURCE,window.location.href),{cache:"no-store"})
+  if(!response.ok)throw new Error("Gagal memuat desain.html")
+
+  const source=await response.text()
+  const doc=new DOMParser().parseFromString(source,"text/html")
+
+  doc.querySelectorAll("link[rel='stylesheet'],link[href*='fonts.googleapis.com']").forEach(link=>{
+    const clone=document.createElement("link")
+    clone.rel=link.rel||"stylesheet"
+    clone.href=new URL(link.getAttribute("href"),window.location.href).href
+    document.head.appendChild(clone)
+  })
+
+  doc.querySelectorAll("style").forEach(style=>{
+    const clone=document.createElement("style")
+    clone.textContent=style.textContent||""
+    document.head.appendChild(clone)
+  })
+
+  const templates={}
+  doc.querySelectorAll("template").forEach(template=>{
+    templates[template.id]=template.innerHTML
+  })
+
+  insertTemplate("nexusControls",templates["nexus-controls"])
+  insertTemplate("nexusIcons",templates["nexus-icons"])
+  insertTemplate("nexusHeader",templates["nexus-header"])
+  insertTemplate("nexusSidebar",templates["nexus-sidebar"])
+  insertTemplate("nexusScrim",templates["nexus-scrim"])
+
+  const active=document.querySelector('.nav[data-n="DEPOSIT"]')
+  if(active)active.classList.add("active")
+
+  const navToggle=document.getElementById("navToggle")
+  const scrim=document.querySelector(".scrim")
+  if(scrim&&navToggle){
+    scrim.addEventListener("click",()=>{
+      navToggle.checked=false
+    })
+  }
+
+  const backButton=document.getElementById("backButton")
+  if(backButton){
+    backButton.addEventListener("click",()=>{
+      if(window.history.length>1){
+        window.history.back()
+        return
+      }
+      window.location.href="dashboard.html"
+    })
+  }
+
+  document.querySelectorAll("aside a").forEach(link=>{
+    link.addEventListener("click",()=>{
+      if(window.innerWidth<=900&&navToggle){
+        navToggle.checked=false
+      }
+    })
+  })
+}
+
+$("depositAmount").oninput=()=>{
+  $("depositAmount").value=digits($("depositAmount").value)
+}
+
+document.querySelectorAll("[data-value]").forEach(button=>{
+  button.onclick=()=>{
+    $("depositAmount").value=button.dataset.value
+  }
+})
+
+$("paymentButton").onclick=createDeposit
+
+$("depositTab").onclick=()=>{
+  setTab("deposit")
+}
+
+$("pendingTab").onclick=()=>{
+  if(state.pending&&remaining(state.pending.expires_at)>0){
+    renderPending(state.pending)
+    setTab("pending")
+    return
+  }
+
+  setTab("deposit")
+  openModal(
+    "Anda belum mempunyai deposit pending/aktif",
+    "Silahkan melakukan deposit dahulu",
+    [
+      {
+        text:"OK",
+        primary:true,
+        click:closeModal
+      }
+    ]
+  )
+}
+
+$("modal").onclick=event=>{
+  if(event.target===$("modal")){
+    closeModal()
+  }
+}
+
+window.NexusBaseDepositUI={
+  setPending(data){
+    if(!data){
+      state.pending=null
+      stopTimer()
+      renderEmptyPending()
+      setTab("deposit")
+      return
+    }
+
+    renderPending(data)
+    setTab("pending")
+  },
+
+  clearPending(){
+    state.pending=null
+    stopTimer()
+    renderEmptyPending()
+    setTab("deposit")
+  },
+
+  getPending(){
+    return state.pending?{...state.pending}:null
+  },
+
+  refresh(){
+    return Promise.resolve(state.pending?{...state.pending}:null)
+  }
+}
+
+renderEmptyPending()
+loadNexusDesign().catch(error=>{
+  console.error(error)
+  showToast("Gagal memuat desain halaman")
+})
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
+
+</body>
+</html>

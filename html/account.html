@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#05050b">
+<title>Account — NexusBase</title>
+<style>
+
+.page-head{
+  margin-bottom:22px;
+}
+
+.page-desc{
+  margin:6px 0 0;
+  color:var(--muted);
+  font-size:12px;
+}
+
+.account-grid{
+  display:grid;
+  grid-template-columns:1.3fr 1fr;
+  gap:16px;
+}
+
+.profile-head{
+  display:flex;
+  align-items:center;
+  gap:16px;
+}
+
+.profile-avatar{
+  width:60px;
+  height:60px;
+  flex:none;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  background:linear-gradient(145deg,#8a66ff,#4a2bc2);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.3),
+    0 0 0 3px rgba(164,139,255,.18),
+    0 0 26px -6px var(--violet);
+}
+
+.profile-avatar svg{
+  width:28px;
+  height:28px;
+  color:#fff;
+}
+
+.profile-main{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  min-width:0;
+}
+
+.profile-main strong{
+  font-size:14px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.profile-main span{
+  color:var(--muted);
+  font-size:11px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.account-fields{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:16px;
+  margin-top:20px;
+  padding-top:18px;
+  border-top:1px solid var(--line);
+}
+
+.field{
+  display:flex;
+  flex-direction:column;
+  gap:5px;
+  min-width:0;
+}
+
+.field small{
+  color:var(--muted);
+  font-size:9.5px;
+  font-weight:700;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+
+.field strong{
+  font-size:12.5px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.balance-card{
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+}
+
+.balance-label{
+  color:var(--muted);
+  font-size:10.5px;
+  font-weight:700;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+}
+
+.balance-value{
+  font-size:27px;
+  font-weight:700;
+  letter-spacing:-.01em;
+  text-shadow:0 0 26px rgba(109,67,240,.4);
+}
+
+.balance-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+
+.action-btn{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:42px;
+  padding:0 14px;
+  border-radius:12px;
+  border:1px solid var(--line2);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.05em;
+  text-align:center;
+}
+
+.action-btn.primary{
+  color:#fff;
+  background:linear-gradient(180deg,var(--crimson-hi),#b30f27);
+  border-color:transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.3),
+    0 12px 28px -14px rgba(240,37,63,.75);
+}
+
+.action-btn.ghost{
+  background:
+    linear-gradient(#100b22,#100b22) padding-box,
+    linear-gradient(135deg,rgba(164,139,255,.9),rgba(109,67,240,.35)) border-box;
+  box-shadow:0 0 24px -14px var(--violet);
+}
+
+.security-list{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.security-item{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:16px 18px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:linear-gradient(160deg,var(--panel2),var(--panel));
+  transition:border-color .2s,box-shadow .2s,transform .2s;
+}
+
+.security-item:hover{
+  transform:translateY(-2px);
+  border-color:rgba(164,139,255,.3);
+  box-shadow:0 18px 36px -24px var(--violet);
+}
+
+.security-icon{
+  width:40px;
+  height:40px;
+  flex:none;
+  display:grid;
+  place-items:center;
+  border-radius:12px;
+  background:rgba(109,67,240,.12);
+  border:1px solid rgba(164,139,255,.24);
+  color:var(--violet-hi);
+}
+
+.security-icon svg{
+  width:19px;
+  height:19px;
+}
+
+.security-copy{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  min-width:0;
+}
+
+.security-copy strong{
+  font-size:12px;
+}
+
+.security-copy span{
+  color:var(--muted);
+  font-size:10px;
+}
+
+.security-arrow{
+  flex:none;
+  color:var(--muted);
+  font-size:18px;
+}
+
+.danger-card{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  border-color:rgba(240,37,63,.22);
+  box-shadow:
+    inset 3px 0 0 var(--crimson-hi),
+    inset 0 1px 0 rgba(255,255,255,.05),
+    0 22px 44px -28px #000;
+}
+
+.danger-copy{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.danger-copy span{
+  color:var(--muted);
+  font-size:10.5px;
+}
+
+.logout-btn{
+  flex:none;
+  height:42px;
+  padding:0 18px;
+  border-radius:11px;
+  border:1px solid rgba(240,37,63,.3);
+  background:rgba(212,20,47,.07);
+  color:#ff6d7f;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.06em;
+}
+
+.logout-btn:hover{
+  background:rgba(212,20,47,.14);
+  border-color:rgba(240,37,63,.5);
+}
+
+.logout-btn:disabled{
+  opacity:.6;
+  cursor:default;
+}
+
+.load-note{
+  margin-top:10px;
+  color:var(--muted);
+  font-size:10.5px;
+}
+
+.load-note.error{
+  color:#ff98a3;
+}
+
+@media(max-width:900px){
+  .account-grid{
+    grid-template-columns:1fr;
+  }
+}
+
+@media(max-width:560px){
+  .account-fields{
+    grid-template-columns:1fr;
+  }
+  .danger-card{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+  .logout-btn{
+    width:100%;
+  }
+}
+
+</style>
+</head>
+<body>
+<svg style="position:absolute;width:0;height:0" aria-hidden="true">
+  <defs>
+    <symbol id="i-lock" viewBox="0 0 24 24">
+      <rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+      <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M8 10V7a4 4 0 018 0v3"/>
+    </symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24">
+      <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>
+      <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M9.5 12l1.7 1.7 3.5-3.5"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div id="nexusControls"></div>
+<div id="nexusIcons"></div>
+<div id="nexusHeader"></div>
+<div id="nexusSidebar"></div>
+<div id="nexusScrim"></div>
+<main>
+
+<div class="page-head">
+<h1>ACCOUNT</h1>
+<p class="page-desc">Kelola informasi dan keamanan akun anda</p>
+</div>
+
+<section class="account-grid">
+
+<div class="card profile-card">
+
+<div class="profile-head">
+<div class="profile-avatar">
+<svg><use href="#i-account"/></svg>
+</div>
+<div class="profile-main">
+<strong id="accountUsername">—</strong>
+<span id="accountEmail">—</span>
+</div>
+</div>
+
+<div class="account-fields">
+
+<div class="field">
+<small>Username</small>
+<strong id="usernameValue">—</strong>
+</div>
+
+<div class="field">
+<small>Email</small>
+<strong id="emailValue">—</strong>
+</div>
+
+<div class="field">
+<small>ID Account</small>
+<strong id="accountIdValue">—</strong>
+</div>
+
+<div class="field">
+<small>Status</small>
+<strong id="accountStatus">—</strong>
+</div>
+
+<div class="field">
+<small>Bergabung Sejak</small>
+<strong id="accountJoined">—</strong>
+</div>
+
+<div class="field">
+<small>Login Terakhir</small>
+<strong id="accountLastLogin">—</strong>
+</div>
+
+</div>
+
+<p class="load-note" id="profileNote" hidden></p>
+
+</div>
+
+<div class="card balance-card">
+
+<span class="balance-label">Saldo Account</span>
+<strong class="balance-value" id="accountBalance">—</strong>
+
+<div class="balance-actions">
+<a href="deposit.html" class="action-btn primary">DEPOSIT</a>
+<a href="transaksi.html" class="action-btn ghost">TRANSAKSI</a>
+</div>
+
+<p class="load-note" id="balanceNote" hidden></p>
+
+</div>
+
+</section>
+
+<section>
+
+<div class="head">
+<h2>Keamanan Account</h2>
+</div>
+
+<div class="security-list">
+
+<a href="#" class="security-item" id="changePassword">
+<span class="security-icon"><svg><use href="#i-lock"/></svg></span>
+<span class="security-copy">
+<strong>Ubah Password</strong>
+<span>Perbarui password secara berkala untuk menjaga keamanan akun</span>
+</span>
+<span class="security-arrow">›</span>
+</a>
+
+<a href="#" class="security-item" id="accountSecurity">
+<span class="security-icon"><svg><use href="#i-shield"/></svg></span>
+<span class="security-copy">
+<strong>Keamanan Account</strong>
+<span id="securityStatus">—</span>
+</span>
+<span class="security-arrow">›</span>
+</a>
+
+</div>
+
+</section>
+
+<section>
+
+<div class="card danger-card">
+<div class="danger-copy">
+<strong>Keluar dari Account</strong>
+<span>Anda akan keluar dari sesi perangkat ini</span>
+</div>
+<button type="button" class="logout-btn" id="logoutButton">KELUAR</button>
+</div>
+
+</section>
+
+</main>
+
+<script>
+const DESIGN_SOURCE="desain.html";
+
+function insertTemplate(id,html){
+  const mount=document.getElementById(id);
+  if(!mount)return;
+  mount.outerHTML=html||"";
+}
+
+async function loadNexusDesign(){
+  const response=await fetch(DESIGN_SOURCE,{cache:"no-store"});
+  if(!response.ok)throw new Error("Gagal memuat desain.html");
+  const source=await response.text();
+  const doc=new DOMParser().parseFromString(source,"text/html");
+
+  doc.querySelectorAll("link[rel='stylesheet'],link[href*='fonts.googleapis.com']").forEach(link=>{
+    const clone=document.createElement("link");
+    clone.rel=link.rel;
+    clone.href=link.href;
+    document.head.appendChild(clone);
+  });
+
+  doc.querySelectorAll("style").forEach(style=>{
+    const clone=document.createElement("style");
+    clone.textContent=style.textContent;
+    document.head.appendChild(clone);
+  });
+
+  const templates={};
+  doc.querySelectorAll("template").forEach(template=>templates[template.id]=template.innerHTML);
+
+  insertTemplate("nexusControls",templates["nexus-controls"]);
+  insertTemplate("nexusIcons",templates["nexus-icons"]);
+  insertTemplate("nexusHeader",templates["nexus-header"]);
+  insertTemplate("nexusSidebar",templates["nexus-sidebar"]);
+  insertTemplate("nexusScrim",templates["nexus-scrim"]);
+
+  const active=document.querySelector('.nav[data-n="ACCOUNT"]');
+  if(active)active.classList.add("active");
+
+  initAccount();
+}
+
+function initAccount(){
+  const navToggle=document.getElementById("navToggle");
+  const scrim=document.querySelector(".scrim");
+  if(scrim) scrim.addEventListener("click",()=>{navToggle.checked=false});
+
+  const backButton=document.getElementById("backButton");
+  if(backButton) backButton.addEventListener("click",()=>{
+    navToggle.checked=false;
+    if(window.history.length>1){window.history.back();return}
+    window.location.href="dashboard.html";
+  });
+
+  document.querySelectorAll("aside a").forEach(link=>link.addEventListener("click",()=>{
+    if(window.innerWidth<=900)navToggle.checked=false;
+  }));
+
+  initAccountPage();
+}
+
+function initAccountPage(){
+
+  function money(value){
+    return "Rp"+Number(value||0).toLocaleString("id-ID");
+  }
+
+  function formatDate(unixSeconds){
+    if(!unixSeconds)return "—";
+    const date=new Date(unixSeconds*1000);
+    return date.toLocaleDateString("id-ID",{day:"numeric",month:"long",year:"numeric"});
+  }
+
+  function showNote(id,message,isError){
+    const el=document.getElementById(id);
+    el.textContent=message;
+    el.hidden=!message;
+    el.classList.toggle("error",Boolean(isError));
+  }
+
+  async function loadProfile(){
+    try{
+      const response=await fetch("/api/auth/me",{cache:"no-store"});
+      const result=await response.json();
+
+      if(!result || result.authenticated!==true || !result.user){
+        window.location.href="index.html";
+        return;
+      }
+
+      const user=result.user;
+
+      document.getElementById("accountUsername").textContent=user.username||"—";
+      document.getElementById("accountEmail").textContent=user.email||"Belum diatur";
+      document.getElementById("usernameValue").textContent=user.username||"—";
+      document.getElementById("emailValue").textContent=user.email||"Belum diatur";
+      document.getElementById("accountIdValue").textContent=user.id!=null?("#"+user.id):"—";
+      document.getElementById("accountStatus").textContent=user.is_active?"Aktif":"Nonaktif";
+      document.getElementById("accountJoined").textContent=formatDate(user.created_at);
+      document.getElementById("accountLastLogin").textContent=formatDate(user.last_login_at);
+      document.getElementById("securityStatus").textContent=
+        "Login terakhir "+formatDate(user.last_login_at);
+
+      const saldoValue=document.getElementById("saldoValue");
+      if(saldoValue && user.balance!=null) saldoValue.textContent=money(user.balance);
+
+    }catch(error){
+      showNote(
+        "profileNote",
+        "Data akun belum dapat dimuat, sistem backend belum terhubung.",
+        true
+      );
+    }
+  }
+
+  async function loadBalance(){
+    try{
+      const response=await fetch("/api/wallet",{cache:"no-store"});
+      const result=await response.json();
+
+      if(!response.ok || !result.success){
+        throw new Error(result.message||"Gagal memuat saldo");
+      }
+
+      document.getElementById("accountBalance").textContent=
+        result.balance_formatted||money(result.balance);
+
+      const saldoValue=document.getElementById("saldoValue");
+      if(saldoValue) saldoValue.textContent=result.balance_formatted||money(result.balance);
+
+    }catch(error){
+      showNote(
+        "balanceNote",
+        "Saldo belum dapat dimuat, sistem backend belum terhubung.",
+        true
+      );
+    }
+  }
+
+  document.getElementById("logoutButton").addEventListener("click",async()=>{
+    const button=document.getElementById("logoutButton");
+    button.disabled=true;
+    button.textContent="MEMPROSES...";
+
+    try{
+      await fetch("/api/auth/logout",{method:"POST"});
+    }catch(error){
+      // tetap lanjutkan ke halaman login walau permintaan gagal
+    }
+
+    window.dispatchEvent(new CustomEvent("nexusbase:logout",{detail:{source:"account"}}));
+    window.location.href="index.html";
+  });
+
+  document.getElementById("changePassword").addEventListener("click",event=>{
+    event.preventDefault();
+  });
+
+  document.getElementById("accountSecurity").addEventListener("click",event=>{
+    event.preventDefault();
+  });
+
+  loadProfile();
+  loadBalance();
+}
+
+loadNexusDesign().catch(()=>{
+  document.body.innerHTML='<main style="padding:40px"><div class="card"><h2>Desain gagal dimuat</h2><p class="muted">Pastikan desain.html berada di folder yang sama dengan account.html</p></div></main>';
+});
+</script>
+</body>
+</html>
