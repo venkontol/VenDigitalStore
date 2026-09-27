@@ -1,0 +1,29 @@
+{
+  "name": "vendigitalstore",
+  "main": "javascript/worker.js",
+  "compatibility_date": "2026-09-05",
+  "workers_dev": true,
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "VenDigitalStore",
+      "database_id": "68cd65df-ae9a-41d1-93b7-6f2a0755913f"
+    }
+  ],
+
+  "assets": {
+    "directory": "./"
+  },
+
+  "vars": {
+    "APP_NAME": "VenDigitalStore",
+    "NODE_ENV": "production",
+    "BUZZER_API_URL": "https://buzzerpanel.id/api/json.php",
+    "SMSCODE_API_URL": "https://api.smscode.gg/v2",
+    "MARKUP_PERCENT": "20",
+    "MAX_SERVICES": "300",
+    "CACHE_TTL": "60",
+    "DEFAULT_SORT": "price_asc"
+  }
+}
