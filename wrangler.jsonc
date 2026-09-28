@@ -2,7 +2,6 @@
   "name": "requirevenweb-api",
   "main": "javascript/worker.js",
   "compatibility_date": "2026-09-05",
-  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
 
   "d1_databases": [
@@ -13,8 +12,9 @@
     }
   ],
 
-  "site": {
-    "bucket": "./html"
+  "assets": {
+    "directory": "./",
+    "binding": "ASSETS"
   },
 
   "vars": {
