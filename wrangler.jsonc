@@ -2,6 +2,7 @@
   "name": "requirevenweb-api",
   "main": "javascript/worker.js",
   "compatibility_date": "2026-09-05",
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
 
   "d1_databases": [
@@ -12,8 +13,8 @@
     }
   ],
 
-  "assets": {
-    "directory": "./"
+  "site": {
+    "bucket": "./html"
   },
 
   "vars": {
@@ -25,5 +26,12 @@
     "MAX_SERVICES": "300",
     "CACHE_TTL": "60",
     "DEFAULT_SORT": "price_asc"
-  }
+  },
+
+  "routes": [
+    {
+      "pattern": "requirevenweb.my.id",
+      "zone_name": "requirevenweb.my.id"
+    }
+  ]
 }
