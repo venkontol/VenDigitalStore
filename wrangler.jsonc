@@ -1,7 +1,7 @@
 {
   "name": "requirevenweb-api",
   "main": "javascript/worker.js",
-  "compatibility_date": "2026-09-05",
+  "compatibility_date": "2026-09-28",
   "workers_dev": true,
 
   "d1_databases": [
@@ -14,13 +14,14 @@
 
   "assets": {
     "directory": "./",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    "run_worker_first": true
   },
 
   "vars": {
-    "APP_NAME": "VenDigitalStore",
+    "APP_NAME": "NexusBase",
     "NODE_ENV": "production",
-    "BUZZER_API_URL": "https://buzzerpanel.id/api/json.php",
+    "BUZZER_API_URL": "https://buzzerpanel.id/api/v2",
     "SMSCODE_API_URL": "https://api.smscode.gg/v2",
     "MARKUP_PERCENT": "20",
     "MAX_SERVICES": "300",
