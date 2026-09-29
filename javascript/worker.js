@@ -1,20 +1,5 @@
 import router from "./router.js";
 
-const FRONTEND_PATHS = new Set([
-  "/",
-  "/login",
-  "/register",
-  "/dashboard",
-  "/nokos",
-  "/suntik-sosmed",
-  "/deposit",
-  "/orders",
-  "/account",
-  "/admin",
-  "/bantuan",
-  "/transaksi"
-]);
-
 const HTML_MAP = Object.freeze({
   "/": "/html/index.html",
   "/login": "/html/index.html",
@@ -30,12 +15,8 @@ const HTML_MAP = Object.freeze({
   "/bantuan": "/html/bantuan.html"
 });
 
-// Only these prefixes/paths are allowed to be served as static assets
 const ALLOWED_STATIC_PREFIXES = ["/images/", "/html/"];
-const ALLOWED_STATIC_FILES = new Set([
-  "/favicon.ico",
-  "/robots.txt"
-]);
+const ALLOWED_STATIC_FILES = new Set(["/favicon.ico", "/robots.txt"]);
 
 const SECURITY_HEADERS = Object.freeze({
   "X-Content-Type-Options": "nosniff",
@@ -72,9 +53,11 @@ function isAllowedStatic(pathname) {
 
 function applySecurityHeaders(response) {
   const headers = new Headers(response.headers);
+
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     headers.set(key, value);
   }
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -93,8 +76,8 @@ function notFoundResponse() {
   });
 }
 
-function serverErrorResponse(message = "Internal Server Error") {
-  return new Response(message, {
+function serverErrorResponse() {
+  return new Response("Internal Server Error", {
     status: 500,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
@@ -105,87 +88,63 @@ function serverErrorResponse(message = "Internal Server Error") {
 }
 
 async function tryAsset(env, path, request) {
-  if (!env?.ASSETS) return null;
-  try {
-    const assetRequest = new Request(
-      new URL(path, new URL(request.url).origin),
-      request
-    );
-    const asset = await env.ASSETS.fetch(assetRequest);
-    if (asset.status !== 404) {
-      return asset;
-    }
-  } catch (err) {
-    console.error("[ASSETS FETCH ERROR]", path, err);
+  if (!env?.ASSETS) {
+    console.error("[ASSETS BINDING MISSING]");
+    return null;
   }
-  return null;
+
+  try {
+    const assetUrl = new URL(path, new URL(request.url).origin);
+    const assetRequest = new Request(assetUrl, {
+      method: "GET",
+      headers: request.headers
+    });
+
+    const response = await env.ASSETS.fetch(assetRequest);
+
+    console.log(
+      `[ASSET] ${path} → ${response.status}, content-type=${response.headers.get("content-type") || "missing"}, content-length=${response.headers.get("content-length") || "unknown"}`
+    );
+
+    if (response.status === 404) return null;
+
+    return response;
+  } catch (error) {
+    console.error("[ASSETS FETCH ERROR]", path, error);
+    return null;
+  }
 }
 
 async function serveFrontend(request, env) {
   const url = new URL(request.url);
   const pathname = normalizePath(url.pathname);
 
-  // 1. Exact mapped clean path → html/*.html
   if (HTML_MAP[pathname]) {
     const asset = await tryAsset(env, HTML_MAP[pathname], request);
-    if (asset) {
-      return applySecurityHeaders(
-        new Response(asset.body, {
-          status: 200,
-          headers: {
-            "Content-Type": "text/html; charset=utf-8",
-            ...Object.fromEntries(asset.headers)
-          }
-        })
-      );
-    }
+    if (asset) return applySecurityHeaders(asset);
   }
 
-  // 2. Direct .html request (e.g. /dashboard.html or /html/dashboard.html)
   if (pathname.endsWith(".html")) {
-    const candidates = [
-      pathname.startsWith("/html/") ? pathname : `/html/${pathname.slice(1)}`,
-      pathname
-    ];
+    const candidates = pathname.startsWith("/html/")
+      ? [pathname]
+      : [`/html/${pathname.slice(1)}`, pathname];
+
     for (const candidate of candidates) {
-      if (!isAllowedStatic(candidate) && !candidate.startsWith("/html/")) continue;
+      if (!candidate.startsWith("/html/")) continue;
+
       const asset = await tryAsset(env, candidate, request);
-      if (asset) {
-        return applySecurityHeaders(
-          new Response(asset.body, {
-            status: 200,
-            headers: {
-              "Content-Type": "text/html; charset=utf-8",
-              ...Object.fromEntries(asset.headers)
-            }
-          })
-        );
-      }
+      if (asset) return applySecurityHeaders(asset);
     }
   }
 
-  // 3. Allowed static assets only (/images/*, /html/*, favicon, robots)
   if (isAllowedStatic(pathname)) {
     const asset = await tryAsset(env, pathname, request);
-    if (asset) {
-      return applySecurityHeaders(asset);
-    }
+    if (asset) return applySecurityHeaders(asset);
   }
 
-  // 4. Fallback for unknown clean paths → index
   if (!pathname.includes(".")) {
     const indexAsset = await tryAsset(env, "/html/index.html", request);
-    if (indexAsset) {
-      return applySecurityHeaders(
-        new Response(indexAsset.body, {
-          status: 200,
-          headers: {
-            "Content-Type": "text/html; charset=utf-8",
-            ...Object.fromEntries(indexAsset.headers)
-          }
-        })
-      );
-    }
+    if (indexAsset) return applySecurityHeaders(indexAsset);
   }
 
   return notFoundResponse();
@@ -202,23 +161,35 @@ export default {
 
       if (isApiPath(pathname)) {
         response = await router(request, env, ctx);
-      } else if (request.method === "GET") {
+      } else if (request.method === "GET" || request.method === "HEAD") {
         response = await serveFrontend(request, env);
+        if (request.method === "HEAD") {
+          response = new Response(null, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers
+          });
+        }
       } else {
         response = notFoundResponse();
       }
 
       const secured = applySecurityHeaders(response);
+
       console.log(
         `[WORKER] ${request.method} ${pathname} → ${secured.status} (${Date.now() - start}ms)`
       );
+
       return secured;
     } catch (error) {
       console.error("[WORKER UNCAUGHT ERROR]", error);
+
       const fallback = applySecurityHeaders(serverErrorResponse());
+
       console.log(
         `[WORKER] ${request.method} ${pathname} → 500 (${Date.now() - start}ms) [uncaught]`
       );
+
       return fallback;
     }
   }
