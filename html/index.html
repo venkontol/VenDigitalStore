@@ -1083,18 +1083,63 @@ document.addEventListener("keydown", event => {
     if(event.key === "Escape") closeAuthModal();
 });
 
+async function submitAuthForm(form, endpoint, isRegister) {
+    const submitButton = form.querySelector('button[type="submit"]');
+    const originalText = submitButton ? submitButton.textContent : "";
+    const formData = new FormData(form);
+    const payload = Object.fromEntries(formData.entries());
+
+    if (!isRegister) {
+        payload.remember = formData.has("remember");
+    }
+
+    if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = "MEMPROSES...";
+    }
+
+    try {
+        const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            credentials: "same-origin",
+            body: JSON.stringify(payload)
+        });
+
+        let data = {};
+        try {
+            data = await response.json();
+        } catch (_) {
+            data = {};
+        }
+
+        if (!response.ok || data.success === false) {
+            throw new Error(data.error || data.message || `Permintaan gagal (${response.status})`);
+        }
+
+        alert(data.message || (isRegister ? "Akun berhasil dibuat" : "Berhasil masuk"));
+        window.location.assign("/dashboard");
+    } catch (error) {
+        alert(error.message || "Tidak dapat terhubung ke server. Coba lagi.");
+    } finally {
+        if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = originalText;
+        }
+    }
+}
+
 loginForm.addEventListener("submit", event => {
     event.preventDefault();
-    document.dispatchEvent(new CustomEvent("nexusbase:login", {
-        detail: new FormData(loginForm)
-    }));
+    submitAuthForm(loginForm, "/api/auth/login", false);
 });
 
 registerForm.addEventListener("submit", event => {
     event.preventDefault();
-    document.dispatchEvent(new CustomEvent("nexusbase:register", {
-        detail: new FormData(registerForm)
-    }));
+    submitAuthForm(registerForm, "/api/auth/register", true);
 });
 </script>
 
