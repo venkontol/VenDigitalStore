@@ -1,1417 +1,909 @@
-import { requireAuth } from "./auth.js";
-import {
-  getCountries,
-  getServices,
-  getOperators,
-  getProducts,
-  getProduct,
-  getOrder as getProviderOrder,
-  getActiveOrders,
-  createOrder as createProviderOrder,
-  cancelOrder as cancelProviderOrder,
-  finishOrder as finishProviderOrder,
-  resendOrder as resendProviderOrder,
-  mapStatus
-} from "./smscode.js";
-import {
-  debitBalance,
-  refundBalance
-} from "./wallet.js";
-import {
-  errorResponse,
-  successResponse,
-  readJson,
-  getUrl,
-  cleanString,
-  parsePositiveInteger,
-  nowUnix,
-  generateOrderNumber,
-} from "./utils.js";
-
-const ORDER_TYPE = "NOKOS";
-const PROVIDER = "SMSCODE";
-const PROVIDER_CURRENCY = "IDR";
-const MAX_ORDER_LIMIT = 100;
-const MAX_TARGET_LENGTH = 2000;
-const ORDER_STATUSES = new Set([
-  "CREATING",
-  "PENDING",
-  "PROCESSING",
-  "OTP_RECEIVED",
-  "COMPLETED",
-  "CANCELLED",
-  "EXPIRED",
-  "REFUNDED",
-  "FAILED",
-  "UNKNOWN"
-]);
-const TERMINAL_STATUSES = new Set([
-  "COMPLETED",
-  "CANCELLED",
-  "EXPIRED",
-  "REFUNDED",
-  "FAILED"
-]);
-
-async function getAuthenticatedUser(request, env) {
-  const result = await requireAuth(request, env);
-
-  if (result?.response) {
-    return { user: null, response: result.response };
-  }
-
-  if (!result?.user?.id) {
-    return {
-      user: null,
-      response: errorResponse("Authentication diperlukan.", 401)
-    };
-  }
-
-  return { user: result.user, response: null };
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NexusBase • NOKOS</title>
+<style>
+.nokos-card{
+  padding:18px 20px;
 }
 
-function integer(value, min = 0) {
-  const number = Number(value);
-
-  if (!Number.isSafeInteger(number) || number < min) {
-    return null;
-  }
-
-  return number;
+.head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
 }
 
-function positiveInteger(value) {
-  return integer(value, 1);
+.head small{
+  color:var(--muted);
+  font-size:10.5px;
 }
 
-function normalizeProductId(value) {
-  return positiveInteger(value);
+.nokos-card-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-bottom:15px;
 }
 
-function normalizeCatalogProductId(value) {
-  return positiveInteger(value);
+.nokos-card-head h2{
+  margin:0;
 }
 
-function normalizeCountryId(value) {
-  return positiveInteger(value);
+.nokos-card-head small{
+  display:block;
+  color:var(--muted);
+  font-size:10.5px;
+  margin-top:4px;
 }
 
-function normalizePlatformId(value) {
-  return positiveInteger(value);
+.nokos-card-head > span{
+  min-width:28px;
+  height:28px;
+  padding:0 9px;
+  display:grid;
+  place-items:center;
+  border-radius:999px;
+  background:rgba(109,67,240,.12);
+  border:1px solid rgba(164,139,255,.2);
+  color:var(--violet-hi);
+  font-size:11px;
 }
 
-function normalizeServiceId(value) {
-  return positiveInteger(value);
+.active-section,
+.order-section{
+  margin-top:18px;
 }
 
-function normalizeOperatorId(value) {
-  return positiveInteger(value);
+.active-order{
+  padding:15px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(212,20,47,.055),
+      rgba(109,67,240,.055)
+    );
+  margin-top:10px;
 }
 
-function normalizeQuantity(value) {
-  const quantity = positiveInteger(value ?? 1);
-
-  if (!quantity || quantity !== 1) {
-    return null;
-  }
-
-  return quantity;
+.active-order:first-child{
+  margin-top:0;
 }
 
-function normalizePrice(value) {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-
-  const number = Number(value);
-
-  if (!Number.isSafeInteger(number) || number < 0) {
-    return null;
-  }
-
-  return number;
+.active-meta{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:flex-start;
 }
 
-function normalizeTarget(value) {
-  const target = cleanString(value || "", MAX_TARGET_LENGTH);
-  return target || null;
+.active-id{
+  font-weight:700;
+  font-size:13px;
 }
 
-function normalizeIdempotencyKey(value) {
-  const key = cleanString(value || "", 128);
-
-  if (!key) {
-    return null;
-  }
-
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(key)) {
-    return null;
-  }
-
-  return key;
+.active-meta small{
+  display:block;
+  color:var(--muted);
+  font-size:10px;
+  margin-top:3px;
 }
 
-function getProductId(product) {
-  return normalizeProductId(
-    product?.id ?? product?.product_id ?? product?.productId
+.active-status{
+  color:#64e5c9;
+  font-size:10px;
+  font-weight:700;
+  padding:5px 8px;
+  border:1px solid rgba(100,229,201,.2);
+  border-radius:999px;
+}
+
+.active-line{
+  margin-top:10px;
+  padding:10px 12px;
+  border-radius:10px;
+  background:rgba(0,0,0,.2);
+  border:1px solid var(--line);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.active-line span{
+  color:var(--muted);
+  font-size:11px;
+}
+
+.active-line b{
+  font-size:12px;
+  text-align:right;
+}
+
+.copy{
+  border:0;
+  background:none;
+  color:var(--violet-hi);
+  font-size:10px;
+  font-weight:700;
+  flex:none;
+}
+
+.active-actions{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:7px;
+  margin-top:10px;
+}
+
+.active-actions button{
+  border:1px solid var(--line2);
+  background:rgba(255,255,255,.025);
+  border-radius:10px;
+  padding:9px 5px;
+  color:var(--text);
+  font-size:10px;
+  font-weight:700;
+}
+
+.active-actions button:hover{
+  border-color:rgba(164,139,255,.4);
+  background:rgba(109,67,240,.08);
+}
+
+.active-actions .cancel{
+  color:#ff7080;
+  border-color:rgba(212,20,47,.3);
+}
+
+.active-actions .replace{
+  color:var(--violet-hi);
+  border-color:rgba(109,67,240,.3);
+}
+
+.selected-service{
+  padding:14px;
+  border-radius:13px;
+  border:1px solid rgba(109,67,240,.25);
+  background:
+    linear-gradient(
+      135deg,
+      rgba(212,20,47,.08),
+      rgba(109,67,240,.08)
+    );
+}
+
+.selected-service strong{
+  font-size:14px;
+}
+
+.selected-service small{
+  display:block;
+  color:var(--muted);
+  font-size:10.5px;
+  margin-top:4px;
+}
+
+.quantity-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-top:14px;
+  padding:13px 0;
+}
+
+.quantity-row strong{
+  font-size:12px;
+}
+
+.quantity-row small{
+  display:block;
+  color:var(--muted);
+  font-size:10px;
+  margin-top:4px;
+}
+
+.qty{
+  display:flex;
+  align-items:center;
+  border:1px solid var(--line2);
+  border-radius:11px;
+  overflow:hidden;
+  background:rgba(0,0,0,.2);
+}
+
+.qty button{
+  width:36px;
+  height:34px;
+  border:0;
+  background:transparent;
+  font-size:18px;
+}
+
+.qty button:hover{
+  background:rgba(109,67,240,.1);
+}
+
+.qty b{
+  width:34px;
+  text-align:center;
+  font-size:12px;
+}
+
+.order-create{
+  width:100%;
+  margin-top:3px;
+}
+
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:42px;
+  padding:0 17px;
+  border-radius:12px;
+  border:1px solid var(--line2);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.04em;
+}
+
+.btn.primary{
+  color:#fff;
+  background:linear-gradient(
+    135deg,
+    var(--crimson),
+    var(--violet)
   );
+  border-color:rgba(255,255,255,.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.2),
+    0 12px 28px -18px var(--crimson);
 }
 
-function getCatalogProductId(product) {
-  return normalizeCatalogProductId(
-    product?.catalog_product_id ?? product?.catalogProductId
+.search-box{
+  position:relative;
+  margin-top:12px;
+}
+
+.search-box span{
+  position:absolute;
+  left:14px;
+  top:50%;
+  transform:translateY(-50%);
+  font-size:20px;
+  color:var(--muted);
+}
+
+.search-box input{
+  width:100%;
+  height:46px;
+  border:1px solid var(--line2);
+  border-radius:13px;
+  background:rgba(0,0,0,.18);
+  color:var(--text);
+  padding:0 14px 0 40px;
+  outline:none;
+}
+
+.search-box input::placeholder{
+  color:#6f6a8c;
+}
+
+.search-box input:focus{
+  border-color:rgba(109,67,240,.6);
+  box-shadow:0 0 22px -15px var(--violet-hi);
+}
+
+.service-list{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:12px;
+  max-height:300px;
+  overflow-y:auto;
+  padding-right:3px;
+}
+
+.service-list::-webkit-scrollbar,
+.country-list::-webkit-scrollbar{
+  width:4px;
+}
+
+.service-list::-webkit-scrollbar-thumb,
+.country-list::-webkit-scrollbar-thumb{
+  background:linear-gradient(
+    var(--crimson),
+    var(--violet)
   );
+  border-radius:99px;
 }
 
-function getCountryId(product) {
-  return normalizeCountryId(product?.country_id ?? product?.countryId);
+.service-item{
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:11px;
+  text-align:left;
+  padding:12px 13px;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.018);
+  color:var(--muted);
+  transition:.15s;
 }
 
-function getPlatformId(product) {
-  return normalizePlatformId(product?.platform_id ?? product?.platformId);
+.service-item:hover,
+.service-item.active{
+  color:#fff;
+  border-color:rgba(164,139,255,.35);
+  background:
+    linear-gradient(
+      90deg,
+      rgba(212,20,47,.09),
+      rgba(109,67,240,.08)
+    );
 }
 
-function getServiceId(product) {
-  return normalizeServiceId(product?.service_id ?? product?.serviceId);
+.service-item.active{
+  box-shadow:inset 2px 0 var(--crimson-hi);
 }
 
-function getOperatorId(product) {
-  return normalizeOperatorId(product?.operator_id ?? product?.operatorId);
+.service-logo{
+  width:30px;
+  height:30px;
+  border-radius:9px;
+  display:grid;
+  place-items:center;
+  background:rgba(255,255,255,.06);
+  flex:none;
 }
 
-function getProductName(product) {
-  return cleanString(
-    product?.name ?? product?.service_name ?? product?.product_name ?? "NOKOS",
-    255
-  ) || "NOKOS";
+.service-logo svg{
+  width:19px;
+  height:19px;
 }
 
-function getProductPrice(product) {
-  const candidates = [
-    product?.price,
-    product?.selling_price,
-    product?.amount,
-    product?.cost
-  ];
+.country-list{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:12px;
+  max-height:470px;
+  overflow-y:auto;
+  padding-right:3px;
+}
 
-  for (const candidate of candidates) {
-    const price = Number(candidate);
+.country-item{
+  width:100%;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  align-items:center;
+  gap:12px;
+  padding:13px;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.018);
+  text-align:left;
+  transition:.15s;
+}
 
-    if (Number.isSafeInteger(price) && price > 0) {
-      return price;
-    }
+.country-item:hover{
+  border-color:rgba(109,67,240,.45);
+  background:rgba(109,67,240,.055);
+}
+
+.country-name{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+
+.country-name b{
+  font-size:12px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.country-flag{
+  font-size:20px;
+}
+
+.avail{
+  color:var(--muted);
+  font-size:10.5px;
+  white-space:nowrap;
+}
+
+.price{
+  color:#22d3c5;
+  font-size:12px;
+  font-weight:800;
+  white-space:nowrap;
+}
+
+.empty{
+  padding:22px 12px;
+  text-align:center;
+  color:var(--muted);
+  border:1px dashed var(--line2);
+  border-radius:12px;
+  font-size:11px;
+}
+
+.terms-list{
+  display:grid;
+  gap:9px;
+  margin-top:12px;
+}
+
+.terms-list p{
+  margin:0;
+  color:var(--muted);
+  font-size:11px;
+  padding-left:13px;
+  position:relative;
+}
+
+.terms-list p::before{
+  content:"";
+  position:absolute;
+  left:0;
+  top:7px;
+  width:5px;
+  height:5px;
+  border-radius:50%;
+  background:linear-gradient(
+    135deg,
+    var(--crimson-hi),
+    var(--violet-hi)
+  );
+  box-shadow:0 0 8px rgba(164,139,255,.4);
+}
+
+.nokos-footer{
+  text-align:center;
+  color:rgba(151,147,182,.6);
+  font-size:10px;
+  padding:24px 0 10px;
+}
+
+.toast{
+  position:fixed;
+  left:50%;
+  bottom:22px;
+  transform:translate(-50%,20px);
+  opacity:0;
+  pointer-events:none;
+  z-index:80;
+  padding:11px 15px;
+  border-radius:12px;
+  border:1px solid var(--line2);
+  background:rgba(10,10,21,.94);
+  box-shadow:
+    0 18px 40px -22px #000,
+    0 0 25px -18px var(--violet);
+  color:var(--text);
+  font-size:12px;
+  transition:.2s;
+}
+
+.toast.show{
+  opacity:1;
+  transform:translate(-50%,0);
+}
+
+
+@media(max-width:600px){
+  .nokos-card{
+    padding:16px;
   }
 
+  .active-actions{
+    grid-template-columns:repeat(2,1fr);
+  }
+
+  .country-item{
+    grid-template-columns:minmax(0,1fr) auto;
+  }
+
+  .price{
+    grid-column:2;
+    grid-row:1/3;
+  }
+
+  .avail{
+    grid-column:1;
+  }
+
+  .quantity-row{
+    align-items:flex-start;
+  }
+}
+
+</style>
+</head>
+<body>
+<div id="nexusControls"></div>
+<div id="nexusIcons"></div>
+<div id="nexusHeader"></div>
+<div id="nexusSidebar"></div>
+<div id="nexusScrim"></div>
+<main>
+
+
+<div class="head">
+<h1>NOKOS</h1>
+</div>
+
+<section id="activeSection" class="active-section" hidden>
+<div class="card nokos-card">
+
+<div class="nokos-card-head">
+<div>
+<h2>Order Active</h2>
+<small>Nomor yang sedang diproses</small>
+</div>
+
+<span id="activeCount">0</span>
+</div>
+
+<div id="activeOrders"></div>
+
+</div>
+</section>
+
+<section id="orderSection" class="order-section" hidden>
+<div class="card nokos-card">
+
+<div class="selected-service" id="selectedServiceInfo"></div>
+
+<div class="quantity-row">
+<div>
+<strong>Jumlah yang ingin dibeli</strong>
+<small>Atur jumlah nomor</small>
+</div>
+
+<div class="qty">
+<button type="button" id="minusQty">−</button>
+<b id="qtyValue">1</b>
+<button type="button" id="plusQty">+</button>
+</div>
+</div>
+
+<button type="button" class="btn primary order-create" id="createOrder">
+CREATE ORDER
+</button>
+
+</div>
+</section>
+
+<section>
+
+<div class="card nokos-card">
+
+<div class="head">
+<h2>New Order</h2>
+</div>
+
+<div class="search-box">
+<span>⌕</span>
+<input
+id="serviceSearch"
+type="search"
+placeholder="Search Service"
+autocomplete="off"
+>
+</div>
+
+<div class="service-list" id="serviceList"></div>
+
+</div>
+
+</section>
+
+<section>
+
+<div class="card nokos-card">
+
+<div class="head">
+<h2>Country</h2>
+<small id="countryHint">Pilih service terlebih dahulu</small>
+</div>
+
+<div class="search-box">
+<span>⌕</span>
+<input
+id="countrySearch"
+type="search"
+placeholder="Search Country"
+autocomplete="off"
+>
+</div>
+
+<div class="country-list" id="countryList">
+
+<div class="empty">
+Pilih service untuk menampilkan country yang tersedia
+</div>
+
+</div>
+
+</div>
+
+</section>
+
+<section>
+
+<div class="card nokos-card">
+
+<div class="head">
+<h2>S&amp;K NOKOS</h2>
+</div>
+
+<div class="terms-list">
+
+<p>Service wajib dipilih sebelum memilih atau membeli nomor</p>
+
+<p>Country bersifat opsional, jika tidak dipilih semua nomor dari service yang dipilih akan ditampilkan</p>
+
+<p>Pastikan service dan country sudah benar sebelum membuat order</p>
+
+<p>Jika nomor tidak tersedia atau sistem provider tidak mendukung fitur tertentu, pilihan tindakan akan mengikuti status order</p>
+
+<p>Done menyelesaikan transaksi dan saldo tidak dapat dikembalikan</p>
+
+<p>Resend hanya tersedia jika sistem provider mendukung permintaan kode ulang</p>
+
+<p>Cancel membatalkan order dan refund mengikuti hasil proses sistem</p>
+
+<p>Replace digunakan untuk membeli ulang nomor sesuai ketersediaan</p>
+
+</div>
+</div>
+
+</section>
+
+
+
+</main>
+<script>
+const DESIGN_SOURCE="desain.html";
+
+function insertTemplate(id,html){
+  const mount=document.getElementById(id);
+  if(!mount)return;
+  mount.outerHTML=html||"";
+}
+
+async function loadNexusDesign(){
+  const response=await fetch(DESIGN_SOURCE,{cache:"no-store"});
+  if(!response.ok)throw new Error("Gagal memuat desain.html");
+  const source=await response.text();
+  const doc=new DOMParser().parseFromString(source,"text/html");
+
+  doc.querySelectorAll("link[rel='stylesheet'],link[href*='fonts.googleapis.com']").forEach(link=>{
+    const clone=document.createElement("link");
+    clone.rel=link.rel;
+    clone.href=link.href;
+    document.head.appendChild(clone);
+  });
+
+  doc.querySelectorAll("style").forEach(style=>{
+    const clone=document.createElement("style");
+    clone.textContent=style.textContent;
+    document.head.appendChild(clone);
+  });
+
+  const templates={};
+  doc.querySelectorAll("template").forEach(template=>templates[template.id]=template.innerHTML);
+
+  insertTemplate("nexusControls",templates["nexus-controls"]);
+  insertTemplate("nexusIcons",templates["nexus-icons"]);
+  insertTemplate("nexusHeader",templates["nexus-header"]);
+  insertTemplate("nexusSidebar",templates["nexus-sidebar"]);
+  insertTemplate("nexusScrim",templates["nexus-scrim"]);
+
+  const active=document.querySelector('.nav[data-n="NOKOS"]');
+  if(active)active.classList.add("active");
+
+  initNokos();
+}
+
+function initNokos(){
+  const navToggle=document.getElementById("navToggle");
+  const scrim=document.querySelector(".scrim");
+  if(scrim) scrim.addEventListener("click",()=>{navToggle.checked=false});
+
+  const backButton=document.getElementById("backButton");
+  if(backButton) backButton.addEventListener("click",()=>{
+    navToggle.checked=false;
+    if(window.history.length>1){window.history.back();return}
+    window.location.href="index.html";
+  });
+
+  document.querySelectorAll("aside a").forEach(link=>link.addEventListener("click",()=>{
+    if(window.innerWidth<=900)navToggle.checked=false;
+  }));
+
+  initNokosPage();
+}
+
+
+function initNokosPage(){
+const services=[];
+const countries=[];
+const activeOrders=[];
+let products=[];
+let selectedService=null;
+let selectedCountry=null;
+let quantity=1;
+let pendingOrder=null;
+const serviceList=document.getElementById("serviceList");
+const countryList=document.getElementById("countryList");
+const serviceSearch=document.getElementById("serviceSearch");
+const countrySearch=document.getElementById("countrySearch");
+const orderSection=document.getElementById("orderSection");
+const activeSection=document.getElementById("activeSection");
+const selectedServiceInfo=document.getElementById("selectedServiceInfo");
+const qtyValue=document.getElementById("qtyValue");
+
+function money(value){
+  const amount=Number(value);
+  return Number.isFinite(amount)&&amount>0?"Rp "+amount.toLocaleString("id-ID"):"Harga belum tersedia";
+}
+
+function text(value,fallback=""){
+  if(value===null||value===undefined)return fallback;
+  const result=String(value).trim();
+  return result&&result!=="null"&&result!=="undefined"?result:fallback;
+}
+
+function productServiceName(product){
+  return text(product.service_name)||text(product.platform_name)||text(product.name)||text(product.product_name)||"Layanan NOKOS";
+}
+
+function productCountryName(product){
+  const direct=text(product.country_name)||text(product.country)||text(product.countryName);
+  if(direct)return direct;
+  const id=String(product.country_id??product.countryId??"");
+  const match=countries.find(country=>String(country.id??country.country_id??country.countryId??"")===id);
+  return match?text(match.name||match.country_name||match.country):"Negara "+(id||"tidak diketahui");
+}
+
+function productPrice(product){
+  for(const value of [product.selling_price,product.price,product.provider_price,product.amount,product.cost,product.retail_price]){
+    const number=Number(value);
+    if(Number.isFinite(number)&&number>0)return number;
+  }
   return 0;
 }
 
-function getCountryName(product) {
-  return cleanString(product?.country_name ?? product?.country ?? "", 255) || null;
-}
-
-function getPlatformName(product) {
-  return cleanString(product?.platform_name ?? product?.platform ?? "", 255) || null;
-}
-
-function getOperatorName(product) {
-  return cleanString(product?.operator_name ?? product?.operator ?? "", 255) || null;
-}
-
-function safeJson(value) {
-  try {
-    return JSON.stringify(value ?? null);
-  } catch {
-    return null;
-  }
-}
-
-function parseTimestamp(value) {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      return null;
-    }
-
-    return value > 100000000000 ? Math.floor(value / 1000) : Math.floor(value);
-  }
-
-  const parsed = Date.parse(String(value));
-  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null;
-}
-
-function serializeProduct(product) {
-  if (!product) {
-    return null;
-  }
-
-  const price = getProductPrice(product);
-
-  return {
-    id: getProductId(product),
-    product_id: getProductId(product),
-    catalog_product_id: getCatalogProductId(product),
-    country_id: getCountryId(product),
-    country_name: getCountryName(product),
-    platform_id: getPlatformId(product),
-    platform_name: getPlatformName(product),
-    service_id: getServiceId(product),
-    service_name: getProductName(product),
-    operator_id: getOperatorId(product),
-    operator_name: getOperatorName(product),
-    name: getProductName(product),
-    price,
-    provider_price: price,
-    available: product?.available === false ? false : true,
-    active: product?.active === false ? false : true,
-    metadata: product?.metadata ?? product?.raw ?? null
-  };
-}
-
-async function cacheProduct(env, product) {
-  const productId = getProductId(product);
-
-  if (!productId || !env?.DB) {
+function renderServices(message){
+  if(message){serviceList.innerHTML=`<div class="empty">${message}</div>`;return;}
+  const query=serviceSearch.value.trim().toLowerCase();
+  const list=services.filter(service=>service.name.toLowerCase().includes(query));
+  if(!list.length){
+    serviceList.innerHTML='<div class="empty">Tidak ada layanan yang cocok dengan pencarian</div>';
     return;
   }
-
-  const now = nowUnix();
-  const providerPrice = getProductPrice(product);
-
-  await env.DB.prepare(`
-    INSERT INTO nokos_services (
-      product_id,
-      catalog_product_id,
-      country_id,
-      country_name,
-      platform_id,
-      platform_name,
-      operator_id,
-      operator_name,
-      service_name,
-      provider_price,
-      selling_price,
-      available,
-      active,
-      metadata,
-      created_at,
-      updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(product_id)
-    DO UPDATE SET
-      catalog_product_id = excluded.catalog_product_id,
-      country_id = excluded.country_id,
-      country_name = excluded.country_name,
-      platform_id = excluded.platform_id,
-      platform_name = excluded.platform_name,
-      operator_id = excluded.operator_id,
-      operator_name = excluded.operator_name,
-      service_name = excluded.service_name,
-      provider_price = excluded.provider_price,
-      selling_price = excluded.selling_price,
-      available = excluded.available,
-      active = excluded.active,
-      metadata = excluded.metadata,
-      updated_at = excluded.updated_at
-  `).bind(
-    productId,
-    getCatalogProductId(product) || productId,
-    getCountryId(product),
-    getCountryName(product),
-    getPlatformId(product),
-    getPlatformName(product),
-    getOperatorId(product),
-    getOperatorName(product),
-    getProductName(product),
-    providerPrice,
-    providerPrice,
-    product?.available === false ? 0 : 1,
-    product?.active === false ? 0 : 1,
-    safeJson(product),
-    now,
-    now
-  ).run();
+  serviceList.innerHTML=list.map(service=>`<button type="button" class="service-item ${selectedService?.id===service.id?"active":""}" data-service="${encodeURIComponent(service.id)}"><span class="service-logo"><span>${service.name.slice(0,1).toUpperCase()}</span></span><span>${service.name}</span></button>`).join("");
+  serviceList.querySelectorAll("[data-service]").forEach(button=>button.addEventListener("click",()=>selectService(decodeURIComponent(button.dataset.service))));
 }
 
-async function cacheProducts(env, products) {
-  if (!Array.isArray(products)) {
-    return;
-  }
-
-  for (const product of products) {
-    try {
-      await cacheProduct(env, product);
-    } catch {}
-  }
+function renderCountries(message){
+  if(message){countryList.innerHTML=`<div class="empty">${message}</div>`;return;}
+  if(!selectedService){countryList.innerHTML='<div class="empty">Pilih service untuk menampilkan country yang tersedia</div>';return;}
+  const query=countrySearch.value.trim().toLowerCase();
+  const list=countries.filter(country=>country.serviceKey===selectedService.id&&country.name.toLowerCase().includes(query));
+  if(!list.length){countryList.innerHTML='<div class="empty">Negara untuk layanan ini belum tersedia</div>';return;}
+  countryList.innerHTML=list.map((country,index)=>`<button type="button" class="country-item" data-country="${index}"><span class="country-name"><span class="country-flag">${country.flag}</span><b>${country.name}</b></span><span class="avail">${country.avail.toLocaleString("id-ID")} produk</span><span class="price">${money(country.price)}</span></button>`).join("");
+  countryList.querySelectorAll("[data-country]").forEach(button=>button.addEventListener("click",()=>selectCountry(list[Number(button.dataset.country)])));
 }
 
-function normalizeProviderStatus(value) {
-  const status = String(value || "").trim().toUpperCase();
-
-  if (status === "CANCELED") {
-    return "CANCELLED";
-  }
-
-  return mapStatus(status);
+function selectService(id){
+  selectedService=services.find(service=>service.id===id)||null;
+  selectedCountry=null;
+  pendingOrder=null;
+  countrySearch.value="";
+  orderSection.hidden=true;
+  document.getElementById("countryHint").textContent=selectedService?"Pilih negara yang tersedia":"Pilih service terlebih dahulu";
+  renderServices();
+  renderCountries();
 }
 
-function providerOrderData(data) {
-  const normalized = data?.order && typeof data.order === "object" ? data.order : data;
-
-  if (!normalized || typeof normalized !== "object") {
-    return null;
-  }
-
-  return normalized;
+function selectCountry(country){
+  selectedCountry=country;
+  if(!selectedService||!selectedCountry)return;
+  pendingOrder={service:selectedService,country:selectedCountry};
+  quantity=1;
+  qtyValue.textContent=quantity;
+  selectedServiceInfo.innerHTML=`<strong>${selectedService.name} / ${selectedCountry.name}</strong><small>${selectedCountry.flag} ${selectedCountry.name} · ${money(selectedCountry.price)} per nomor</small>`;
+  orderSection.hidden=false;
+  orderSection.scrollIntoView({behavior:"smooth",block:"start"});
 }
 
-function normalizeProviderOrder(data) {
-  const order = providerOrderData(data);
+document.getElementById("minusQty").addEventListener("click",()=>{quantity=Math.max(1,quantity-1);qtyValue.textContent=quantity;});
+document.getElementById("plusQty").addEventListener("click",()=>{quantity=Math.min(99,quantity+1);qtyValue.textContent=quantity;});
+document.getElementById("createOrder").addEventListener("click",()=>{
+  if(!pendingOrder)return;
+  if(!pendingOrder.country.product){showToast("Produk ini belum memiliki data order yang lengkap");return;}
+  showToast("Katalog berhasil dimuat. Pembuatan order perlu diuji melalui backend");
+});
 
-  if (!order) {
-    return null;
-  }
-
-  const id = positiveInteger(order.id ?? order.order_id);
-  const status = normalizeProviderStatus(order.status);
-
-  if (!id && !status) {
-    return null;
-  }
-
-  return {
-    id,
-    status,
-    provider_status: order.status ? String(order.status).toUpperCase() : null,
-    phone_number: order.phone_number ?? null,
-    otp_code: order.otp_code ?? null,
-    otp_message: order.otp_message ?? null,
-    otp_received_at: parseTimestamp(order.otp_received_at),
-    expires_at: parseTimestamp(order.expires_at),
-    canceled_at: parseTimestamp(order.canceled_at),
-    failed_reason: order.failed_reason ?? order.failure_reason ?? null,
-    amount: normalizePrice(order.amount),
-    product_id: positiveInteger(order.product_id),
-    catalog_product_id: positiveInteger(order.catalog_product_id),
-    operator_id: positiveInteger(order.operator_id),
-    operator_name: order.operator_name ?? null,
-    can_cancel: order.can_cancel,
-    can_resend: order.can_resend,
-    resend_available_at: parseTimestamp(order.resend_available_at),
-    can_reactivate: order.can_reactivate
-  };
+function renderActive(){
+  if(!activeOrders.length){activeSection.hidden=true;return;}
+  activeSection.hidden=false;
+  document.getElementById("activeCount").textContent=activeOrders.length;
+  document.getElementById("activeOrders").innerHTML=activeOrders.map(order=>`<article class="active-order"><div class="active-meta"><div><div class="active-id">${order.id}</div><small>${order.service} · ${order.country}</small></div><span class="active-status">${order.status}</span></div><div class="active-line"><span>NOMOR</span><b>${order.phone}</b></div><div class="active-line"><span>Last detected OTP</span><b>${order.otp}</b></div></article>`).join("");
 }
 
-function normalizeOrder(row) {
-  if (!row) {
-    return null;
-  }
-
-  return {
-    id: Number(row.id),
-    user_id: Number(row.user_id),
-    order_number: row.order_number,
-    type: row.type,
-    provider: row.provider,
-    external_order_id: row.external_order_id,
-    service_id: row.service_id,
-    service_name: row.service_name,
-    target: row.target,
-    quantity: Number(row.quantity || 0),
-    rate_unit: row.rate_unit,
-    provider_rate: Number(row.provider_rate || 0),
-    selling_rate: Number(row.selling_rate || 0),
-    provider_amount: Number(row.provider_amount || 0),
-    customer_amount: Number(row.customer_amount || 0),
-    provider_charge: row.provider_charge == null ? null : Number(row.provider_charge),
-    provider_currency: row.provider_currency,
-    status: row.status,
-    provider_status: row.provider_status,
-    failure_reason: row.failure_reason,
-    phone_number: row.phone_number,
-    otp_code: row.otp_code,
-    otp_message: row.otp_message,
-    otp_received_at: row.otp_received_at == null ? null : Number(row.otp_received_at),
-    provider_expires_at: row.provider_expires_at == null ? null : Number(row.provider_expires_at),
-    created_at: row.created_at == null ? null : Number(row.created_at),
-    updated_at: row.updated_at == null ? null : Number(row.updated_at),
-    completed_at: row.completed_at == null ? null : Number(row.completed_at),
-    cancelled_at: row.cancelled_at == null ? null : Number(row.cancelled_at)
-  };
+function showToast(message){
+  let toast=document.getElementById("toast");
+  if(!toast){toast=document.createElement("div");toast.id="toast";toast.className="toast";document.body.appendChild(toast);}
+  toast.textContent=message;toast.classList.add("show");clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>toast.classList.remove("show"),2600);
 }
 
-async function getOrderRow(env, orderId) {
-  return env.DB.prepare(`
-    SELECT *
-    FROM orders
-    WHERE id = ? AND type = ?
-    LIMIT 1
-  `).bind(orderId, ORDER_TYPE).first();
-}
-
-async function getUserOrderRow(env, userId, { id = null, orderNumber = null } = {}) {
-  if (id) {
-    return env.DB.prepare(`
-      SELECT *
-      FROM orders
-      WHERE id = ? AND user_id = ? AND type = ?
-      LIMIT 1
-    `).bind(id, userId, ORDER_TYPE).first();
-  }
-
-  if (orderNumber) {
-    return env.DB.prepare(`
-      SELECT *
-      FROM orders
-      WHERE order_number = ? AND user_id = ? AND type = ?
-      LIMIT 1
-    `).bind(orderNumber, userId, ORDER_TYPE).first();
-  }
-
-  return null;
-}
-
-async function getOrderByIdempotency(env, userId, key) {
-  if (!key) {
-    return null;
-  }
-
-  return env.DB.prepare(`
-    SELECT *
-    FROM orders
-    WHERE user_id = ? AND type = ? AND idempotency_key = ?
-    LIMIT 1
-  `).bind(userId, ORDER_TYPE, key).first();
-}
-
-async function insertOrder(env, data) {
-  const now = nowUnix();
-  const orderNumber = generateOrderNumber("NOKOS");
-
-  const result = await env.DB.prepare(`
-    INSERT INTO orders (
-      user_id,
-      order_number,
-      type,
-      provider,
-      external_order_id,
-      service_id,
-      service_name,
-      target,
-      quantity,
-      rate_unit,
-      provider_rate,
-      selling_rate,
-      provider_amount,
-      customer_amount,
-      provider_charge,
-      provider_currency,
-      status,
-      provider_status,
-      provider_data,
-      request_data,
-      idempotency_key,
-      failure_reason,
-      created_at,
-      updated_at
-    )
-    VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 'FIXED', ?, ?, ?, ?, NULL, ?, 'CREATING', NULL, NULL, ?, ?, NULL, ?, ?)
-  `).bind(
-    data.userId,
-    orderNumber,
-    ORDER_TYPE,
-    PROVIDER,
-    String(data.productId),
-    data.serviceName,
-    data.target,
-    1,
-    data.providerPrice,
-    data.sellingPrice,
-    data.providerAmount,
-    data.customerAmount,
-    PROVIDER_CURRENCY,
-    safeJson(data.requestData),
-    data.idempotencyKey,
-    now,
-    now
-  ).run();
-
-  if (Number(result?.meta?.changes || 0) !== 1) {
-    throw new Error("Order NOKOS gagal dibuat.");
-  }
-
-  return getOrderRow(env, result.meta.last_row_id);
-}
-
-async function addOrderEvent(env, order, status, message = null, providerData = null) {
-  if (!order?.id) {
-    return;
-  }
-
-  await env.DB.prepare(`
-    INSERT INTO order_events (
-      order_id,
-      status,
-      provider_status,
-      message,
-      provider_data,
-      created_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(
-    order.id,
-    status,
-    order.provider_status ?? null,
-    message,
-    safeJson(providerData),
-    nowUnix()
-  ).run();
-}
-
-async function updateOrder(env, orderId, changes = {}) {
-  const fields = [];
-  const values = [];
-
-  const mapping = {
-    external_order_id: "external_order_id",
-    provider_status: "provider_status",
-    provider_data: "provider_data",
-    status: "status",
-    failure_reason: "failure_reason",
-    phone_number: "phone_number",
-    otp_code: "otp_code",
-    otp_message: "otp_message",
-    otp_received_at: "otp_received_at",
-    provider_expires_at: "provider_expires_at",
-    provider_charge: "provider_charge",
-    completed_at: "completed_at",
-    cancelled_at: "cancelled_at"
-  };
-
-  for (const [key, column] of Object.entries(mapping)) {
-    if (Object.prototype.hasOwnProperty.call(changes, key)) {
-      fields.push(`${column} = ?`);
-      values.push(changes[key]);
+async function loadCatalog(){
+  serviceList.innerHTML='<div class="empty">Memuat katalog NOKOS...</div>';
+  countryList.innerHTML='<div class="empty">Pilih service untuk menampilkan country yang tersedia</div>';
+  try{
+    const [productsResponse,countriesResponse]=await Promise.all([
+      fetch("/api/nokos/products",{credentials:"same-origin",cache:"no-store"}),
+      fetch("/api/nokos/countries",{credentials:"same-origin",cache:"no-store"})
+    ]);
+    const [productsData,countriesData]=await Promise.all([productsResponse.json(),countriesResponse.json()]);
+    if(!productsResponse.ok||productsData.success===false)throw new Error(productsData.error||`Gagal mengambil katalog (${productsResponse.status})`);
+    if(!countriesResponse.ok||countriesData.success===false)throw new Error(countriesData.error||`Gagal mengambil daftar negara (${countriesResponse.status})`);
+    products=Array.isArray(productsData.products)?productsData.products:[];
+    const rawCountries=Array.isArray(countriesData.countries)?countriesData.countries:Array.isArray(countriesData.data)?countriesData.data:[];
+    countries.splice(0,countries.length,...rawCountries);
+    const serviceMap=new Map();
+    const countryMap=new Map();
+    for(const product of products){
+      if(product.active===false||product.available===false)continue;
+      const name=productServiceName(product);
+      const serviceId=name.toLowerCase();
+      if(!serviceMap.has(serviceId))serviceMap.set(serviceId,{id:serviceId,name});
+      const countryId=String(product.country_id??product.countryId??product.country_name??product.country??"");
+      const countryName=productCountryName(product);
+      const key=serviceId+"::"+countryId+"::"+countryName;
+      const price=productPrice(product);
+      if(!countryMap.has(key))countryMap.set(key,{id:key,serviceKey:serviceId,name:countryName,flag:text(product.country_flag||product.flag,"🌐"),avail:0,price,product});
+      const entry=countryMap.get(key);
+      entry.avail+=1;
+      if(!entry.price&&price)entry.price=price;
+      if(!entry.product||(!productPrice(entry.product)&&price))entry.product=product;
     }
-  }
-
-  if (!fields.length) {
-    return getOrderRow(env, orderId);
-  }
-
-  fields.push("updated_at = ?");
-  values.push(nowUnix());
-  values.push(orderId);
-  values.push(ORDER_TYPE);
-
-  await env.DB.prepare(`
-    UPDATE orders
-    SET ${fields.join(", ")}
-    WHERE id = ? AND type = ?
-  `).bind(...values).run();
-
-  return getOrderRow(env, orderId);
-}
-
-async function setProviderState(env, order, providerResult, fallbackStatus = "UNKNOWN") {
-  const normalized = normalizeProviderOrder(providerResult) || {};
-  const status = normalized.status || fallbackStatus;
-  const completedAt = status === "COMPLETED" ? nowUnix() : null;
-  const cancelledAt = status === "CANCELLED" ? nowUnix() : null;
-
-  const saved = await updateOrder(env, order.id, {
-    external_order_id: normalized.id ? String(normalized.id) : order.external_order_id,
-    provider_status: normalized.provider_status,
-    provider_data: safeJson(providerResult),
-    status,
-    failure_reason: normalized.failed_reason,
-    phone_number: normalized.phone_number,
-    otp_code: normalized.otp_code,
-    otp_message: normalized.otp_message,
-    otp_received_at: normalized.otp_received_at,
-    provider_expires_at: normalized.expires_at,
-    provider_charge: normalized.amount,
-    completed_at: completedAt,
-    cancelled_at: cancelledAt
-  });
-
-  await addOrderEvent(env, saved, status, normalized.failed_reason, providerResult);
-  return saved;
-}
-
-async function refundOrder(env, order, reason = "Refund order NOKOS") {
-  const current = await getOrderRow(env, order.id);
-
-  if (!current) {
-    throw new Error("Order NOKOS tidak ditemukan.");
-  }
-
-  if (current.status === "REFUNDED") {
-    return { order: current, refunded: false, alreadyRefunded: true };
-  }
-
-  if (!current.customer_amount || current.customer_amount <= 0) {
-    throw new Error("Nominal refund NOKOS tidak valid.");
-  }
-
-  const reference = `REFUND:${current.order_number}`;
-  const refund = await refundBalance(env, {
-    userId: current.user_id,
-    amount: Number(current.customer_amount),
-    reference,
-    description: reason,
-    orderId: current.id
-  });
-
-  if (refund?.success === false) {
-    throw new Error("Refund saldo NOKOS gagal.");
-  }
-
-  const saved = await updateOrder(env, current.id, {
-    status: "REFUNDED",
-    failure_reason: null
-  });
-
-  await addOrderEvent(env, saved, "REFUNDED", reason, null);
-
-  return { order: saved, refunded: true, alreadyRefunded: false };
-}
-
-async function failAndRefund(env, order, reason) {
-  const failed = await updateOrder(env, order.id, {
-    status: "FAILED",
-    failure_reason: reason
-  });
-
-  await addOrderEvent(env, failed, "FAILED", reason, null);
-
-  try {
-    return await refundOrder(env, failed, `Refund otomatis NOKOS: ${reason}`);
-  } catch (error) {
-    const saved = await updateOrder(env, failed.id, {
-      status: "FAILED",
-      failure_reason: `${reason} Refund gagal: ${String(error?.message || error)}`
-    });
-
-    return {
-      order: saved,
-      refunded: false,
-      refundFailed: true
-    };
+    services.splice(0,services.length,...Array.from(serviceMap.values()).sort((a,b)=>a.name.localeCompare(b.name)));
+    countries.splice(0,countries.length,...Array.from(countryMap.values()).sort((a,b)=>a.name.localeCompare(b.name)));
+    if(!services.length){renderServices("API berhasil dihubungi, tetapi belum ada layanan aktif yang dapat ditampilkan");return;}
+    renderServices();
+    renderCountries();
+  }catch(error){
+    const message=text(error?.message,"Gagal memuat katalog NOKOS");
+    renderServices(`${message}. Muat ulang halaman untuk mencoba lagi`);
+    renderCountries("Daftar negara belum dapat dimuat");
   }
 }
 
-function validateCreatePayload(payload) {
-  const productId = normalizeProductId(payload?.product_id ?? payload?.productId);
-  const catalogProductId = normalizeCatalogProductId(payload?.catalog_product_id ?? payload?.catalogProductId);
-  const countryId = normalizeCountryId(payload?.country_id ?? payload?.countryId);
-  const platformId = normalizePlatformId(payload?.platform_id ?? payload?.platformId);
-  const serviceId = normalizeServiceId(payload?.service_id ?? payload?.serviceId);
-  const operatorId = normalizeOperatorId(payload?.operator_id ?? payload?.operatorId);
-  const quantity = normalizeQuantity(payload?.quantity);
-  const minPrice = normalizePrice(payload?.min_price ?? payload?.minPrice);
-  const maxPrice = normalizePrice(payload?.max_price ?? payload?.maxPrice);
-  const target = normalizeTarget(payload?.target ?? payload?.phone_number);
-  const idempotencyKey = normalizeIdempotencyKey(payload?.idempotency_key ?? payload?.idempotencyKey);
-
-  if (!productId && !catalogProductId) {
-    return { error: "product_id atau catalog_product_id wajib diisi." };
-  }
-
-  if (productId && catalogProductId) {
-    return { error: "Gunakan product_id atau catalog_product_id, bukan keduanya." };
-  }
-
-  if (!quantity) {
-    return { error: "quantity NOKOS harus 1 karena satu order lokal mewakili satu nomor SMSCode." };
-  }
-
-  if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) {
-    return { error: "min_price tidak boleh lebih besar dari max_price." };
-  }
-
-  if (payload?.idempotency_key != null && !idempotencyKey) {
-    return { error: "idempotency_key hanya boleh berisi huruf, angka, underscore, atau hyphen dengan panjang maksimal 128 karakter." };
-  }
-
-  return {
-    value: {
-      productId,
-      catalogProductId,
-      countryId,
-      platformId,
-      serviceId,
-      operatorId,
-      quantity,
-      minPrice,
-      maxPrice,
-      target,
-      idempotencyKey
-    }
-  };
+serviceSearch.addEventListener("input",renderServices);
+countrySearch.addEventListener("input",()=>renderCountries());
+renderActive();
+loadCatalog();
 }
 
-async function findProduct(env, input) {
-  if (input.productId) {
-    const product = await getProduct(env, input.productId);
-
-    if (!product) {
-      throw new Error("Produk NOKOS tidak ditemukan.");
-    }
-
-    return product;
-  }
-
-  const products = await getProducts(env, {
-    countryId: input.countryId,
-    platformId: input.platformId,
-    serviceId: input.serviceId,
-    operatorId: input.operatorId,
-    available: true,
-    active: true,
-    limit: 10000,
-    page: 1
-  });
-
-  if (!Array.isArray(products) || !products.length) {
-    throw new Error("Produk NOKOS tidak tersedia.");
-  }
-
-  const filtered = products.filter(product => {
-    if (input.catalogProductId && getCatalogProductId(product) !== input.catalogProductId) {
-      return false;
-    }
-
-    const price = getProductPrice(product);
-
-    if (input.minPrice !== null && price < input.minPrice) {
-      return false;
-    }
-
-    if (input.maxPrice !== null && price > input.maxPrice) {
-      return false;
-    }
-
-    return product?.available !== false && product?.active !== false;
-  });
-
-  filtered.sort((a, b) => getProductPrice(a) - getProductPrice(b));
-
-  if (!filtered.length) {
-    throw new Error("Produk NOKOS tidak tersedia.");
-  }
-
-  return filtered[0];
-}
-
-function providerCreateInput(payload, product) {
-  const productId = getProductId(product);
-  const catalogProductId = getCatalogProductId(product);
-
-  const input = {
-    quantity: 1,
-    idempotencyKey: payload.idempotencyKey
-  };
-
-  if (productId) {
-    input.productId = productId;
-    return input;
-  }
-
-  if (catalogProductId) {
-    input.catalogProductId = catalogProductId;
-    input.operatorId = getOperatorId(product) || payload.operatorId;
-    input.minPrice = payload.minPrice;
-    input.maxPrice = payload.maxPrice;
-    return input;
-  }
-
-  throw new Error("Produk SMSCode tidak memiliki product_id atau catalog_product_id.");
-}
-
-async function syncOrderFromProvider(env, order, providerOrder) {
-  const saved = await setProviderState(env, order, providerOrder);
-
-  if (saved.status === "EXPIRED" && order.status !== "REFUNDED") {
-    try {
-      return (await refundOrder(env, saved, "Refund otomatis karena order NOKOS expired")).order;
-    } catch {}
-  }
-
-  return saved;
-}
-
-export async function listNokosProducts(request, env) {
-  try {
-    const auth = await getAuthenticatedUser(request, env);
-    if (auth.response) return auth.response;
-    const url = getUrl(request);
-
-    const products = await getProducts(env, {
-      countryId: normalizeCountryId(url.searchParams.get("country_id")),
-      platformId: normalizePlatformId(url.searchParams.get("platform_id")),
-      serviceId: normalizeServiceId(url.searchParams.get("service_id")),
-      operatorId: normalizeOperatorId(url.searchParams.get("operator_id")),
-      available: true,
-      active: true,
-      limit: 10000,
-      page: 1
-    });
-
-    const minPrice = normalizePrice(url.searchParams.get("min_price"));
-    const maxPrice = normalizePrice(url.searchParams.get("max_price"));
-    const catalogProductId = normalizeCatalogProductId(url.searchParams.get("catalog_product_id"));
-
-    const filtered = Array.isArray(products)
-      ? products.filter(product => {
-          const price = getProductPrice(product);
-
-          if (catalogProductId && getCatalogProductId(product) !== catalogProductId) {
-            return false;
-          }
-
-          if (minPrice !== null && price < minPrice) {
-            return false;
-          }
-
-          if (maxPrice !== null && price > maxPrice) {
-            return false;
-          }
-
-          return product?.available !== false && product?.active !== false;
-        })
-      : [];
-
-    filtered.sort((a, b) => getProductPrice(a) - getProductPrice(b));
-    await cacheProducts(env, filtered);
-
-    return successResponse({ products: filtered.map(serializeProduct) });
-  } catch (error) {
-    return errorResponse(error?.message || "Gagal mengambil produk NOKOS.", error?.status || 500);
-  }
-}
-
-export async function getNokosCountries(request, env) {
-  try {
-    const auth = await getAuthenticatedUser(request, env);
-    if (auth.response) return auth.response;
-    return successResponse({ countries: await getCountries(env) });
-  } catch (error) {
-    return errorResponse(error?.message || "Gagal mengambil negara NOKOS.", error?.status || 500);
-  }
-}
-
-export async function getNokosServices(request, env) {
-  try {
-    const auth = await getAuthenticatedUser(request, env);
-    if (auth.response) return auth.response;
-    const url = getUrl(request);
-    const countryId = normalizeCountryId(url.searchParams.get("country_id"));
-
-    if (!countryId) {
-      return errorResponse("country_id wajib diisi.", 400);
-    }
-
-    return successResponse({ services: await getServices(env, countryId) });
-  } catch (error) {
-    return errorResponse(error?.message || "Gagal mengambil layanan NOKOS.", error?.status || 500);
-  }
-}
-
-export async function getNokosOperators(request, env) {
-  try {
-    const auth = await getAuthenticatedUser(request, env);
-    if (auth.response) return auth.response;
-    const url = getUrl(request);
-    const countryId = normalizeCountryId(url.searchParams.get("country_id"));
-    const platformId = normalizePlatformId(url.searchParams.get("platform_id"));
-
-    return successResponse({
-      operators: await getOperators(env, { countryId, platformId })
-    });
-  } catch (error) {
-    return errorResponse(error?.message || "Gagal mengambil operator NOKOS.", error?.status || 500);
-  }
-}
-
-export async function createNokosOrder(request, env) {
-  try {
-    const auth = await getAuthenticatedUser(request, env);
-    if (auth.response) return auth.response;
-    const user = auth.user;
-    const payload = await readJson(request);
-
-    if (!payload) {
-      return errorResponse("Payload JSON tidak valid.", 400);
-    }
-
-    const validation = validateCreatePayload(payload);
-
-    if (validation.error) {
-      return errorResponse(validation.error, 400);
-    }
-
-    const input = validation.value;
-
-    if (input.idempotencyKey) {
-      const existing = await getOrderByIdempotency(env, user.id, input.idempotencyKey);
-
-      if (existing) {
-        return successResponse({
-          idempotent: true,
-          order: normalizeOrder(existing)
-        });
-      }
-    }
-
-    const product = await findProduct(env, input);
-    const providerPrice = getProductPrice(product);
-
-    if (!providerPrice) {
-      return errorResponse("Harga produk NOKOS tidak valid.", 409);
-    }
-
-    await cacheProduct(env, product);
-
-    const customerAmount = providerPrice;
-    const localOrder = await insertOrder(env, {
-      userId: user.id,
-      productId: getProductId(product) || getCatalogProductId(product),
-      serviceName: getProductName(product),
-      target: input.target,
-      providerPrice,
-      sellingPrice: customerAmount,
-      providerAmount: providerPrice,
-      customerAmount,
-      requestData: {
-        product_id: input.productId,
-        catalog_product_id: input.catalogProductId,
-        country_id: input.countryId,
-        platform_id: input.platformId,
-        service_id: input.serviceId,
-        operator_id: input.operatorId,
-        quantity: 1,
-        min_price: input.minPrice,
-        max_price: input.maxPrice,
-        target: input.target
-      },
-      idempotencyKey: input.idempotencyKey
-    });
-
-    const debit = await debitBalance(env, {
-      userId: user.id,
-      amount: customerAmount,
-      type: "PURCHASE",
-      reference: `ORDER:${localOrder.order_number}`,
-      description: `Pembelian NOKOS ${localOrder.order_number}`,
-      orderId: localOrder.id
-    });
-
-    if (debit?.success === false) {
-      const failed = await updateOrder(env, localOrder.id, {
-        status: "FAILED",
-        failure_reason: debit.insufficient ? "Saldo tidak mencukupi." : "Debit saldo gagal."
-      });
-
-      await addOrderEvent(env, failed, "FAILED", failed.failure_reason, null);
-
-      return successResponse({
-        created: true,
-        providerCalled: false,
-        insufficient: debit.insufficient === true,
-        order: normalizeOrder(failed)
-      }, 200);
-    }
-
-    let providerResult;
-
-    try {
-      providerResult = await createProviderOrder(env, providerCreateInput(input, product));
-    } catch (error) {
-      const result = await failAndRefund(env, localOrder, error?.message || "Provider SMSCode gagal membuat order.");
-
-      return successResponse({
-        created: true,
-        providerCalled: true,
-        refunded: result.refunded === true,
-        refundFailed: result.refundFailed === true,
-        order: normalizeOrder(result.order)
-      }, 200);
-    }
-
-    const providerOrder = normalizeProviderOrder(providerResult);
-
-    if (!providerOrder?.id) {
-      const result = await failAndRefund(env, localOrder, "Response create order SMSCode tidak valid.");
-
-      return successResponse({
-        created: true,
-        providerCalled: true,
-        refunded: result.refunded === true,
-        refundFailed: result.refundFailed === true,
-        order: normalizeOrder(result.order)
-      }, 200);
-    }
-
-    const saved = await setProviderState(env, localOrder, providerResult);
-
-    return successResponse({
-      created: true,
-      providerCalled: true,
-      refunded: false,
-      order: normalizeOrder(saved)
-    }, 201);
-  } catch (error) {
-    return errorResponse(error?.message || "Gagal membuat order NOKOS.", error?.status || 500);
-  }
-}
-
-export async function getNokosOrder(request, env) {
-  try {
-    const auth = await getAuthenticatedUser(request, env);
-    if (auth.response) return auth.response;
-    const user = auth.user;
-    const url = getUrl(request);
-    const id = positiveInteger(url.searchParams.get("id"));
-    const orderNumber = cleanString(url.searchParams.get("order_number") || "", 120);
-
-    const order = await getUserOrderRow(env, user.id, {
-      id,
-      orderNumber: id ? null : orderNumber
-    });
-
-    if (!order) {
-      return errorResponse("Order NOKOS tidak ditemukan.", 404);
-    }
-
-    let saved = order;
-
-    if (order.external_order_id && !TERMINAL_STATUSES.has(order.status)) {
-      try {
-        const provider = await getProviderOrder(env, order.external_order_id);
-        saved = await syncOrderFromProvider(env, order, provider);
-      } catch {}
-    }
-
-    const events = await env.DB.prepare(`
-      SELECT id, status, provider_status, message, provider_data, created_at
-      FROM order_events
-      WHERE order_id = ?
-      ORDER BY id ASC
-    `).bind(saved.id).all();
-
-    return successResponse({
-      order: normalizeOrder(saved),
-      events: events?.results || []
-    });
-  } catch (error) {
-    return errorResponse(error?.message || "Gagal mengambil order NOKOS.", error?.status || 500);
-  }
-}
-
-export async function listMyNokosOrders(request, env) {
-  try {
-    const auth = await getAuthenticatedUser(request, env);
-    if (auth.response) return auth.response;
-    const user = auth.user;
-    const url = getUrl(request);
-    const limit = Math.min(positiveInteger(url.searchParams.get("limit")) || 20, MAX_ORDER_LIMIT);
-    const offset = Math.max(integer(url.searchParams.get("offset"), 0) || 0, 0);
-    const status = cleanString(url.searchParams.get("status") || "", 40).toUpperCase();
-
-    const rows = await env.DB.prepare(`
-      SELECT *
-      FROM orders
-      WHERE user_id = ? AND type = ?
-      ${ORDER_STATUSES.has(status) ? "AND status = ?" : ""}
-      ORDER BY id DESC
-      LIMIT ? OFFSET ?
-    `).bind(
-      ...(ORDER_STATUSES.has(status) ? [user.id, ORDER_TYPE, status, limit, offset] : [user.id, ORDER_TYPE, limit, offset])
-    ).all();
-
-    return successResponse({
-      orders: (rows?.results || []).map(normalizeOrder),
-      limit,
-      offset
-    });
-  } catch (error) {
-    return errorResponse(error?.message || "Gagal mengambil daftar order NOKOS.", error?.status || 500);
-  }
-}
-
-export async function syncNokosOrder(request, env) {
-  try {
-    const auth = await getAuthenticatedUser(request, env);
-    if (auth.response) return auth.response;
-    const user = auth.user;
-    const payload = await readJson(request);
-    const orderId = positiveInteger(payload?.order_id ?? payload?.orderId);
-
-    if (!orderId) {
-      return errorResponse("order_id wajib diisi.", 400);
-    }
-
-    const order = await getUserOrderRow(env, user.id, { id: orderId });
-
-    if (!order) {
-      return errorResponse("Order NOKOS tidak ditemukan.", 404);
-    }
-
-    if (!order.external_order_id) {
-      return errorResponse("Order belum memiliki ID provider.", 409);
-    }
-
-    const provider = await getProviderOrder(env, order.external_order_id);
-    const saved = await syncOrderFromProvider(env, order, provider);
-
-    return successResponse({ order: normalizeOrder(saved), synced: true });
-  } catch (error) {
-    return errorResponse(error?.message || "Gagal sinkronisasi order NOKOS.", error?.status || 502);
-  }
-}
-
-export async function cancelNokosOrder(request, env) {
-  try {
-    const auth = await getAuthenticatedUser(request, env);
-    if (auth.response) return auth.response;
-    const user = auth.user;
-    const payload = await readJson(request);
-    const orderId = positiveInteger(payload?.order_id ?? payload?.orderId);
-
-    if (!orderId) {
-      return errorResponse("order_id wajib diisi.", 400);
-    }
-
-    const order = await getUserOrderRow(env, user.id, { id: orderId });
-
-    if (!order) {
-      return errorResponse("Order NOKOS tidak ditemukan.", 404);
-    }
-
-    if (!order.external_order_id) {
-      return errorResponse("Order belum memiliki ID provider.", 409);
-    }
-
-    if (order.status === "REFUNDED" || order.status === "CANCELLED") {
-      return successResponse({ order: normalizeOrder(order), cancelled: false, alreadyCancelled: true });
-    }
-
-    const providerResult = await cancelProviderOrder(env, order.external_order_id);
-    let saved = await setProviderState(env, order, providerResult, "CANCELLED");
-
-    if (saved.status !== "REFUNDED") {
-      const refund = await refundOrder(env, saved, "Refund order NOKOS dibatalkan.");
-      saved = refund.order;
-    }
-
-    return successResponse({
-      order: normalizeOrder(saved),
-      cancelled: true,
-      refunded: saved.status === "REFUNDED"
-    });
-  } catch (error) {
-    return errorResponse(error?.message || "Gagal membatalkan order NOKOS.", error?.status || 502);
-  }
-}
-
-export async function finishNokosOrder(request, env) {
-  try {
-    const auth = await getAuthenticatedUser(request, env);
-    if (auth.response) return auth.response;
-    const user = auth.user;
-    const payload = await readJson(request);
-    const orderId = positiveInteger(payload?.order_id ?? payload?.orderId);
-
-    if (!orderId) {
-      return errorResponse("order_id wajib diisi.", 400);
-    }
-
-    const order = await getUserOrderRow(env, user.id, { id: orderId });
-
-    if (!order) {
-      return errorResponse("Order NOKOS tidak ditemukan.", 404);
-    }
-
-    if (!order.external_order_id) {
-      return errorResponse("Order belum memiliki ID provider.", 409);
-    }
-
-    const providerResult = await finishProviderOrder(env, order.external_order_id);
-    const saved = await setProviderState(env, order, providerResult, "COMPLETED");
-
-    return successResponse({ order: normalizeOrder(saved) });
-  } catch (error) {
-    return errorResponse(error?.message || "Gagal menyelesaikan order NOKOS.", error?.status || 502);
-  }
-}
-
-export async function resendNokosOrder(request, env) {
-  try {
-    const auth = await getAuthenticatedUser(request, env);
-    if (auth.response) return auth.response;
-    const user = auth.user;
-    const payload = await readJson(request);
-    const orderId = positiveInteger(payload?.order_id ?? payload?.orderId);
-
-    if (!orderId) {
-      return errorResponse("order_id wajib diisi.", 400);
-    }
-
-    const order = await getUserOrderRow(env, user.id, { id: orderId });
-
-    if (!order) {
-      return errorResponse("Order NOKOS tidak ditemukan.", 404);
-    }
-
-    if (!order.external_order_id) {
-      return errorResponse("Order belum memiliki ID provider.", 409);
-    }
-
-    const providerResult = await resendProviderOrder(env, order.external_order_id);
-    const saved = await setProviderState(env, order, providerResult, order.status || "PROCESSING");
-
-    return successResponse({ order: normalizeOrder(saved) });
-  } catch (error) {
-    return errorResponse(error?.message || "Gagal meminta OTP ulang.", error?.status || 502);
-  }
-}
-
-export async function getNokosActiveProviderOrders(env) {
-  return getActiveOrders(env);
-}
-
-export async function syncNokosActiveOrders(env) {
-  const active = await getActiveOrders(env);
-  const rows = Array.isArray(active) ? active : [];
-  const results = [];
-
-  for (const providerOrder of rows) {
-    const normalized = normalizeProviderOrder(providerOrder);
-
-    if (!normalized?.id) {
-      continue;
-    }
-
-    const local = await env.DB.prepare(`
-      SELECT *
-      FROM orders
-      WHERE type = ? AND provider = ? AND external_order_id = ?
-      LIMIT 1
-    `).bind(ORDER_TYPE, PROVIDER, String(normalized.id)).first();
-
-    if (!local) {
-      continue;
-    }
-
-    const saved = await syncOrderFromProvider(env, local, providerOrder);
-    results.push(normalizeOrder(saved));
-  }
-
-  return results;
-}
-
-export async function getNokosStats(env) {
-  const result = await env.DB.prepare(`
-    SELECT
-      COUNT(*) AS total,
-      SUM(CASE WHEN status = 'CREATING' THEN 1 ELSE 0 END) AS creating,
-      SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending,
-      SUM(CASE WHEN status = 'PROCESSING' THEN 1 ELSE 0 END) AS processing,
-      SUM(CASE WHEN status = 'OTP_RECEIVED' THEN 1 ELSE 0 END) AS otp_received,
-      SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed,
-      SUM(CASE WHEN status = 'CANCELLED' THEN 1 ELSE 0 END) AS cancelled,
-      SUM(CASE WHEN status = 'EXPIRED' THEN 1 ELSE 0 END) AS expired,
-      SUM(CASE WHEN status = 'REFUNDED' THEN 1 ELSE 0 END) AS refunded,
-      SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) AS failed,
-      COALESCE(SUM(customer_amount), 0) AS customer_amount
-    FROM orders
-    WHERE type = ?
-  `).bind(ORDER_TYPE).first();
-
-  return {
-    total: Number(result?.total || 0),
-    creating: Number(result?.creating || 0),
-    pending: Number(result?.pending || 0),
-    processing: Number(result?.processing || 0),
-    otp_received: Number(result?.otp_received || 0),
-    completed: Number(result?.completed || 0),
-    cancelled: Number(result?.cancelled || 0),
-    expired: Number(result?.expired || 0),
-    refunded: Number(result?.refunded || 0),
-    failed: Number(result?.failed || 0),
-    customer_amount: Number(result?.customer_amount || 0)
-  };
-}
-
-export async function handleNokos(request, env) {
-  const url = getUrl(request);
-  const path = url.pathname.replace(/\/+$/, "") || "/";
-
-  if (request.method === "GET" && path === "/api/nokos/products") {
-    return listNokosProducts(request, env);
-  }
-
-  if (request.method === "GET" && path === "/api/nokos/services") {
-    return getNokosServices(request, env);
-  }
-
-  if (request.method === "GET" && path === "/api/nokos/countries") {
-    return getNokosCountries(request, env);
-  }
-
-  if (request.method === "GET" && path === "/api/nokos/operators") {
-    return getNokosOperators(request, env);
-  }
-
-  if (request.method === "POST" && path === "/api/nokos/orders") {
-    return createNokosOrder(request, env);
-  }
-
-  if (request.method === "GET" && path === "/api/nokos/orders") {
-    return listMyNokosOrders(request, env);
-  }
-
-  if (request.method === "GET" && path === "/api/nokos/order") {
-    return getNokosOrder(request, env);
-  }
-
-  if (request.method === "POST" && path === "/api/nokos/order/sync") {
-    return syncNokosOrder(request, env);
-  }
-
-  if (request.method === "POST" && path === "/api/nokos/order/cancel") {
-    return cancelNokosOrder(request, env);
-  }
-
-  if (request.method === "POST" && path === "/api/nokos/order/finish") {
-    return finishNokosOrder(request, env);
-  }
-
-  if (request.method === "POST" && path === "/api/nokos/order/resend") {
-    return resendNokosOrder(request, env);
-  }
-
-  return errorResponse("Endpoint NOKOS tidak ditemukan.", 404);
-}
-
-export default {
-  handleNokos,
-  listNokosProducts,
-  getNokosCountries,
-  getNokosServices,
-  getNokosOperators,
-  createNokosOrder,
-  getNokosOrder,
-  listMyNokosOrders,
-  syncNokosOrder,
-  cancelNokosOrder,
-  finishNokosOrder,
-  resendNokosOrder,
-  getNokosActiveProviderOrders,
-  syncNokosActiveOrders,
-  getNokosStats
-};
+loadNexusDesign().catch(()=>{
+  document.body.innerHTML='<main style="padding:40px"><div class="card"><h2>Desain gagal dimuat</h2><p class="muted">Pastikan desain.html berada di folder yang sama dengan nokos.html</p></div></main>';
+});
+</script>
+</body>
+</html>
