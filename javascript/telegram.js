@@ -29,11 +29,6 @@ async function getTelegramConfig(env) {
 
 async function validateTelegramUpdate(request, env) {
   const config = await getTelegramConfig(env);
-
-  if (!config.token) {
-    return null;
-  }
-
   const body = await readJson(request);
 
   if (!body || !body.message) {
@@ -44,12 +39,7 @@ async function validateTelegramUpdate(request, env) {
   const chatId = message.chat?.id;
   const userId = message.from?.id;
 
-  if (String(chatId) !== String(config.chatId)) {
-    console.warn(
-      "[TELEGRAM AUTH]",
-      `Unauthorized chat: ${chatId}`
-    );
-
+  if (chatId === undefined || chatId === null) {
     return null;
   }
 
@@ -57,7 +47,8 @@ async function validateTelegramUpdate(request, env) {
     message,
     chatId,
     userId,
-    text: message.text || ""
+    text: message.text || "",
+    isAdmin: Boolean(config.chatId) && String(chatId) === String(config.chatId)
   };
 }
 
@@ -405,73 +396,73 @@ export async function handleTelegramWebhook(
   try {
     const config = await getTelegramConfig(env);
 
-    if (!config.token || !config.chatId) {
-      return jsonResponse({
-        ok: true
-      });
+    if (!config.token) {
+      console.error(
+        "[TELEGRAM CONFIG ERROR]",
+        "TELEGRAM_BOT_TOKEN belum dikonfigurasi"
+      );
+      return jsonResponse({ ok: true });
     }
 
-    const update = await validateTelegramUpdate(
-      request,
-      env
-    );
+    const update = await validateTelegramUpdate(request, env);
 
     if (!update) {
-      return jsonResponse({
-        ok: true
-      });
+      return jsonResponse({ ok: true });
     }
 
     const commandMatch = update.text.match(
-      /^\/(\w+)(?:\s+(.+))?$/
+      /^\/([a-z0-9_]+)(?:@[a-z0-9_]+)?(?:\s+([\s\S]+))?$/i
     );
 
     if (!commandMatch) {
-      return jsonResponse({
-        ok: true
-      });
+      return jsonResponse({ ok: true });
     }
 
     const command = commandMatch[1].toLowerCase();
     const argument = commandMatch[2] || "";
 
+    if (command === "start" || command === "help") {
+      if (update.isAdmin) {
+        await handleHelp(update.chatId, config.token);
+      } else {
+        await sendTelegramMessage(
+          config.token,
+          update.chatId,
+          "🤖 <b>NexusBase Bot aktif</b>\n\n" +
+          "Bot berhasil menerima pesan kamu.\n" +
+          "Perintah pengelolaan deposit hanya tersedia untuk chat admin yang terdaftar."
+        );
+      }
+
+      return jsonResponse({ ok: true });
+    }
+
+    if (!update.isAdmin) {
+      console.warn(
+        "[TELEGRAM AUTH]",
+        `Perintah admin ditolak untuk chat ${update.chatId}`
+      );
+
+      await sendTelegramMessage(
+        config.token,
+        update.chatId,
+        "⛔ Perintah ini hanya tersedia untuk admin NexusBase."
+      );
+
+      return jsonResponse({ ok: true });
+    }
+
     switch (command) {
-      case "start":
-      case "help":
-        await handleHelp(
-          update.chatId,
-          config.token
-        );
-
-        break;
-
       case "pending":
-        await handlePendingDeposits(
-          env,
-          update.chatId,
-          config.token
-        );
-
+        await handlePendingDeposits(env, update.chatId, config.token);
         break;
 
       case "confirm":
-        await handleConfirmDeposit(
-          env,
-          update.chatId,
-          config.token,
-          argument
-        );
-
+        await handleConfirmDeposit(env, update.chatId, config.token, argument);
         break;
 
       case "cancel":
-        await handleCancelDeposit(
-          env,
-          update.chatId,
-          config.token,
-          argument
-        );
-
+        await handleCancelDeposit(env, update.chatId, config.token, argument);
         break;
 
       default:
@@ -480,22 +471,13 @@ export async function handleTelegramWebhook(
           update.chatId,
           `❓ Perintah <code>/${command}</code> tidak dikenal. Gunakan <code>/help</code> untuk bantuan.`
         );
-
         break;
     }
 
-    return jsonResponse({
-      ok: true
-    });
+    return jsonResponse({ ok: true });
   } catch (error) {
-    console.error(
-      "[TELEGRAM WEBHOOK ERROR]",
-      error
-    );
-
-    return jsonResponse({
-      ok: true
-    });
+    console.error("[TELEGRAM WEBHOOK ERROR]", error);
+    return jsonResponse({ ok: true });
   }
 }
 
