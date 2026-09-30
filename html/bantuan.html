@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="theme-color" content="#05050b">
+<title>Bantuan — NexusBase</title>
+<style>
+.help-page{max-width:1080px;margin:0 auto}
+.help-hero{position:relative;overflow:hidden;padding:32px;border-radius:var(--r);background:radial-gradient(circle at 88% 20%,rgba(109,67,240,.16),transparent 28%),radial-gradient(circle at 10% 90%,rgba(212,20,47,.11),transparent 28%),linear-gradient(160deg,var(--panel2),var(--panel));border:1px solid var(--line);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 22px 44px -28px #000}
+.help-hero:after{content:"?";position:absolute;right:28px;top:-55px;font-size:190px;line-height:1;font-weight:700;color:rgba(164,139,255,.035);pointer-events:none}
+.help-eyebrow{position:relative;z-index:1;color:var(--violet-hi);font-size:10px;font-weight:700;letter-spacing:.13em}
+.help-hero h1{position:relative;z-index:1;margin:8px 0 0;font-size:25px}
+.help-hero p{position:relative;z-index:1;max-width:680px;margin:8px 0 0;color:var(--muted);font-size:12px}
+.help-search{position:relative;z-index:1;display:flex;align-items:center;gap:10px;max-width:680px;height:46px;margin-top:20px;padding:0 14px;border:1px solid rgba(164,139,255,.25);border-radius:13px;background:rgba(5,5,11,.62);box-shadow:0 14px 35px -20px var(--violet)}
+.help-search span{color:var(--violet-hi);font-size:15px}.help-search input{width:100%;border:0;outline:0;background:transparent;color:var(--text);font-size:12px}.help-search input::placeholder{color:var(--muted)}
+.help-section{margin-top:26px}.help-section-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:13px}.help-section-head h2{margin-top:6px;font-size:16px}.help-section-head p{margin-top:5px;color:var(--muted);font-size:10px}
+.help-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.help-category{min-height:108px;padding:15px;border:1px solid var(--line);border-radius:var(--r);background:linear-gradient(160deg,var(--panel2),var(--panel));color:var(--text);text-align:left;transition:transform .15s,border-color .2s,box-shadow .2s}.help-category:hover,.help-category.active{transform:translateY(-1px);border-color:rgba(164,139,255,.3);box-shadow:0 18px 35px -28px var(--violet)}.help-category-icon{width:34px;height:34px;display:grid;place-items:center;margin-bottom:13px;border:1px solid rgba(164,139,255,.2);border-radius:10px;background:rgba(109,67,240,.07);color:var(--violet-hi);font-size:13px}.help-category h3{font-size:10px}.help-category p{margin-top:4px;color:var(--muted);font-size:8px;line-height:1.5}
+.faq-layout{display:grid;grid-template-columns:220px 1fr;gap:12px}.faq-menu{padding:13px}.faq-menu-title{padding:4px 8px 10px;color:rgba(151,147,182,.7);font-size:9px;font-weight:700;letter-spacing:.12em}.faq-filter{width:100%;min-height:39px;margin-bottom:5px;padding:0 11px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--muted);text-align:left;font-size:9px;font-weight:600}.faq-filter:hover,.faq-filter.active{border-color:rgba(164,139,255,.2);background:rgba(109,67,240,.07);color:var(--text)}
+.faq-list{display:flex;flex-direction:column;gap:8px}.faq-item{overflow:hidden;border:1px solid var(--line);border-radius:var(--r);background:linear-gradient(160deg,var(--panel2),var(--panel))}.faq-question{width:100%;display:flex;align-items:center;justify-content:space-between;gap:15px;padding:16px 18px;border:0;background:transparent;color:var(--text);text-align:left;font-size:10px;font-weight:600}.faq-arrow{width:24px;height:24px;flex:0 0 24px;display:grid;place-items:center;border:1px solid rgba(164,139,255,.2);border-radius:8px;color:var(--violet-hi);transition:transform .15s,background .2s}.faq-answer{display:none;padding:0 18px 17px;color:var(--muted);font-size:9px;line-height:1.75}.faq-item.open{border-color:rgba(164,139,255,.25)}.faq-item.open .faq-answer{display:block}.faq-item.open .faq-arrow{transform:rotate(45deg);background:rgba(109,67,240,.08)}
+.no-result{display:none;padding:28px;border:1px dashed var(--line2);border-radius:var(--r);text-align:center;color:var(--muted);font-size:9px}
+.support-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.support-card{position:relative;overflow:hidden}.support-card:after{content:"";position:absolute;width:130px;height:130px;right:-65px;bottom:-65px;border-radius:50%;background:rgba(109,67,240,.08);filter:blur(12px);pointer-events:none}.support-icon{width:38px;height:38px;display:grid;place-items:center;border:1px solid rgba(164,139,255,.2);border-radius:11px;background:rgba(109,67,240,.07);color:var(--violet-hi);font-size:15px}.support-card h3{margin-top:13px;font-size:12px}.support-card p{max-width:500px;margin-top:7px;color:var(--muted);font-size:9px;line-height:1.7}.support-button{position:relative;z-index:1;min-height:38px;margin-top:15px;padding:0 15px;border:1px solid rgba(164,139,255,.24);border-radius:10px;background:rgba(109,67,240,.08);color:var(--violet-hi);font-size:9px;font-weight:700;letter-spacing:.06em}.support-button:hover{border-color:rgba(164,139,255,.42);box-shadow:0 12px 25px -20px var(--violet)}
+.status-card{margin-top:12px}.status-list{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.status-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.018)}.status-name{color:var(--muted);font-size:9px}.status-state{color:var(--violet-hi);font-size:8px;font-weight:700}
+.help-footer{padding:25px 0 5px;text-align:center;color:rgba(151,147,182,.55);font-size:8px}
+@media(max-width:900px){.help-grid{grid-template-columns:repeat(3,1fr)}.faq-layout{grid-template-columns:1fr}.faq-menu{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}.faq-menu-title{grid-column:1/-1}}
+@media(max-width:700px){.help-page{max-width:none}.help-hero{padding:25px 20px}.help-hero h1{font-size:21px}.help-grid{grid-template-columns:repeat(2,1fr)}.faq-menu{grid-template-columns:1fr 1fr}.support-grid{grid-template-columns:1fr}.status-list{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<input type="checkbox" class="toggle" id="navToggle" aria-hidden="true">
+<div id="nexusIcons"></div>
+<div id="nexusHeader"></div>
+<div id="nexusSidebar"></div>
+<label for="navToggle" class="scrim" id="nexusScrim"></label>
+<main>
+<div class="help-page">
+
+<section class="help-hero">
+
+<div class="help-eyebrow">HELP CENTER</div>
+
+<h1>Ada yang bisa kami bantu?</h1>
+
+<p>
+Temukan jawaban untuk pertanyaan seputar akun, deposit, NOKOS,
+Suntik Sosmed, transaksi, dan layanan NexusBase.
+</p>
+
+<div class="hero-search">
+
+<span>⌕</span>
+
+<input
+id="faqSearch"
+type="search"
+placeholder="Cari pertanyaan atau kata kunci..."
+autocomplete="off"
+>
+
+</div>
+
+</section>
+
+<section class="help-section">
+
+<div class="help-section-head">
+
+<div>
+<div class="help-eyebrow">QUICK HELP</div>
+<h2>Kategori Bantuan</h2>
+<p>Pilih kategori untuk menemukan informasi yang kamu butuhkan.</p>
+</div>
+
+</div>
+
+<div class="help-grid">
+
+<button class="help-category active" type="button" data-filter="semua">
+<div class="help-category-icon">?</div>
+<h3>Semua</h3>
+<p>Lihat seluruh FAQ</p>
+</button>
+
+<button class="help-category" type="button" data-filter="akun">
+<div class="help-category-icon">◯</div>
+<h3>Akun</h3>
+<p>Login dan akun</p>
+</button>
+
+<button class="help-category" type="button" data-filter="deposit">
+<div class="help-category-icon">＋</div>
+<h3>Deposit</h3>
+<p>Saldo dan pembayaran</p>
+</button>
+
+<button class="help-category" type="button" data-filter="nokos">
+<div class="help-category-icon">▣</div>
+<h3>NOKOS</h3>
+<p>Nomor dan OTP</p>
+</button>
+
+<button class="help-category" type="button" data-filter="sosmed">
+<div class="help-category-icon">◇</div>
+<h3>Suntik Sosmed</h3>
+<p>Pesanan layanan sosial</p>
+</button>
+
+</div>
+
+</section>
+
+<section class="help-section">
+
+<div class="help-section-head">
+
+<div>
+<div class="help-eyebrow">FAQ</div>
+<h2>Pertanyaan yang Sering Ditanyakan</h2>
+<p>Panduan singkat untuk menggunakan NexusBase.</p>
+</div>
+
+</div>
+
+<div class="faq-layout">
+
+<div class="card faq-menu">
+
+<div class="faq-menu-title">FILTER FAQ</div>
+
+<button class="faq-filter active" type="button" data-filter="semua">
+Semua Pertanyaan
+</button>
+
+<button class="faq-filter" type="button" data-filter="akun">
+Akun
+</button>
+
+<button class="faq-filter" type="button" data-filter="deposit">
+Deposit
+</button>
+
+<button class="faq-filter" type="button" data-filter="nokos">
+NOKOS
+</button>
+
+<button class="faq-filter" type="button" data-filter="sosmed">
+Suntik Sosmed
+</button>
+
+</div>
+
+<div>
+
+<div class="faq-list" id="faqList">
+
+<div class="faq-item" data-category="akun">
+
+<button class="faq-question" type="button">
+Bagaimana cara login ke akun saya?
+<span class="faq-arrow">+</span>
+</button>
+
+<div class="faq-answer">
+Masukkan username atau Gmail dan password yang sudah terdaftar pada halaman Login NexusBase. Jika data benar, kamu akan diarahkan ke Dashboard.
+</div>
+
+</div>
+
+<div class="faq-item" data-category="akun">
+
+<button class="faq-question" type="button">
+Saya lupa password, apa yang harus dilakukan?
+<span class="faq-arrow">+</span>
+</button>
+
+<div class="faq-answer">
+Gunakan proses pemulihan akun yang tersedia pada sistem. Jika pemulihan belum tersedia, hubungi bantuan agar akun dapat diperiksa lebih lanjut.
+</div>
+
+</div>
+
+<div class="faq-item" data-category="deposit">
+
+<button class="faq-question" type="button">
+Bagaimana cara melakukan deposit?
+<span class="faq-arrow">+</span>
+</button>
+
+<div class="faq-answer">
+Masuk ke menu Deposit, masukkan nominal yang ingin ditambahkan, kemudian ikuti instruksi pembayaran dan lakukan konfirmasi sesuai petunjuk yang tersedia.
+</div>
+
+</div>
+
+<div class="faq-item" data-category="deposit">
+
+<button class="faq-question" type="button">
+Kenapa saldo deposit saya belum bertambah?
+<span class="faq-arrow">+</span>
+</button>
+
+<div class="faq-answer">
+Deposit perlu melalui proses pemeriksaan terlebih dahulu. Pastikan pembayaran sudah dilakukan dan konfirmasi deposit sudah dikirim sesuai instruksi.
+</div>
+
+</div>
+
+<div class="faq-item" data-category="nokos">
+
+<button class="faq-question" type="button">
+Apa itu layanan NOKOS?
+<span class="faq-arrow">+</span>
+</button>
+
+<div class="faq-answer">
+NOKOS adalah layanan nomor online yang dapat digunakan untuk menerima OTP sesuai layanan dan produk yang tersedia di NexusBase.
+</div>
+
+</div>
+
+<div class="faq-item" data-category="nokos">
+
+<button class="faq-question" type="button">
+Bagaimana cara mendapatkan OTP NOKOS?
+<span class="faq-arrow">+</span>
+</button>
+
+<div class="faq-answer">
+Setelah pesanan NOKOS berhasil dibuat, nomor akan ditampilkan sesuai status pesanan. OTP akan muncul ketika provider menerima kode untuk pesanan tersebut.
+</div>
+
+</div>
+
+<div class="faq-item" data-category="sosmed">
+
+<button class="faq-question" type="button">
+Apa itu layanan Suntik Sosmed?
+<span class="faq-arrow">+</span>
+</button>
+
+<div class="faq-answer">
+Suntik Sosmed merupakan layanan untuk kebutuhan engagement media sosial seperti followers, likes, views, dan layanan lain yang tersedia pada katalog.
+</div>
+
+</div>
+
+<div class="faq-item" data-category="sosmed">
+
+<button class="faq-question" type="button">
+Bagaimana cara membuat pesanan Suntik Sosmed?
+<span class="faq-arrow">+</span>
+</button>
+
+<div class="faq-answer">
+Pilih layanan yang tersedia, masukkan target sesuai ketentuan layanan, tentukan jumlah yang dibutuhkan, kemudian lanjutkan proses pemesanan.
+</div>
+
+</div>
+
+<div class="faq-item" data-category="sosmed">
+
+<button class="faq-question" type="button">
+Kenapa pesanan saya masih diproses?
+<span class="faq-arrow">+</span>
+</button>
+
+<div class="faq-answer">
+Status processing berarti pesanan masih berjalan atau sedang diproses oleh provider. Detail status dapat dilihat melalui menu Transaksi.
+</div>
+
+</div>
+
+<div class="faq-item" data-category="akun">
+
+<button class="faq-question" type="button">
+Di mana saya bisa melihat informasi akun?
+<span class="faq-arrow">+</span>
+</button>
+
+<div class="faq-answer">
+Klik foto profil pada bagian header. Panel akun akan menampilkan informasi akun, username, email, saldo, dan pilihan terkait akun.
+</div>
+
+</div>
+
+</div>
+
+<div class="no-result" id="noResult">
+Pertanyaan yang kamu cari belum ditemukan.
+</div>
+
+</div>
+
+</div>
+
+</section>
+
+<section class="help-section">
+
+<div class="support-grid">
+
+<div class="card support-card">
+
+<div class="support-icon">?</div>
+
+<h3>Masih membutuhkan bantuan?</h3>
+
+<p>
+Jika jawaban di FAQ belum menyelesaikan masalahmu,
+kamu dapat menghubungi customer support NexusBase.
+</p>
+
+<button class="support-button" id="supportButton" type="button">
+HUBUNGI SUPPORT
+</button>
+
+</div>
+
+<div class="card support-card">
+
+<div class="support-icon">✓</div>
+
+<h3>Periksa status layanan</h3>
+
+<p>
+Sebelum membuat laporan, periksa status layanan untuk memastikan
+sistem NexusBase sedang berjalan normal.
+</p>
+
+<button class="support-button" id="statusButton" type="button">
+LIHAT STATUS LAYANAN
+</button>
+
+</div>
+
+</div>
+
+<div class="card status-card" id="statusSection">
+
+<div class="help-section-head">
+
+<div>
+<div class="help-eyebrow">SYSTEM STATUS</div>
+<h2>Status Layanan</h2>
+</div>
+
+<div class="live-status">
+<i></i>
+ONLINE
+</div>
+
+</div>
+
+<div class="status-list">
+
+<div class="status-item">
+<span class="status-name">Website</span>
+<span class="status-state" data-status></span>
+</div>
+
+<div class="status-item">
+<span class="status-name">NOKOS</span>
+<span class="status-state" data-status></span>
+</div>
+
+<div class="status-item">
+<span class="status-name">Suntik Sosmed</span>
+<span class="status-state" data-status></span>
+</div>
+
+</div>
+
+</div>
+
+</section>
+
+<footer class="help-footer">© 2026 NexusBase</footer>
+
+</div>
+</main>
+<script>
+const DESIGN_SOURCE="/html/desain.html";
+async function loadNexusDesign(){
+  const response=await fetch(DESIGN_SOURCE,{cache:"no-store"});
+  if(!response.ok) throw new Error("Gagal memuat desain.html");
+  const source=await response.text();
+  const doc=new DOMParser().parseFromString(source,"text/html");
+  doc.querySelectorAll("link[rel='stylesheet'],link[href*='fonts.googleapis.com']").forEach(link=>{
+    const clone=document.createElement("link");
+    clone.rel=link.rel;
+    clone.href=link.href;
+    document.head.appendChild(clone);
+  });
+  doc.querySelectorAll("style").forEach(style=>{
+    const clone=document.createElement("style");
+    clone.textContent=style.textContent;
+    document.head.appendChild(clone);
+  });
+  const templates={};
+  doc.querySelectorAll("template").forEach(template=>templates[template.id]=template.innerHTML);
+  document.getElementById("nexusIcons").innerHTML=templates["nexus-icons"]||"";
+  document.getElementById("nexusHeader").innerHTML=templates["nexus-header"]||"";
+  document.getElementById("nexusSidebar").innerHTML=templates["nexus-sidebar"]||"";
+  const active=document.querySelector('.nav[data-n="BANTUAN"]');
+  if(active) active.classList.add("active");
+  const backButton=document.getElementById("backButton");
+  if(backButton) backButton.addEventListener("click",()=>history.length>1?history.back():location.href="dashboard.html");
+  initHelp();
+}
+function initHelp(){
+  const faqSearch=document.getElementById("faqSearch");
+  const faqItems=[...document.querySelectorAll(".faq-item")];
+  const faqFilters=[...document.querySelectorAll(".faq-filter")];
+  const categories=[...document.querySelectorAll(".help-category")];
+  const noResult=document.getElementById("noResult");
+  const statusButton=document.getElementById("statusButton");
+  const statusSection=document.getElementById("statusSection");
+  const supportButton=document.getElementById("supportButton");
+  function filterFaq(category="semua",query=""){
+    let visible=0;
+    faqItems.forEach(item=>{
+      const matchCategory=category==="semua"||item.dataset.category===category;
+      const matchQuery=!query||item.textContent.toLowerCase().includes(query);
+      const show=matchCategory&&matchQuery;
+      item.style.display=show?"block":"none";
+      if(show) visible++;
+    });
+    noResult.style.display=visible?"none":"block";
+  }
+  function activateFilter(category){
+    faqFilters.forEach(button=>button.classList.toggle("active",button.dataset.filter===category));
+    categories.forEach(button=>button.classList.toggle("active",button.dataset.filter===category));
+    filterFaq(category,faqSearch.value.trim().toLowerCase());
+  }
+  document.querySelectorAll(".faq-question").forEach(button=>{
+    button.addEventListener("click",()=>{
+      const item=button.closest(".faq-item");
+      const open=item.classList.contains("open");
+      faqItems.forEach(other=>other.classList.remove("open"));
+      if(!open) item.classList.add("open");
+    });
+  });
+  faqFilters.forEach(button=>button.addEventListener("click",()=>activateFilter(button.dataset.filter)));
+  categories.forEach(button=>button.addEventListener("click",()=>activateFilter(button.dataset.filter)));
+  faqSearch.addEventListener("input",()=>{
+    const active=document.querySelector(".faq-filter.active");
+    filterFaq(active?active.dataset.filter:"semua",faqSearch.value.trim().toLowerCase());
+  });
+  document.addEventListener("keydown",event=>{
+    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="k"){
+      event.preventDefault();
+      faqSearch.focus();
+    }
+  });
+  statusButton.addEventListener("click",()=>statusSection.scrollIntoView({behavior:"smooth",block:"center"}));
+  supportButton.addEventListener("click",()=>{
+    const message=encodeURIComponent("Halo Owner NexusBase, saya ingin meminta bantuan");
+    window.open("https://wa.me/6288707201970?text="+message,"_blank");
+  });
+  filterFaq();
+}
+loadNexusDesign().catch(error=>{
+  document.body.innerHTML='<main style="padding:40px"><div class="card"><h2>Desain gagal dimuat</h2><p class="muted">Pastikan desain.html berada di folder yang sama dengan bantuan.html</p></div></main>';
+});
+</script>
+</body>
+</html>

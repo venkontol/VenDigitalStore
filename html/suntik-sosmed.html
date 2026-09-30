@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NexusBase - Suntik Sosmed</title>
+<style>
+.sosmed-page{
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+}
+.search-block{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+}
+.search-field{
+  margin-bottom:10px;
+}
+.search-field input{
+  background:linear-gradient(135deg,rgba(212,20,47,.035),rgba(109,67,240,.045)),rgba(255,255,255,.025);
+}
+.data-list-wrap{
+  margin-bottom:12px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:rgba(255,255,255,.018);
+  overflow:hidden;
+}
+.list-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px 12px;
+  border-bottom:1px solid var(--line);
+  background:rgba(255,255,255,.018);
+  color:#c8c3dc;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.05em;
+}
+.list-head small{
+  min-width:22px;
+  padding:3px 6px;
+  border-radius:7px;
+  background:rgba(109,67,240,.12);
+  color:#d8d0ff;
+  font-size:9px;
+  text-align:center;
+}
+.data-list{
+  display:flex;
+  flex-direction:column;
+  max-height:220px;
+  overflow:auto;
+}
+.data-list:empty::before{
+  content:"Belum ada data";
+  display:block;
+  padding:18px 12px;
+  color:#66627d;
+  font-size:10.5px;
+  text-align:center;
+}
+.data-item{
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:11px 12px;
+  border:0;
+  border-bottom:1px solid rgba(255,255,255,.045);
+  background:transparent;
+  color:var(--text);
+  text-align:left;
+  cursor:pointer;
+}
+.data-item:last-child{
+  border-bottom:0;
+}
+.data-item:hover,.data-item.active{
+  background:linear-gradient(90deg,rgba(212,20,47,.08),rgba(109,67,240,.08));
+}
+.data-item-main{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.data-item-main b{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:11px;
+}
+.data-item-main span{
+  color:var(--muted);
+  font-size:9.5px;
+}
+.data-item-side{
+  flex:none;
+  color:#d8d0ff;
+  font-size:10px;
+  font-weight:800;
+  text-align:right;
+}
+.data-item-side small{
+  display:block;
+  margin-top:3px;
+  color:#77728e;
+  font-size:8.5px;
+  font-weight:600;
+}
+.empty-list{
+  padding:18px 12px;
+  color:#66627d;
+  font-size:10.5px;
+  text-align:center;
+}
+.selected-service{
+  display:grid;
+  grid-template-columns:1.2fr .8fr .8fr;
+  gap:8px;
+  margin:2px 0 12px;
+  padding:11px;
+  border:1px solid rgba(109,67,240,.2);
+  border-radius:11px;
+  background:linear-gradient(135deg,rgba(212,20,47,.045),rgba(109,67,240,.06));
+}
+.selected-service > div{
+  min-width:0;
+}
+.selected-service span{
+  display:block;
+  margin-bottom:4px;
+  color:#77728e;
+  font-size:8.5px;
+  font-weight:700;
+}
+.selected-service b{
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:#eeeaf8;
+  font-size:10.5px;
+}
+@media(max-width:520px){
+  .search-block{
+    grid-template-columns:1fr;
+    gap:0;
+  }
+  .selected-service{
+    grid-template-columns:1fr;
+  }
+}
+.server-switch{
+  display:flex;
+  gap:8px;
+  width:max-content;
+  padding:5px;
+  border-radius:14px;
+  background:rgba(255,255,255,.035);
+  border:1px solid var(--line);
+}
+.server-tab{
+  padding:10px 20px;
+  border:1px solid transparent;
+  border-radius:10px;
+  background:transparent;
+  color:var(--muted);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.08em;
+}
+.server-tab.active{
+  color:#fff;
+  background:linear-gradient(135deg,rgba(212,20,47,.22),rgba(109,67,240,.2));
+  border-color:rgba(255,255,255,.1);
+  box-shadow:0 0 24px -12px var(--violet);
+}
+.order-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1.08fr) minmax(300px,.92fr);
+  gap:14px;
+}
+.form-card,.guide-card,.rules-card{
+  padding:20px;
+}
+.form-head,.guide-head,.rules-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:18px;
+}
+.form-head h2,.guide-head h2,.rules-head h2{
+  margin:3px 0 0;
+}
+.server-badge{
+  padding:6px 10px;
+  border-radius:9px;
+  background:rgba(109,67,240,.12);
+  border:1px solid rgba(164,139,255,.25);
+  color:#d8d0ff;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.1em;
+}
+.order-fields{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+}
+.field{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+  margin-bottom:13px;
+}
+.field label{
+  font-size:10px;
+  color:#bcb7d3;
+  font-weight:700;
+  letter-spacing:.04em;
+}
+.field input,.field select{
+  width:100%;
+  padding:12px 13px;
+  border-radius:11px;
+  border:1px solid var(--line2);
+  background:rgba(255,255,255,.025);
+  color:var(--text);
+  outline:0;
+  font-size:12px;
+}
+.field input::placeholder{
+  color:#66627d;
+}
+.field input:focus,.field select:focus{
+  border-color:rgba(109,67,240,.65);
+  box-shadow:0 0 0 3px rgba(109,67,240,.08);
+}
+.total-box{
+  display:flex;
+  align-items:center;
+  min-height:43px;
+  padding:0 13px;
+  border-radius:11px;
+  border:1px solid var(--line2);
+  background:linear-gradient(135deg,rgba(212,20,47,.06),rgba(109,67,240,.08));
+  font-size:13px;
+  font-weight:800;
+}
+.order-tip{
+  padding:11px 12px;
+  margin:2px 0 14px;
+  border-radius:11px;
+  background:rgba(255,255,255,.025);
+  border:1px solid var(--line);
+  color:var(--muted);
+  font-size:10.5px;
+  line-height:1.6;
+}
+.order-tip strong{
+  color:#fff;
+}
+.order-submit{
+  width:100%;
+  padding:12px 16px;
+  border:0;
+  border-radius:11px;
+  background:linear-gradient(135deg,#b51029,#7045ed);
+  color:#fff;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.08em;
+  box-shadow:0 12px 30px -12px rgba(240,37,63,.7),0 0 24px -10px var(--violet);
+}
+.steps{
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+}
+.step{
+  display:flex;
+  gap:11px;
+  align-items:flex-start;
+}
+.step-number{
+  width:30px;
+  height:30px;
+  flex:0 0 30px;
+  display:grid;
+  place-items:center;
+  border-radius:9px;
+  background:linear-gradient(135deg,rgba(212,20,47,.15),rgba(109,67,240,.16));
+  border:1px solid var(--line2);
+  font-size:9px;
+  font-weight:800;
+}
+.step b{
+  display:block;
+  font-size:11px;
+  margin:1px 0 3px;
+}
+.step p{
+  margin:0;
+  color:var(--muted);
+  font-size:10.5px;
+  line-height:1.55;
+}
+.rules-card{
+  border-color:rgba(212,20,47,.2);
+  background:linear-gradient(135deg,rgba(212,20,47,.045),rgba(109,67,240,.035)),var(--panel);
+}
+.rules-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:10px;
+}
+.rule{
+  padding:14px;
+  border-radius:11px;
+  background:rgba(255,255,255,.025);
+  border:1px solid var(--line);
+}
+.rule b{
+  font-size:11px;
+}
+.rule p{
+  margin:6px 0 0;
+  color:var(--muted);
+  font-size:10.5px;
+  line-height:1.65;
+}
+.rule strong{
+  color:#eeeaf8;
+}
+.rule.danger{
+  border-color:rgba(212,20,47,.2);
+}
+.rule.danger b{
+  color:#ff6879;
+}
+.format-box{
+  margin-top:10px;
+  padding:12px;
+  border-radius:11px;
+  background:rgba(109,67,240,.06);
+  border:1px solid rgba(109,67,240,.18);
+}
+.format-box b{
+  display:block;
+  font-size:11px;
+  margin-bottom:5px;
+}
+.format-box p{
+  margin:0;
+  color:var(--muted);
+  font-size:10.5px;
+  line-height:1.65;
+}
+@media(max-width:900px){
+  .order-grid{
+    grid-template-columns:1fr;
+  }
+  .rules-grid{
+    grid-template-columns:1fr;
+  }
+}
+@media(max-width:520px){
+  .server-switch{
+    width:100%;
+  }
+  .server-tab{
+    flex:1;
+  }
+  .order-fields{
+    grid-template-columns:1fr;
+  }
+  .form-card,.guide-card,.rules-card{
+    padding:16px;
+  }
+}
+</style>
+</head>
+<body>
+<div id="nexusControls"></div>
+<div id="nexusIcons"></div>
+<div id="nexusHeader"></div>
+<div id="nexusSidebar"></div>
+<div id="nexusScrim"></div>
+<main>
+  <h1>Suntik Sosmed</h1>
+
+  <div class="sosmed-page">
+    <div class="server-switch">
+      <button class="server-tab active" type="button" data-server="1">SERVER 1</button>
+      <button class="server-tab" type="button" data-server="2">SERVER 2</button>
+    </div>
+
+    <div class="order-grid">
+      <section class="card form-card">
+        <div class="form-head">
+          <div>
+            <span class="nav-label">ORDER SOSMED</span>
+            <h2>Pesan Layanan</h2>
+          </div>
+          <span class="server-badge" id="serverBadge">SERVER 1</span>
+        </div>
+
+        <div class="search-block">
+          <div class="field search-field">
+            <label for="socialSearch">Cari Sosmed</label>
+            <input id="socialSearch" type="search" autocomplete="off" placeholder="Cari sosial media">
+          </div>
+          <div class="field search-field">
+            <label for="serviceSearch">Cari Layanan</label>
+            <input id="serviceSearch" type="search" autocomplete="off" placeholder="Cari layanan">
+          </div>
+        </div>
+
+        <div class="order-fields">
+          <div class="field">
+            <label for="socialSelect">Sosmed</label>
+            <select id="socialSelect">
+              <option value="">Pilih Sosmed</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="serviceSelect">Layanan</label>
+            <select id="serviceSelect">
+              <option value="">Pilih layanan</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="data-list-wrap">
+          <div class="list-head">
+            <span>Daftar Sosmed</span>
+            <small id="socialCount">0</small>
+          </div>
+          <div class="data-list" id="socialList" aria-live="polite"></div>
+        </div>
+
+        <div class="data-list-wrap">
+          <div class="list-head">
+            <span>Daftar Layanan</span>
+            <small id="serviceCount">0</small>
+          </div>
+          <div class="data-list service-list" id="serviceList" aria-live="polite"></div>
+        </div>
+
+        <div class="selected-service" id="selectedService" hidden>
+          <div>
+            <span>Layanan dipilih</span>
+            <b id="selectedServiceName"></b>
+          </div>
+          <div>
+            <span>Harga</span>
+            <b id="selectedServicePrice"></b>
+          </div>
+          <div>
+            <span>Min / Max</span>
+            <b id="selectedServiceRange"></b>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="targetInput">Target</label>
+          <input id="targetInput" type="text" placeholder="https://... atau username tanpa @">
+        </div>
+
+        <div class="order-fields">
+          <div class="field">
+            <label for="quantityInput">Jumlah</label>
+            <input id="quantityInput" type="number" min="1" placeholder="Masukkan jumlah">
+          </div>
+
+          <div class="field">
+            <label>Total</label>
+            <div class="total-box" id="totalBox" data-bind="total"></div>
+          </div>
+        </div>
+
+        <div class="order-tip"><strong>Format target wajib benar,</strong> gunakan link URL yang diawali <strong>https://</strong> atau username tanpa tanda <strong>@</strong></div>
+        <button class="order-submit" id="orderButton" type="button">ORDER SEKARANG</button>
+      </section>
+
+      <section class="card guide-card">
+        <div class="guide-head">
+          <div>
+            <span class="nav-label">PANDUAN</span>
+            <h2>Cara Order</h2>
+          </div>
+        </div>
+
+        <div class="steps">
+          <div class="step">
+            <span class="step-number">01</span>
+            <div><b>Pilih Sosmed</b><p>Pilih sosial media yang ingin kamu gunakan</p></div>
+          </div>
+          <div class="step">
+            <span class="step-number">02</span>
+            <div><b>Pilih Layanan</b><p>Pilih jenis layanan seperti Followers, Likes, Views, dan lainnya</p></div>
+          </div>
+          <div class="step">
+            <span class="step-number">03</span>
+            <div><b>Masukkan Target</b><p>Gunakan link URL yang diawali https:// atau username tanpa @</p></div>
+          </div>
+          <div class="step">
+            <span class="step-number">04</span>
+            <div><b>Masukkan Jumlah</b><p>Tentukan jumlah order yang kamu inginkan</p></div>
+          </div>
+          <div class="step">
+            <span class="step-number">05</span>
+            <div><b>Order</b><p>Periksa kembali semua data sebelum melakukan order</p></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card rules-card">
+      <div class="rules-head">
+        <div>
+          <span class="nav-label">WAJIB DIBACA</span>
+          <h2>Ketentuan Sebelum Order</h2>
+        </div>
+      </div>
+
+      <div class="rules-grid">
+        <div class="rule">
+          <b>Instagram</b>
+          <p>Untuk order Followers Instagram, akun diwajibkan <strong>Public</strong> dan matikan <strong>“Laporan untuk ditinjau”</strong> di pengaturan <strong>Ikuti &amp; invite teman</strong></p>
+        </div>
+        <div class="rule">
+          <b>Semua Sosmed</b>
+          <p>Semua akun <strong>wajib Public</strong> dan dilarang Privat saat melakukan order</p>
+        </div>
+        <div class="rule danger">
+          <b>Target &amp; Setting</b>
+          <p>Jika salah memasukkan <strong>target</strong> atau salah melakukan <strong>setting account</strong> sehingga orderan tidak masuk, admin tidak bertanggung jawab</p>
+        </div>
+      </div>
+
+      <div class="format-box">
+        <b>Format Target</b>
+        <p>Wajib menggunakan link URL yang diawali <strong>https://</strong> atau username tanpa <strong>@</strong>, jangan menggunakan format @username</p>
+      </div>
+    </section>
+  </div>
+</main>
+<div class="modal" id="modalPengumuman">
+  <label for="annToggle" class="modal-bg"></label>
+
+  <div class="box">
+    <h3 id="announcementModalTitle"></h3>
+
+    <p id="announcementModalText"></p>
+
+    <label for="annToggle" class="btn ghost">Tutup</label>
+  </div>
+</div>
+
+<script>
+const DESIGN_SOURCE="/html/desain.html";
+function insertTemplate(id,html){
+  const mount=document.getElementById(id);
+  if(!mount)return;
+  mount.outerHTML=html||"";
+}
+async function loadNexusDesign(){
+  const response=await fetch(DESIGN_SOURCE,{cache:"no-store"});
+  if(!response.ok)throw new Error("Gagal memuat desain.html");
+  const source=await response.text();
+  const doc=new DOMParser().parseFromString(source,"text/html");
+  doc.querySelectorAll("link[rel='stylesheet'],link[href*='fonts.googleapis.com']").forEach(link=>{
+    const clone=document.createElement("link");
+    clone.rel=link.rel;
+    clone.href=link.href;
+    document.head.appendChild(clone);
+  });
+  doc.querySelectorAll("style").forEach(style=>{
+    const clone=document.createElement("style");
+    clone.textContent=style.textContent;
+    document.head.appendChild(clone);
+  });
+  const templates={};
+  doc.querySelectorAll("template").forEach(template=>templates[template.id]=template.innerHTML);
+  insertTemplate("nexusControls",templates["nexus-controls"]);
+  insertTemplate("nexusIcons",templates["nexus-icons"]);
+  insertTemplate("nexusHeader",templates["nexus-header"]);
+  insertTemplate("nexusSidebar",templates["nexus-sidebar"]);
+  insertTemplate("nexusScrim",templates["nexus-scrim"]);
+  const active=document.querySelector('.nav[data-n="SOSMED"]');
+  if(active)active.classList.add("active");
+  const navToggle=document.getElementById("navToggle");
+  const scrim=document.querySelector(".scrim");
+  if(scrim&&navToggle)scrim.addEventListener("click",()=>{navToggle.checked=false});
+  const backButton=document.getElementById("backButton");
+  if(backButton)backButton.addEventListener("click",()=>{
+    if(window.history.length>1){window.history.back();return}
+    window.location.href="dashboard.html";
+  });
+  document.querySelectorAll("aside a").forEach(link=>link.addEventListener("click",()=>{
+    if(window.innerWidth<=1100&&navToggle)navToggle.checked=false;
+  }));
+  initSosmed();
+}
+
+function initSosmed(){
+const serverTabs=document.querySelectorAll(".server-tab")
+const serverBadge=document.getElementById("serverBadge")
+const navToggle=document.getElementById("navToggle")
+const socialSearch=document.getElementById("socialSearch")
+const serviceSearch=document.getElementById("serviceSearch")
+const socialSelect=document.getElementById("socialSelect")
+const serviceSelect=document.getElementById("serviceSelect")
+const socialList=document.getElementById("socialList")
+const serviceList=document.getElementById("serviceList")
+const socialCount=document.getElementById("socialCount")
+const serviceCount=document.getElementById("serviceCount")
+const selectedService=document.getElementById("selectedService")
+const selectedServiceName=document.getElementById("selectedServiceName")
+const selectedServicePrice=document.getElementById("selectedServicePrice")
+const selectedServiceRange=document.getElementById("selectedServiceRange")
+const quantityInput=document.getElementById("quantityInput")
+const totalBox=document.getElementById("totalBox")
+const orderButton=document.getElementById("orderButton")
+
+let currentServer="1"
+let catalog=[]
+let selectedSocialId=""
+let selectedServiceId=""
+let selectedServiceData=null
+
+const apiState={
+  server1:[],
+  server2:[]
+}
+
+function normalizeText(value){
+  return String(value??"").trim().toLowerCase()
+}
+
+function money(value){
+  const number=Number(value)
+  if(!Number.isFinite(number))return "-"
+  return "Rp "+new Intl.NumberFormat("id-ID").format(number)
+}
+
+function getSocialId(item,index){
+  return String(item.social_id??item.platform_id??item.social??item.platform??item.id??item.code??item.slug??index)
+}
+
+function getServiceId(item,index){
+  return String(item.id??item.service_id??item.code??item.slug??index)
+}
+
+function getSocialName(item){
+  return String(item.platform??item.social??item.platform_name??item.name??item.title??"").trim()
+}
+
+function getServiceName(item){
+  return String(item.name??item.title??item.service??"").trim()
+}
+
+function getPrice(item){
+  const value=item.selling_price??item.price??item.sell_price??item.customer_price
+  const number=Number(value)
+  return Number.isFinite(number)?number:null
+}
+
+function getMin(item){
+  const number=Number(item.min??item.minimum??item.min_order)
+  return Number.isFinite(number)?number:null
+}
+
+function getMax(item){
+  const number=Number(item.max??item.maximum??item.max_order)
+  return Number.isFinite(number)?number:null
+}
+
+function getSocials(){
+  return catalog
+    .map((item,index)=>({item,id:getSocialId(item,index),name:getSocialName(item)}))
+    .filter(entry=>entry.name)
+    .filter((entry,index,array)=>array.findIndex(value=>value.id===entry.id)===index)
+}
+
+function getServices(){
+  return catalog
+    .filter(item=>{
+      const social=String(item.social_id??item.platform_id??item.social??item.platform??"")
+      return !selectedSocialId||social===selectedSocialId||String(item.socialId??"")===selectedSocialId
+    })
+    .map((item,index)=>({item,id:getServiceId(item,index),name:getServiceName(item),price:getPrice(item),min:getMin(item),max:getMax(item)}))
+    .filter(entry=>entry.name)
+    .filter((entry,index,array)=>array.findIndex(value=>value.id===entry.id)===index)
+    .sort((a,b)=>{
+      if(a.price===null&&b.price===null)return a.name.localeCompare(b.name,"id")
+      if(a.price===null)return 1
+      if(b.price===null)return -1
+      return a.price-b.price
+    })
+}
+
+function setServer(server){
+  currentServer=server
+  serverTabs.forEach(tab=>tab.classList.toggle("active",tab.dataset.server===server))
+  serverBadge.textContent="SERVER "+server
+  selectedSocialId=""
+  selectedServiceId=""
+  selectedServiceData=null
+  socialSearch.value=""
+  serviceSearch.value=""
+  socialSelect.value=""
+  serviceSelect.value=""
+  quantityInput.value=""
+  selectedService.hidden=true
+  totalBox.textContent="Rp 0"
+  catalog=Array.isArray(apiState["server"+server])?apiState["server"+server]:[]
+  renderCatalog()
+  if(server==="2"&&!catalog.length){
+    socialList.innerHTML='<div class="empty-list">Server 2 belum dikonfigurasi pada backend</div>'
+    serviceList.innerHTML='<div class="empty-list">Katalog server ini belum tersedia</div>'
+  }
+}
+
+function renderSocials(){
+  const query=normalizeText(socialSearch.value)
+  const entries=getSocials().filter(entry=>!query||normalizeText(entry.name).includes(query))
+  socialCount.textContent=entries.length
+  socialList.innerHTML=""
+  entries.forEach(entry=>{
+    const button=document.createElement("button")
+    button.type="button"
+    button.className="data-item"+(entry.id===selectedSocialId?" active":"")
+    button.dataset.id=entry.id
+    button.innerHTML='<span class="data-item-main"><b></b><span>Sosmed tersedia</span></span><span class="data-item-side">Pilih</span>'
+    button.querySelector("b").textContent=entry.name
+    button.addEventListener("click",()=>selectSocial(entry.id))
+    socialList.appendChild(button)
+  })
+  if(!entries.length)socialList.innerHTML='<div class="empty-list">Belum ada Sosmed</div>'
+}
+
+function renderSocialSelect(){
+  const query=normalizeText(socialSearch.value)
+  const entries=getSocials().filter(entry=>!query||normalizeText(entry.name).includes(query))
+  socialSelect.innerHTML='<option value="">Pilih Sosmed</option>'
+  entries.forEach(entry=>{
+    const option=document.createElement("option")
+    option.value=entry.id
+    option.textContent=entry.name
+    option.selected=entry.id===selectedSocialId
+    socialSelect.appendChild(option)
+  })
+}
+
+function renderServices(){
+  const query=normalizeText(serviceSearch.value)
+  const entries=getServices().filter(entry=>!query||normalizeText(entry.name).includes(query))
+  serviceCount.textContent=entries.length
+  serviceList.innerHTML=""
+  serviceSelect.innerHTML='<option value="">Pilih layanan</option>'
+  entries.forEach(entry=>{
+    const option=document.createElement("option")
+    option.value=entry.id
+    option.textContent=entry.price===null?entry.name:entry.name+" — "+money(entry.price)
+    option.selected=entry.id===selectedServiceId
+    serviceSelect.appendChild(option)
+
+    const button=document.createElement("button")
+    button.type="button"
+    button.className="data-item"+(entry.id===selectedServiceId?" active":"")
+    button.dataset.id=entry.id
+    button.innerHTML='<span class="data-item-main"><b></b><span></span></span><span class="data-item-side"><span></span><small></small></span>'
+    button.querySelector(".data-item-main b").textContent=entry.name
+    button.querySelector(".data-item-main span").textContent=entry.min!==null||entry.max!==null?"Min "+(entry.min??"-")+" • Max "+(entry.max??"-"):"Detail layanan dari API"
+    button.querySelector(".data-item-side span").textContent=entry.price===null?"-":money(entry.price)
+    button.querySelector(".data-item-side small").textContent=entry.price===null?"Harga dari API":"Harga jual"
+    button.addEventListener("click",()=>selectService(entry.id))
+    serviceList.appendChild(button)
+  })
+  if(!entries.length)serviceList.innerHTML='<div class="empty-list">Belum ada layanan</div>'
+}
+
+function renderCatalog(){
+  renderSocials()
+  renderSocialSelect()
+  renderServices()
+  renderSelectedService()
+}
+
+function selectSocial(id){
+  selectedSocialId=id
+  selectedServiceId=""
+  selectedServiceData=null
+  serviceSearch.value=""
+  serviceSelect.value=""
+  selectedService.hidden=true
+  quantityInput.value=""
+  totalBox.textContent="Rp 0"
+  renderCatalog()
+}
+
+function selectService(id){
+  const entry=getServices().find(value=>value.id===id)
+  if(!entry)return
+  selectedServiceId=entry.id
+  selectedServiceData=entry.item
+  serviceSelect.value=entry.id
+  renderServices()
+  renderSelectedService()
+  updateTotal()
+}
+
+function renderSelectedService(){
+  if(!selectedServiceData||!selectedServiceId){
+    selectedService.hidden=true
+    return
+  }
+  const price=getPrice(selectedServiceData)
+  const min=getMin(selectedServiceData)
+  const max=getMax(selectedServiceData)
+  selectedService.hidden=false
+  selectedServiceName.textContent=getServiceName(selectedServiceData)||"-"
+  selectedServicePrice.textContent=price===null?"-":money(price)
+  selectedServiceRange.textContent=(min??"-")+" / "+(max??"-")
+}
+
+function updateTotal(){
+  const price=selectedServiceData?getPrice(selectedServiceData):null
+  const quantity=Number(quantityInput.value)
+  if(price===null||!Number.isFinite(quantity)||quantity<=0){
+    totalBox.textContent="Rp 0"
+    return
+  }
+  totalBox.textContent=money(price*quantity/1000)
+}
+
+serverTabs.forEach(tab=>tab.addEventListener("click",()=>setServer(tab.dataset.server)))
+socialSearch.addEventListener("input",()=>{renderSocials();renderSocialSelect()})
+serviceSearch.addEventListener("input",renderServices)
+socialSelect.addEventListener("change",()=>selectSocial(socialSelect.value))
+serviceSelect.addEventListener("change",()=>{if(serviceSelect.value)selectService(serviceSelect.value)})
+quantityInput.addEventListener("input",updateTotal)
+
+orderButton.addEventListener("click",()=>{
+  const target=document.getElementById("targetInput").value.trim()
+  const quantity=Number(quantityInput.value)
+  if(!selectedServiceData||!selectedServiceId){alert("Pilih layanan terlebih dahulu");return}
+  if(!target){alert("Masukkan target terlebih dahulu");return}
+  if(!Number.isFinite(quantity)||quantity<=0){alert("Masukkan jumlah order");return}
+  const min=getMin(selectedServiceData)
+  const max=getMax(selectedServiceData)
+  if(min!==null&&quantity<min){alert("Jumlah berada di bawah minimum layanan");return}
+  if(max!==null&&quantity>max){alert("Jumlah melebihi maksimum layanan");return}
+  window.dispatchEvent(new CustomEvent("nexusbase:sosmed-order",{detail:{server:currentServer,service:selectedServiceData,serviceId:selectedServiceId,target,quantity,total:getPrice(selectedServiceData)===null?null:getPrice(selectedServiceData)*quantity/1000}}))
+})
+
+window.NexusBaseSosmedAPI={
+  setData(data){
+    if(Array.isArray(data))data={server1:data,server2:[]}
+    apiState.server1=Array.isArray(data?.server1)?data.server1:[]
+    apiState.server2=Array.isArray(data?.server2)?data.server2:[]
+    catalog=apiState["server"+currentServer]
+    selectedSocialId=""
+    selectedServiceId=""
+    selectedServiceData=null
+    renderCatalog()
+  },
+  setServerData(server,data){
+    if(server!=="1"&&server!=="2")return
+    apiState["server"+server]=Array.isArray(data)?data:[]
+    if(server===currentServer){
+      catalog=apiState["server"+server]
+      selectedSocialId=""
+      selectedServiceId=""
+      selectedServiceData=null
+      renderCatalog()
+    }
+  },
+  getData(){
+    return {server1:apiState.server1,server2:apiState.server2}
+  },
+  getSelected(){
+    return {server:currentServer,socialId:selectedSocialId,serviceId:selectedServiceId,service:selectedServiceData}
+  }
+}
+
+const params=new URLSearchParams(location.search)
+setServer(params.get("server")==="2"?"2":"1")
+loadSosmedCatalog()
+window.addEventListener("nexusbase:sosmed-order",submitSosmedOrder)
+
+async function loadSosmedCatalog(){
+  socialList.innerHTML='<div class="empty-list">Memuat kategori...</div>'
+  serviceList.innerHTML='<div class="empty-list">Memuat layanan...</div>'
+  try{
+    const response=await fetch("/api/sosmed/services",{cache:"no-store",credentials:"same-origin"})
+    const data=await response.json()
+    if(response.status===401||response.status===403){window.location.href="/";return}
+    if(!response.ok||!data.success)throw new Error(data.error||data.message||"Katalog layanan gagal dimuat")
+    const services=(Array.isArray(data.services)?data.services:[]).map(item=>({...item,id:String(item.service_id??item.id),service_id:String(item.service_id??item.id),social_id:String(item.platform||"Lainnya"),platform:String(item.platform||"Lainnya"),name:String(item.name||item.service_name||"Layanan"),price:Number(item.selling_rate_per_1000??item.selling_rate??item.price??0)}))
+    window.NexusBaseSosmedAPI.setData({server1:services,server2:[]})
+    if(currentServer==="2"){
+      socialList.innerHTML='<div class="empty-list">Server 2 belum dikonfigurasi pada backend</div>'
+      serviceList.innerHTML='<div class="empty-list">Pilih Server 1 untuk melihat katalog yang tersedia</div>'
+    }
+  }catch(error){
+    socialList.innerHTML='<div class="empty-list">'+String(error.message||"Katalog gagal dimuat")+'</div>'
+    serviceList.innerHTML='<div class="empty-list">Periksa koneksi dan coba muat ulang</div>'
+    console.error("[SOSMED CATALOG ERROR]",error)
+  }
+}
+
+async function submitSosmedOrder(event){
+  const detail=event.detail||{}
+  if(detail.server!=="1"){alert("Server 2 belum dikonfigurasi pada backend");return}
+  const button=orderButton
+  button.disabled=true
+  const original=button.textContent
+  button.textContent="MEMPROSES..."
+  try{
+    const key=(crypto.randomUUID?crypto.randomUUID():"nb-"+Date.now()+"-"+Math.random().toString(16).slice(2))
+    const response=await fetch("/api/sosmed/orders",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","Idempotency-Key":key},body:JSON.stringify({service_id:detail.serviceId,link:detail.target,quantity:detail.quantity,idempotency_key:key})})
+    const data=await response.json()
+    if(response.status===401||response.status===403){window.location.href="/";return}
+    if(!response.ok||!data.success)throw new Error(data.error||data.message||"Pesanan gagal dibuat")
+    alert(data.message||"Pesanan berhasil dikirim. ID: "+(data.order?.order_number||data.order?.id||"-"))
+    document.getElementById("targetInput").value=""
+    quantityInput.value=""
+    totalBox.textContent="Rp 0"
+  }catch(error){alert(error.message||"Pesanan gagal dibuat");console.error("[SOSMED ORDER ERROR]",error)}
+  finally{button.disabled=false;button.textContent=original}
+}
+}
+
+loadNexusDesign().catch(()=>{
+  document.body.innerHTML='<main style="padding:40px"><div class="card"><h2>Desain gagal dimuat</h2><p class="muted">Pastikan desain.html berada di folder yang sama dengan suntik-sosmed.html</p></div></main>';
+});
+</script>
+</body>
+</html>
