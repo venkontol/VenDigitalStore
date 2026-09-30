@@ -5,7 +5,7 @@ const JSON_HEADERS = {
 
 const PASSWORD_SCHEME = "pbkdf2";
 const PASSWORD_HASH = "sha256";
-const PASSWORD_ITERATIONS = 120000;
+const PASSWORD_ITERATIONS = 100000;
 const PASSWORD_BITS = 256;
 
 const INTEGER_RULES = Object.freeze({
