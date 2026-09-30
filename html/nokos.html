@@ -676,7 +676,7 @@ Pilih service untuk menampilkan country yang tersedia
 
 </main>
 <script>
-const DESIGN_SOURCE="/html/desain.html";
+const DESIGN_SOURCE="desain.html";
 
 function insertTemplate(id,html){
   const mount=document.getElementById(id);
@@ -739,38 +739,166 @@ function initNokos(){
 
 
 function initNokosPage(){
-const serviceList=document.getElementById("serviceList")
-const countryList=document.getElementById("countryList")
-const serviceSearch=document.getElementById("serviceSearch")
-const countrySearch=document.getElementById("countrySearch")
-const orderSection=document.getElementById("orderSection")
-const activeSection=document.getElementById("activeSection")
-const selectedServiceInfo=document.getElementById("selectedServiceInfo")
-const qtyValue=document.getElementById("qtyValue")
-const countryHint=document.getElementById("countryHint")
-let products=[]
-let services=[]
-let selectedService=null
-let selectedProduct=null
-let quantity=1
-let activeOrders=[]
-function money(value){return "Rp "+Number(value||0).toLocaleString("id-ID")}
-function notify(message){let toast=document.getElementById("toast");if(!toast){toast=document.createElement("div");toast.id="toast";toast.className="toast";document.body.appendChild(toast)}toast.textContent=message;toast.classList.add("show");clearTimeout(window.nexusToastTimer);window.nexusToastTimer=setTimeout(()=>toast.classList.remove("show"),2800)}
-function serviceKey(product){return String(product.platform_id||product.platform_name||"")+"::"+String(product.service_id||product.service_name||product.name||"")}
-function serviceName(product){return [product.platform_name,product.service_name||product.name].filter(Boolean).join(" · ")||"Layanan NOKOS"}
-function renderServices(){const query=serviceSearch.value.trim().toLowerCase();const list=services.filter(item=>item.name.toLowerCase().includes(query));serviceList.innerHTML="";if(!list.length){serviceList.innerHTML='<div class="empty">'+(products.length?"Layanan tidak ditemukan":"Katalog NOKOS belum tersedia")+'</div>';return}list.forEach(item=>{const button=document.createElement("button");button.type="button";button.className="service-item"+(selectedService?.key===item.key?" active":"");button.dataset.key=item.key;button.innerHTML='<span class="service-logo">✦</span><span></span>';button.querySelector("span:last-child").textContent=item.name;button.addEventListener("click",()=>selectService(item));serviceList.appendChild(button)})}
-function renderCountries(){const query=countrySearch.value.trim().toLowerCase();if(!selectedService){countryList.innerHTML='<div class="empty">Pilih layanan untuk melihat negara yang tersedia</div>';countryHint.textContent="Pilih service terlebih dahulu";return}const available=products.filter(item=>serviceKey(item)===selectedService.key);const countries=[...new Map(available.map(item=>[String(item.country_id||item.country_name),{id:item.country_id,name:item.country_name||"Negara",products:available.filter(p=>String(p.country_id||p.country_name)===String(item.country_id||item.country_name))}])).values()].filter(item=>item.name.toLowerCase().includes(query));countryHint.textContent=countries.length+" negara tersedia";countryList.innerHTML="";if(!countries.length){countryList.innerHTML='<div class="empty">Negara tidak tersedia untuk layanan ini</div>';return}countries.forEach(country=>{const product=country.products.slice().sort((a,b)=>Number(a.price||0)-Number(b.price||0))[0];const button=document.createElement("button");button.type="button";button.className="country-item";button.innerHTML='<span class="country-name"><span class="country-flag">🌐</span><b></b></span><span class="avail">Tersedia</span><span class="price"></span>';button.querySelector("b").textContent=country.name;button.querySelector(".price").textContent=money(product.price);button.addEventListener("click",()=>selectCountry(product));countryList.appendChild(button)})}
-function selectService(item){selectedService=item;selectedProduct=null;orderSection.hidden=true;renderServices();renderCountries()}
-function selectCountry(product){selectedProduct=product;quantity=1;qtyValue.textContent="1";selectedServiceInfo.innerHTML="";const title=document.createElement("strong");title.textContent=serviceName(product);const detail=document.createElement("small");detail.textContent=(product.country_name||"Negara")+" · "+money(product.price)+" per nomor";selectedServiceInfo.append(title,detail);orderSection.hidden=false;orderSection.scrollIntoView({behavior:"smooth",block:"start"})}
-function renderActive(){activeSection.hidden=!activeOrders.length;document.getElementById("activeCount").textContent=activeOrders.length;const host=document.getElementById("activeOrders");host.innerHTML="";activeOrders.forEach(order=>{const article=document.createElement("article");article.className="active-order";const meta=document.createElement("div");meta.className="active-meta";const info=document.createElement("div");const id=document.createElement("div");id.className="active-id";id.textContent=order.order_number||("#"+order.id);const desc=document.createElement("small");desc.textContent=order.service_name||"NOKOS";info.append(id,desc);const status=document.createElement("span");status.className="active-status";status.textContent=order.status||"PENDING";meta.append(info,status);const line=document.createElement("div");line.className="active-line";const phone=document.createElement("span");phone.textContent="NOMOR";const phoneValue=document.createElement("b");phoneValue.textContent=order.phone_number||"Menunggu nomor";line.append(phone,phoneValue);const otpLine=document.createElement("div");otpLine.className="active-line";const otpLabel=document.createElement("span");otpLabel.textContent="OTP";const otp=document.createElement("b");otp.textContent=order.otp_code||"Menunggu SMS";otpLine.append(otpLabel,otp);const actions=document.createElement("div");actions.className="active-actions";[["done","Selesai"],["resend","Resend"],["cancel","Cancel"]].forEach(([action,label])=>{const button=document.createElement("button");button.type="button";button.dataset.action=action;button.dataset.id=order.id;button.textContent=label;button.addEventListener("click",()=>orderAction(action,order));actions.appendChild(button)});article.append(meta,line,otpLine,actions);host.appendChild(article)})}
-async function loadProducts(){serviceList.innerHTML='<div class="empty">Memuat katalog NOKOS...</div>';try{const response=await fetch("/api/nokos/products",{cache:"no-store",credentials:"same-origin"});const data=await response.json();if(response.status===401||response.status===403){window.location.href="/";return}if(!response.ok||!data.success)throw new Error(data.error||data.message||"Katalog NOKOS gagal dimuat");products=Array.isArray(data.products)?data.products.filter(item=>item.available!==false&&item.active!==false):[];const map=new Map();products.forEach(item=>{const key=serviceKey(item);if(!map.has(key))map.set(key,{key,name:serviceName(item)})});services=[...map.values()].sort((a,b)=>a.name.localeCompare(b.name,"id"));renderServices();renderCountries()}catch(error){serviceList.innerHTML='<div class="empty">'+String(error.message||"Katalog NOKOS gagal dimuat")+'</div>';countryList.innerHTML='<div class="empty">Coba muat ulang halaman</div>';console.error("[NOKOS CATALOG ERROR]",error)}}
-async function loadActiveOrders(){try{const response=await fetch("/api/nokos/orders",{cache:"no-store",credentials:"same-origin"});const data=await response.json();if(response.ok&&data.success){activeOrders=(Array.isArray(data.orders)?data.orders:[]).filter(order=>["PENDING","CREATING","PROCESSING","OTP_RECEIVED"].includes(String(order.status||"").toUpperCase()));renderActive()}}catch(error){console.error("[NOKOS ORDERS ERROR]",error)}}
-async function orderAction(action,order){const endpoints={done:"/api/nokos/order/finish",resend:"/api/nokos/order/resend",cancel:"/api/nokos/order/cancel"};try{const response=await fetch(endpoints[action],{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({order_id:order.id,id:order.id})});const data=await response.json();if(!response.ok||!data.success)throw new Error(data.error||data.message||"Aksi order gagal");notify(data.message||"Status order diperbarui");await loadActiveOrders()}catch(error){notify(error.message||"Aksi order gagal")}}
-serviceSearch.addEventListener("input",renderServices);countrySearch.addEventListener("input",renderCountries)
-document.getElementById("minusQty").addEventListener("click",()=>{quantity=1;qtyValue.textContent="1";notify("Setiap order NOKOS membeli satu nomor")})
-document.getElementById("plusQty").addEventListener("click",()=>{quantity=1;qtyValue.textContent="1";notify("Setiap order NOKOS membeli satu nomor")})
-document.getElementById("createOrder").addEventListener("click",async()=>{if(!selectedProduct){notify("Pilih layanan dan negara terlebih dahulu");return}const button=document.getElementById("createOrder");button.disabled=true;button.textContent="MEMPROSES...";try{const response=await fetch("/api/nokos/orders",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({product_id:selectedProduct.product_id||selectedProduct.id,quantity:1})});const data=await response.json();if(response.status===401||response.status===403){window.location.href="/";return}if(!response.ok||!data.success)throw new Error(data.error||data.message||"Order NOKOS gagal dibuat");notify(data.message||"Order NOKOS berhasil diproses");orderSection.hidden=true;selectedProduct=null;await loadActiveOrders()}catch(error){notify(error.message||"Order NOKOS gagal dibuat");console.error("[NOKOS ORDER ERROR]",error)}finally{button.disabled=false;button.textContent="CREATE ORDER"}})
-loadProducts();loadActiveOrders();
+const services=[];
+const countries=[];
+const activeOrders=[];
+let products=[];
+let selectedService=null;
+let selectedCountry=null;
+let quantity=1;
+let pendingOrder=null;
+const serviceList=document.getElementById("serviceList");
+const countryList=document.getElementById("countryList");
+const serviceSearch=document.getElementById("serviceSearch");
+const countrySearch=document.getElementById("countrySearch");
+const orderSection=document.getElementById("orderSection");
+const activeSection=document.getElementById("activeSection");
+const selectedServiceInfo=document.getElementById("selectedServiceInfo");
+const qtyValue=document.getElementById("qtyValue");
+
+function money(value){
+  const amount=Number(value);
+  return Number.isFinite(amount)&&amount>0?"Rp "+amount.toLocaleString("id-ID"):"Harga belum tersedia";
+}
+
+function text(value,fallback=""){
+  if(value===null||value===undefined)return fallback;
+  const result=String(value).trim();
+  return result&&result!=="null"&&result!=="undefined"?result:fallback;
+}
+
+function productServiceName(product){
+  return text(product.service_name)||text(product.platform_name)||text(product.name)||text(product.product_name)||"Layanan NOKOS";
+}
+
+function productCountryName(product){
+  const direct=text(product.country_name)||text(product.country)||text(product.countryName);
+  if(direct)return direct;
+  const id=String(product.country_id??product.countryId??"");
+  const match=countries.find(country=>String(country.id??country.country_id??country.countryId??"")===id);
+  return match?text(match.name||match.country_name||match.country):"Negara "+(id||"tidak diketahui");
+}
+
+function productPrice(product){
+  for(const value of [product.selling_price,product.price,product.provider_price,product.amount,product.cost,product.retail_price]){
+    const number=Number(value);
+    if(Number.isFinite(number)&&number>0)return number;
+  }
+  return 0;
+}
+
+function renderServices(message){
+  if(message){serviceList.innerHTML=`<div class="empty">${message}</div>`;return;}
+  const query=serviceSearch.value.trim().toLowerCase();
+  const list=services.filter(service=>service.name.toLowerCase().includes(query));
+  if(!list.length){
+    serviceList.innerHTML='<div class="empty">Tidak ada layanan yang cocok dengan pencarian</div>';
+    return;
+  }
+  serviceList.innerHTML=list.map(service=>`<button type="button" class="service-item ${selectedService?.id===service.id?"active":""}" data-service="${encodeURIComponent(service.id)}"><span class="service-logo"><span>${service.name.slice(0,1).toUpperCase()}</span></span><span>${service.name}</span></button>`).join("");
+  serviceList.querySelectorAll("[data-service]").forEach(button=>button.addEventListener("click",()=>selectService(decodeURIComponent(button.dataset.service))));
+}
+
+function renderCountries(message){
+  if(message){countryList.innerHTML=`<div class="empty">${message}</div>`;return;}
+  if(!selectedService){countryList.innerHTML='<div class="empty">Pilih service untuk menampilkan country yang tersedia</div>';return;}
+  const query=countrySearch.value.trim().toLowerCase();
+  const list=countries.filter(country=>country.serviceKey===selectedService.id&&country.name.toLowerCase().includes(query));
+  if(!list.length){countryList.innerHTML='<div class="empty">Negara untuk layanan ini belum tersedia</div>';return;}
+  countryList.innerHTML=list.map((country,index)=>`<button type="button" class="country-item" data-country="${index}"><span class="country-name"><span class="country-flag">${country.flag}</span><b>${country.name}</b></span><span class="avail">${country.avail.toLocaleString("id-ID")} produk</span><span class="price">${money(country.price)}</span></button>`).join("");
+  countryList.querySelectorAll("[data-country]").forEach(button=>button.addEventListener("click",()=>selectCountry(list[Number(button.dataset.country)])));
+}
+
+function selectService(id){
+  selectedService=services.find(service=>service.id===id)||null;
+  selectedCountry=null;
+  pendingOrder=null;
+  countrySearch.value="";
+  orderSection.hidden=true;
+  document.getElementById("countryHint").textContent=selectedService?"Pilih negara yang tersedia":"Pilih service terlebih dahulu";
+  renderServices();
+  renderCountries();
+}
+
+function selectCountry(country){
+  selectedCountry=country;
+  if(!selectedService||!selectedCountry)return;
+  pendingOrder={service:selectedService,country:selectedCountry};
+  quantity=1;
+  qtyValue.textContent=quantity;
+  selectedServiceInfo.innerHTML=`<strong>${selectedService.name} / ${selectedCountry.name}</strong><small>${selectedCountry.flag} ${selectedCountry.name} · ${money(selectedCountry.price)} per nomor</small>`;
+  orderSection.hidden=false;
+  orderSection.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+document.getElementById("minusQty").addEventListener("click",()=>{quantity=Math.max(1,quantity-1);qtyValue.textContent=quantity;});
+document.getElementById("plusQty").addEventListener("click",()=>{quantity=Math.min(99,quantity+1);qtyValue.textContent=quantity;});
+document.getElementById("createOrder").addEventListener("click",()=>{
+  if(!pendingOrder)return;
+  if(!pendingOrder.country.product){showToast("Produk ini belum memiliki data order yang lengkap");return;}
+  showToast("Katalog berhasil dimuat. Pembuatan order perlu diuji melalui backend");
+});
+
+function renderActive(){
+  if(!activeOrders.length){activeSection.hidden=true;return;}
+  activeSection.hidden=false;
+  document.getElementById("activeCount").textContent=activeOrders.length;
+  document.getElementById("activeOrders").innerHTML=activeOrders.map(order=>`<article class="active-order"><div class="active-meta"><div><div class="active-id">${order.id}</div><small>${order.service} · ${order.country}</small></div><span class="active-status">${order.status}</span></div><div class="active-line"><span>NOMOR</span><b>${order.phone}</b></div><div class="active-line"><span>Last detected OTP</span><b>${order.otp}</b></div></article>`).join("");
+}
+
+function showToast(message){
+  let toast=document.getElementById("toast");
+  if(!toast){toast=document.createElement("div");toast.id="toast";toast.className="toast";document.body.appendChild(toast);}
+  toast.textContent=message;toast.classList.add("show");clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>toast.classList.remove("show"),2600);
+}
+
+async function loadCatalog(){
+  serviceList.innerHTML='<div class="empty">Memuat katalog NOKOS...</div>';
+  countryList.innerHTML='<div class="empty">Pilih service untuk menampilkan country yang tersedia</div>';
+  try{
+    const [productsResponse,countriesResponse]=await Promise.all([
+      fetch("/api/nokos/products",{credentials:"same-origin",cache:"no-store"}),
+      fetch("/api/nokos/countries",{credentials:"same-origin",cache:"no-store"})
+    ]);
+    const [productsData,countriesData]=await Promise.all([productsResponse.json(),countriesResponse.json()]);
+    if(!productsResponse.ok||productsData.success===false)throw new Error(productsData.error||`Gagal mengambil katalog (${productsResponse.status})`);
+    if(!countriesResponse.ok||countriesData.success===false)throw new Error(countriesData.error||`Gagal mengambil daftar negara (${countriesResponse.status})`);
+    products=Array.isArray(productsData.products)?productsData.products:[];
+    const rawCountries=Array.isArray(countriesData.countries)?countriesData.countries:Array.isArray(countriesData.data)?countriesData.data:[];
+    countries.splice(0,countries.length,...rawCountries);
+    const serviceMap=new Map();
+    const countryMap=new Map();
+    for(const product of products){
+      if(product.active===false||product.available===false)continue;
+      const name=productServiceName(product);
+      const serviceId=name.toLowerCase();
+      if(!serviceMap.has(serviceId))serviceMap.set(serviceId,{id:serviceId,name});
+      const countryId=String(product.country_id??product.countryId??product.country_name??product.country??"");
+      const countryName=productCountryName(product);
+      const key=serviceId+"::"+countryId+"::"+countryName;
+      const price=productPrice(product);
+      if(!countryMap.has(key))countryMap.set(key,{id:key,serviceKey:serviceId,name:countryName,flag:text(product.country_flag||product.flag,"🌐"),avail:0,price,product});
+      const entry=countryMap.get(key);
+      entry.avail+=1;
+      if(!entry.price&&price)entry.price=price;
+      if(!entry.product||(!productPrice(entry.product)&&price))entry.product=product;
+    }
+    services.splice(0,services.length,...Array.from(serviceMap.values()).sort((a,b)=>a.name.localeCompare(b.name)));
+    countries.splice(0,countries.length,...Array.from(countryMap.values()).sort((a,b)=>a.name.localeCompare(b.name)));
+    if(!services.length){renderServices("API berhasil dihubungi, tetapi belum ada layanan aktif yang dapat ditampilkan");return;}
+    renderServices();
+    renderCountries();
+  }catch(error){
+    const message=text(error?.message,"Gagal memuat katalog NOKOS");
+    renderServices(`${message}. Muat ulang halaman untuk mencoba lagi`);
+    renderCountries("Daftar negara belum dapat dimuat");
+  }
+}
+
+serviceSearch.addEventListener("input",renderServices);
+countrySearch.addEventListener("input",()=>renderCountries());
+renderActive();
+loadCatalog();
 }
 
 loadNexusDesign().catch(()=>{
