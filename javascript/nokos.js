@@ -53,6 +53,23 @@ const TERMINAL_STATUSES = new Set([
   "FAILED"
 ]);
 
+async function getAuthenticatedUser(request, env) {
+  const result = await requireAuth(request, env);
+
+  if (result?.response) {
+    return { user: null, response: result.response };
+  }
+
+  if (!result?.user?.id) {
+    return {
+      user: null,
+      response: errorResponse("Authentication diperlukan.", 401)
+    };
+  }
+
+  return { user: result.user, response: null };
+}
+
 function integer(value, min = 0) {
   const number = Number(value);
 
@@ -829,7 +846,8 @@ async function syncOrderFromProvider(env, order, providerOrder) {
 
 export async function listNokosProducts(request, env) {
   try {
-    await requireAuth(request, env);
+    const auth = await getAuthenticatedUser(request, env);
+    if (auth.response) return auth.response;
     const url = getUrl(request);
 
     const products = await getProducts(env, {
@@ -878,7 +896,8 @@ export async function listNokosProducts(request, env) {
 
 export async function getNokosCountries(request, env) {
   try {
-    await requireAuth(request, env);
+    const auth = await getAuthenticatedUser(request, env);
+    if (auth.response) return auth.response;
     return successResponse({ countries: await getCountries(env) });
   } catch (error) {
     return errorResponse(error?.message || "Gagal mengambil negara NOKOS.", error?.status || 500);
@@ -887,7 +906,8 @@ export async function getNokosCountries(request, env) {
 
 export async function getNokosServices(request, env) {
   try {
-    await requireAuth(request, env);
+    const auth = await getAuthenticatedUser(request, env);
+    if (auth.response) return auth.response;
     const url = getUrl(request);
     const countryId = normalizeCountryId(url.searchParams.get("country_id"));
 
@@ -903,7 +923,8 @@ export async function getNokosServices(request, env) {
 
 export async function getNokosOperators(request, env) {
   try {
-    await requireAuth(request, env);
+    const auth = await getAuthenticatedUser(request, env);
+    if (auth.response) return auth.response;
     const url = getUrl(request);
     const countryId = normalizeCountryId(url.searchParams.get("country_id"));
     const platformId = normalizePlatformId(url.searchParams.get("platform_id"));
@@ -918,7 +939,9 @@ export async function getNokosOperators(request, env) {
 
 export async function createNokosOrder(request, env) {
   try {
-    const user = await requireAuth(request, env);
+    const auth = await getAuthenticatedUser(request, env);
+    if (auth.response) return auth.response;
+    const user = auth.user;
     const payload = await readJson(request);
 
     if (!payload) {
@@ -1048,7 +1071,9 @@ export async function createNokosOrder(request, env) {
 
 export async function getNokosOrder(request, env) {
   try {
-    const user = await requireAuth(request, env);
+    const auth = await getAuthenticatedUser(request, env);
+    if (auth.response) return auth.response;
+    const user = auth.user;
     const url = getUrl(request);
     const id = positiveInteger(url.searchParams.get("id"));
     const orderNumber = cleanString(url.searchParams.get("order_number") || "", 120);
@@ -1089,7 +1114,9 @@ export async function getNokosOrder(request, env) {
 
 export async function listMyNokosOrders(request, env) {
   try {
-    const user = await requireAuth(request, env);
+    const auth = await getAuthenticatedUser(request, env);
+    if (auth.response) return auth.response;
+    const user = auth.user;
     const url = getUrl(request);
     const limit = Math.min(positiveInteger(url.searchParams.get("limit")) || 20, MAX_ORDER_LIMIT);
     const offset = Math.max(integer(url.searchParams.get("offset"), 0) || 0, 0);
@@ -1118,7 +1145,9 @@ export async function listMyNokosOrders(request, env) {
 
 export async function syncNokosOrder(request, env) {
   try {
-    const user = await requireAuth(request, env);
+    const auth = await getAuthenticatedUser(request, env);
+    if (auth.response) return auth.response;
+    const user = auth.user;
     const payload = await readJson(request);
     const orderId = positiveInteger(payload?.order_id ?? payload?.orderId);
 
@@ -1147,7 +1176,9 @@ export async function syncNokosOrder(request, env) {
 
 export async function cancelNokosOrder(request, env) {
   try {
-    const user = await requireAuth(request, env);
+    const auth = await getAuthenticatedUser(request, env);
+    if (auth.response) return auth.response;
+    const user = auth.user;
     const payload = await readJson(request);
     const orderId = positiveInteger(payload?.order_id ?? payload?.orderId);
 
@@ -1189,7 +1220,9 @@ export async function cancelNokosOrder(request, env) {
 
 export async function finishNokosOrder(request, env) {
   try {
-    const user = await requireAuth(request, env);
+    const auth = await getAuthenticatedUser(request, env);
+    if (auth.response) return auth.response;
+    const user = auth.user;
     const payload = await readJson(request);
     const orderId = positiveInteger(payload?.order_id ?? payload?.orderId);
 
@@ -1218,7 +1251,9 @@ export async function finishNokosOrder(request, env) {
 
 export async function resendNokosOrder(request, env) {
   try {
-    const user = await requireAuth(request, env);
+    const auth = await getAuthenticatedUser(request, env);
+    if (auth.response) return auth.response;
+    const user = auth.user;
     const payload = await readJson(request);
     const orderId = positiveInteger(payload?.order_id ?? payload?.orderId);
 
