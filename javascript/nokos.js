@@ -834,6 +834,21 @@ export async function listNokosProducts(request, env) {
       sample_keys: rawProducts.length && rawProducts[0] && typeof rawProducts[0] === "object"
         ? Object.keys(rawProducts[0]).slice(0, 40)
         : [],
+      sample_products: rawProducts.slice(0, 5).map(product => ({
+        id: product?.id ?? product?.product_id ?? product?.productId ?? null,
+        name: product?.name ?? product?.product_name ?? product?.title ?? null,
+        price: product?.price ?? null,
+        price_type: typeof product?.price,
+        provider_price: product?.provider_price ?? null,
+        selling_price: product?.selling_price ?? null,
+        amount: product?.amount ?? null,
+        cost: product?.cost ?? null,
+        retail_price: product?.retail_price ?? null,
+        unit_price: product?.unit_price ?? null,
+        catalog_product_id: product?.catalog_product_id ?? null,
+        available: product?.available ?? null,
+        active: product?.active ?? null
+      })),
       products_with_price: rawProducts.filter(product => getProductPrice(product) > 0).length,
       products_with_id: rawProducts.filter(product => Boolean(getProductId(product) || getCatalogProductId(product))).length,
       products_available: rawProducts.filter(product => isProductAvailable(product)).length,
