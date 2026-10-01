@@ -33,6 +33,8 @@ const PROVIDER = "SMSCODE";
 const PROVIDER_CURRENCY = "IDR";
 const MAX_ORDER_LIMIT = 100;
 const MAX_TARGET_LENGTH = 2000;
+const CATALOG_CACHE_TTL = 300;
+const CATALOG_CACHE_KEY = "/__internal/nokos-smscode-catalog-v1";
 const ORDER_STATUSES = new Set([
   "CREATING",
   "PENDING",
@@ -162,42 +164,113 @@ function getOperatorId(product) {
   return normalizeOperatorId(product?.operator_id ?? product?.operatorId);
 }
 
+function firstText(values, maxLength = 255) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const text = cleanString(String(value), maxLength);
+    if (text) return text;
+  }
+  return null;
+}
+
 function getProductName(product) {
-  return cleanString(
-    product?.name ?? product?.service_name ?? product?.product_name ?? "NOKOS",
-    255
-  ) || "NOKOS";
+  return firstText([
+    product?.service_name,
+    product?.serviceName,
+    product?.platform_name,
+    product?.platformName,
+    product?.name,
+    product?.product_name,
+    product?.productName,
+    product?.title,
+    product?.service,
+    product?.product
+  ]) || "NOKOS";
 }
 
 function getProductPrice(product) {
   const candidates = [
     product?.price,
+    product?.provider_price,
+    product?.providerPrice,
     product?.selling_price,
+    product?.sellingPrice,
     product?.amount,
-    product?.cost
+    product?.cost,
+    product?.retail_price,
+    product?.unit_price
   ];
 
   for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || candidate === "") continue;
     const price = Number(candidate);
-
-    if (Number.isSafeInteger(price) && price > 0) {
-      return price;
-    }
+    if (Number.isSafeInteger(price) && price > 0) return price;
   }
 
   return 0;
 }
 
+function isExplicitlyFalse(value) {
+  return value === false || value === 0 || value === "0" || String(value).toLowerCase() === "false";
+}
+
+function isProductAvailable(product) {
+  const status = String(product?.status ?? "").trim().toLowerCase();
+  if (["inactive", "disabled", "unavailable", "sold_out", "sold out"].includes(status)) return false;
+  return !isExplicitlyFalse(product?.available) &&
+    !isExplicitlyFalse(product?.active) &&
+    !isExplicitlyFalse(product?.is_available) &&
+    !isExplicitlyFalse(product?.is_active);
+}
+
 function getCountryName(product) {
-  return cleanString(product?.country_name ?? product?.country ?? "", 255) || null;
+  return firstText([product?.country_name, product?.countryName, product?.country, product?.country_title]);
 }
 
 function getPlatformName(product) {
-  return cleanString(product?.platform_name ?? product?.platform ?? "", 255) || null;
+  return firstText([product?.platform_name, product?.platformName, product?.platform, product?.service_name]);
 }
 
 function getOperatorName(product) {
-  return cleanString(product?.operator_name ?? product?.operator ?? "", 255) || null;
+  return firstText([product?.operator_name, product?.operatorName, product?.operator]);
+}
+
+function isValidCatalogProduct(product) {
+  return Boolean(product && getProductPrice(product) > 0 &&
+    (getProductId(product) || getCatalogProductId(product)) &&
+    isProductAvailable(product));
+}
+
+async function getCachedCatalogProducts(request, env) {
+  const cache = globalThis.caches?.default;
+  if (!cache) return getProducts(env);
+
+  const origin = new URL(request.url).origin;
+  const cacheRequest = new Request(new URL(CATALOG_CACHE_KEY, origin).toString(), { method: "GET" });
+
+  try {
+    const cached = await cache.match(cacheRequest);
+    if (cached) {
+      const data = await cached.json();
+      if (Array.isArray(data?.products)) return data.products;
+    }
+  } catch {}
+
+  const products = await getProducts(env);
+  const validProducts = Array.isArray(products) ? products : [];
+
+  try {
+    const response = new Response(JSON.stringify({ products: validProducts }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": `public, max-age=${CATALOG_CACHE_TTL}`
+      }
+    });
+    await cache.put(cacheRequest, response);
+  } catch {}
+
+  return validProducts;
 }
 
 function safeJson(value) {
@@ -247,88 +320,10 @@ function serializeProduct(product) {
     name: getProductName(product),
     price,
     provider_price: price,
-    available: product?.available === false ? false : true,
-    active: product?.active === false ? false : true,
+    available: isProductAvailable(product),
+    active: !isExplicitlyFalse(product?.active) && !isExplicitlyFalse(product?.is_active),
     metadata: product?.metadata ?? product?.raw ?? null
   };
-}
-
-async function cacheProduct(env, product) {
-  const productId = getProductId(product);
-
-  if (!productId || !env?.DB) {
-    return;
-  }
-
-  const now = nowUnix();
-  const providerPrice = getProductPrice(product);
-
-  await env.DB.prepare(`
-    INSERT INTO nokos_services (
-      product_id,
-      catalog_product_id,
-      country_id,
-      country_name,
-      platform_id,
-      platform_name,
-      operator_id,
-      operator_name,
-      service_name,
-      provider_price,
-      selling_price,
-      available,
-      active,
-      metadata,
-      created_at,
-      updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(product_id)
-    DO UPDATE SET
-      catalog_product_id = excluded.catalog_product_id,
-      country_id = excluded.country_id,
-      country_name = excluded.country_name,
-      platform_id = excluded.platform_id,
-      platform_name = excluded.platform_name,
-      operator_id = excluded.operator_id,
-      operator_name = excluded.operator_name,
-      service_name = excluded.service_name,
-      provider_price = excluded.provider_price,
-      selling_price = excluded.selling_price,
-      available = excluded.available,
-      active = excluded.active,
-      metadata = excluded.metadata,
-      updated_at = excluded.updated_at
-  `).bind(
-    productId,
-    getCatalogProductId(product) || productId,
-    getCountryId(product),
-    getCountryName(product),
-    getPlatformId(product),
-    getPlatformName(product),
-    getOperatorId(product),
-    getOperatorName(product),
-    getProductName(product),
-    providerPrice,
-    providerPrice,
-    product?.available === false ? 0 : 1,
-    product?.active === false ? 0 : 1,
-    safeJson(product),
-    now,
-    now
-  ).run();
-}
-
-async function cacheProducts(env, products) {
-  if (!Array.isArray(products)) {
-    return;
-  }
-
-  for (const product of products) {
-    try {
-      await cacheProduct(env, product);
-    } catch {}
-  }
 }
 
 function normalizeProviderStatus(value) {
@@ -778,7 +773,7 @@ async function findProduct(env, input) {
       return false;
     }
 
-    return product?.available !== false && product?.active !== false;
+    return isProductAvailable(product) && price > 0;
   });
 
   filtered.sort((a, b) => getProductPrice(a) - getProductPrice(b));
@@ -832,45 +827,36 @@ export async function listNokosProducts(request, env) {
     await requireAuth(request, env);
     const url = getUrl(request);
 
-    const products = await getProducts(env, {
-      countryId: normalizeCountryId(url.searchParams.get("country_id")),
-      platformId: normalizePlatformId(url.searchParams.get("platform_id")),
-      serviceId: normalizeServiceId(url.searchParams.get("service_id")),
-      operatorId: normalizeOperatorId(url.searchParams.get("operator_id")),
-      available: true,
-      active: true,
-      limit: 10000,
-      page: 1
-    });
-
+    const products = await getCachedCatalogProducts(request, env);
+    const countryId = normalizeCountryId(url.searchParams.get("country_id"));
+    const platformId = normalizePlatformId(url.searchParams.get("platform_id"));
+    const serviceId = normalizeServiceId(url.searchParams.get("service_id"));
+    const operatorId = normalizeOperatorId(url.searchParams.get("operator_id"));
     const minPrice = normalizePrice(url.searchParams.get("min_price"));
     const maxPrice = normalizePrice(url.searchParams.get("max_price"));
     const catalogProductId = normalizeCatalogProductId(url.searchParams.get("catalog_product_id"));
 
-    const filtered = Array.isArray(products)
-      ? products.filter(product => {
-          const price = getProductPrice(product);
+    const filtered = products.filter(product => {
+      if (!isValidCatalogProduct(product)) return false;
+      if (countryId && getCountryId(product) !== countryId) return false;
+      if (platformId && getPlatformId(product) !== platformId) return false;
+      if (serviceId && getServiceId(product) !== serviceId) return false;
+      if (operatorId && getOperatorId(product) !== operatorId) return false;
+      if (catalogProductId && getCatalogProductId(product) !== catalogProductId) return false;
 
-          if (catalogProductId && getCatalogProductId(product) !== catalogProductId) {
-            return false;
-          }
-
-          if (minPrice !== null && price < minPrice) {
-            return false;
-          }
-
-          if (maxPrice !== null && price > maxPrice) {
-            return false;
-          }
-
-          return product?.available !== false && product?.active !== false;
-        })
-      : [];
+      const price = getProductPrice(product);
+      if (minPrice !== null && price < minPrice) return false;
+      if (maxPrice !== null && price > maxPrice) return false;
+      return true;
+    });
 
     filtered.sort((a, b) => getProductPrice(a) - getProductPrice(b));
-    await cacheProducts(env, filtered);
 
-    return successResponse({ products: filtered.map(serializeProduct) });
+    return successResponse({
+      products: filtered.map(serializeProduct),
+      count: filtered.length,
+      cached_for_seconds: CATALOG_CACHE_TTL
+    });
   } catch (error) {
     return errorResponse(error?.message || "Gagal mengambil produk NOKOS.", error?.status || 500);
   }
@@ -945,13 +931,16 @@ export async function createNokosOrder(request, env) {
     }
 
     const product = await findProduct(env, input);
+
+    if (!isValidCatalogProduct(product)) {
+      return errorResponse("Produk NOKOS sudah tidak tersedia atau harga tidak valid.", 409);
+    }
+
     const providerPrice = getProductPrice(product);
 
     if (!providerPrice) {
       return errorResponse("Harga produk NOKOS tidak valid.", 409);
     }
-
-    await cacheProduct(env, product);
 
     const customerAmount = providerPrice;
     const localOrder = await insertOrder(env, {
