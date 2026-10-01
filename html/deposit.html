@@ -1296,6 +1296,7 @@ async function createDeposit(){
       }
 
       throw Error(
+        result.error||
         result.message||
         "Deposit gagal dibuat"
       )
