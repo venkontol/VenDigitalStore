@@ -188,6 +188,31 @@ function getProductName(product) {
   ]) || "NOKOS";
 }
 
+function parsePriceValue(candidate) {
+  if (candidate === null || candidate === undefined || candidate === "") return 0;
+
+  if (typeof candidate === "object") {
+    const canonicalCurrency = String(candidate.canonical_currency ?? "").trim().toUpperCase();
+    const currency = String(candidate.currency ?? "").trim().toUpperCase();
+    const canonicalAmount = candidate.canonical_amount;
+
+    if (canonicalAmount !== null && canonicalAmount !== undefined && canonicalAmount !== "") {
+      const price = Number(canonicalAmount);
+      return Number.isSafeInteger(price) && price > 0 ? price : 0;
+    }
+
+    if (currency === "IDR" || canonicalCurrency === "IDR") {
+      const amount = Number(candidate.amount);
+      return Number.isSafeInteger(amount) && amount > 0 ? amount : 0;
+    }
+
+    return 0;
+  }
+
+  const price = Number(candidate);
+  return Number.isSafeInteger(price) && price > 0 ? price : 0;
+}
+
 function getProductPrice(product) {
   const candidates = [
     product?.price,
@@ -202,9 +227,8 @@ function getProductPrice(product) {
   ];
 
   for (const candidate of candidates) {
-    if (candidate === null || candidate === undefined || candidate === "") continue;
-    const price = Number(candidate);
-    if (Number.isSafeInteger(price) && price > 0) return price;
+    const price = parsePriceValue(candidate);
+    if (price > 0) return price;
   }
 
   return 0;
@@ -828,32 +852,6 @@ export async function listNokosProducts(request, env) {
     const url = getUrl(request);
 
     const products = await getCachedCatalogProducts(request, env);
-    const rawProducts = Array.isArray(products) ? products : [];
-    const catalogDebug = {
-      raw_count: rawProducts.length,
-      sample_keys: rawProducts.length && rawProducts[0] && typeof rawProducts[0] === "object"
-        ? Object.keys(rawProducts[0]).slice(0, 40)
-        : [],
-      sample_products: rawProducts.slice(0, 5).map(product => ({
-        id: product?.id ?? product?.product_id ?? product?.productId ?? null,
-        name: product?.name ?? product?.product_name ?? product?.title ?? null,
-        price: product?.price ?? null,
-        price_type: typeof product?.price,
-        provider_price: product?.provider_price ?? null,
-        selling_price: product?.selling_price ?? null,
-        amount: product?.amount ?? null,
-        cost: product?.cost ?? null,
-        retail_price: product?.retail_price ?? null,
-        unit_price: product?.unit_price ?? null,
-        catalog_product_id: product?.catalog_product_id ?? null,
-        available: product?.available ?? null,
-        active: product?.active ?? null
-      })),
-      products_with_price: rawProducts.filter(product => getProductPrice(product) > 0).length,
-      products_with_id: rawProducts.filter(product => Boolean(getProductId(product) || getCatalogProductId(product))).length,
-      products_available: rawProducts.filter(product => isProductAvailable(product)).length,
-      products_valid: rawProducts.filter(product => isValidCatalogProduct(product)).length
-    };
     const countryId = normalizeCountryId(url.searchParams.get("country_id"));
     const platformId = normalizePlatformId(url.searchParams.get("platform_id"));
     const serviceId = normalizeServiceId(url.searchParams.get("service_id"));
@@ -881,7 +879,6 @@ export async function listNokosProducts(request, env) {
     return successResponse({
       products: filtered.map(serializeProduct),
       count: filtered.length,
-      catalog_debug: catalogDebug,
       cached_for_seconds: CATALOG_CACHE_TTL
     });
   } catch (error) {
