@@ -828,6 +828,17 @@ export async function listNokosProducts(request, env) {
     const url = getUrl(request);
 
     const products = await getCachedCatalogProducts(request, env);
+    const rawProducts = Array.isArray(products) ? products : [];
+    const catalogDebug = {
+      raw_count: rawProducts.length,
+      sample_keys: rawProducts.length && rawProducts[0] && typeof rawProducts[0] === "object"
+        ? Object.keys(rawProducts[0]).slice(0, 40)
+        : [],
+      products_with_price: rawProducts.filter(product => getProductPrice(product) > 0).length,
+      products_with_id: rawProducts.filter(product => Boolean(getProductId(product) || getCatalogProductId(product))).length,
+      products_available: rawProducts.filter(product => isProductAvailable(product)).length,
+      products_valid: rawProducts.filter(product => isValidCatalogProduct(product)).length
+    };
     const countryId = normalizeCountryId(url.searchParams.get("country_id"));
     const platformId = normalizePlatformId(url.searchParams.get("platform_id"));
     const serviceId = normalizeServiceId(url.searchParams.get("service_id"));
@@ -855,6 +866,7 @@ export async function listNokosProducts(request, env) {
     return successResponse({
       products: filtered.map(serializeProduct),
       count: filtered.length,
+      catalog_debug: catalogDebug,
       cached_for_seconds: CATALOG_CACHE_TTL
     });
   } catch (error) {
