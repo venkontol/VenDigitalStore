@@ -20,23 +20,23 @@ const DEFAULT_QRIS_IMAGE = "/images/qris.jpg";
 const MAX_IDEMPOTENCY_LENGTH = 120;
 
 async function getDepositSettings(env) {
-  const min = await getSettingInteger(
+  const configuredMin = Number(await getSettingInteger(
     env.DB,
     "deposit_min",
     DEFAULT_MIN_DEPOSIT
-  );
+  ));
 
-  const max = await getSettingInteger(
+  const configuredMax = Number(await getSettingInteger(
     env.DB,
     "deposit_max",
     DEFAULT_MAX_DEPOSIT
-  );
+  ));
 
-  const expiryMinutes = await getSettingInteger(
+  const configuredExpiry = Number(await getSettingInteger(
     env.DB,
     "deposit_expiry_minutes",
     DEFAULT_EXPIRY_MINUTES
-  );
+  ));
 
   const qrisImage = await getSettingValue(
     env.DB,
@@ -44,10 +44,22 @@ async function getDepositSettings(env) {
     DEFAULT_QRIS_IMAGE
   );
 
+  const min = Number.isInteger(configuredMin) && configuredMin >= 1000 && configuredMin <= DEFAULT_MAX_DEPOSIT
+    ? configuredMin
+    : DEFAULT_MIN_DEPOSIT;
+
+  const max = Number.isInteger(configuredMax) && configuredMax >= min && configuredMax <= DEFAULT_MAX_DEPOSIT
+    ? configuredMax
+    : DEFAULT_MAX_DEPOSIT;
+
+  const expiryMinutes = Number.isInteger(configuredExpiry) && configuredExpiry >= 5 && configuredExpiry <= 1440
+    ? configuredExpiry
+    : DEFAULT_EXPIRY_MINUTES;
+
   return {
-    min: Number.isInteger(Number(min)) ? Number(min) : DEFAULT_MIN_DEPOSIT,
-    max: Number.isInteger(Number(max)) ? Number(max) : DEFAULT_MAX_DEPOSIT,
-    expiryMinutes: Number.isInteger(Number(expiryMinutes)) ? Number(expiryMinutes) : DEFAULT_EXPIRY_MINUTES,
+    min,
+    max,
+    expiryMinutes,
     qrisImage: cleanString(qrisImage || DEFAULT_QRIS_IMAGE, 500) || DEFAULT_QRIS_IMAGE
   };
 }
