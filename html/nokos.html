@@ -502,6 +502,52 @@
 }
 
 
+
+[hidden]{display:none!important}
+.wizard-section{margin-top:18px}
+.wizard-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.wizard-top h2{margin:0;font-size:18px}
+.wizard-subtitle{margin:6px 0 0;color:var(--muted);font-size:11px}
+.wizard-step-count{flex:none;padding:7px 9px;border-radius:999px;border:1px solid rgba(164,139,255,.25);background:rgba(109,67,240,.1);color:var(--violet-hi);font-size:10px}
+.wizard-progress{display:flex;align-items:center;gap:6px;margin:22px 0 25px}
+.wizard-progress-item{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:42px;color:var(--muted)}
+.wizard-progress-item span{width:29px;height:29px;border:1px solid var(--line2);border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:800;background:rgba(255,255,255,.025)}
+.wizard-progress-item small{font-size:9px}
+.wizard-progress-item.active span,.wizard-progress-item.done span{background:linear-gradient(135deg,var(--crimson),var(--violet));border-color:rgba(255,255,255,.18);color:#fff;box-shadow:0 0 18px -10px var(--violet-hi)}
+.wizard-progress-item.active,.wizard-progress-item.done{color:var(--text)}
+.wizard-progress-line{height:1px;flex:1;background:var(--line2);margin-top:-16px;min-width:5px}
+.wizard-panel-heading{margin-bottom:13px}
+.wizard-panel-heading h3{margin:5px 0 0;font-size:16px}
+.wizard-panel-heading p{margin:5px 0 0;color:var(--muted);font-size:11px;line-height:1.5}
+.step-kicker{color:var(--violet-hi);font-size:9px;font-weight:800;letter-spacing:.13em}
+.wizard-actions{display:flex;justify-content:space-between;gap:10px;margin-top:16px}
+.btn.secondary{color:var(--text);background:rgba(255,255,255,.025);border-color:var(--line2)}
+.product-list{display:grid;gap:9px;margin-top:12px}
+.product-option{display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;text-align:left;padding:13px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.018);color:var(--text)}
+.product-option:hover,.product-option.selected{border-color:rgba(164,139,255,.45);background:linear-gradient(100deg,rgba(212,20,47,.075),rgba(109,67,240,.09))}
+.product-option.selected{box-shadow:inset 2px 0 var(--crimson-hi)}
+.product-main{display:flex;align-items:center;gap:10px;min-width:0}
+.product-icon{width:36px;height:36px;display:grid;place-items:center;flex:none;border-radius:11px;background:rgba(109,67,240,.13);color:var(--violet-hi);font-weight:800}
+.product-label{min-width:0}
+.product-label b{display:block;font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+.product-label small{display:block;margin-top:4px;color:var(--muted);font-size:10px}
+.product-price{flex:none;text-align:right;color:#22d3c5;font-size:12px;font-weight:800;white-space:nowrap}
+.product-limit-note{color:var(--muted);font-size:10px;margin:10px 0 0}
+.confirm-summary{display:grid;gap:0;border:1px solid var(--line);border-radius:13px;overflow:hidden;background:rgba(0,0,0,.12)}
+.confirm-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:13px;border-bottom:1px solid var(--line)}
+.confirm-row:last-child{border-bottom:0}
+.confirm-row span{color:var(--muted);font-size:11px}
+.confirm-row b{font-size:11px;text-align:right;overflow-wrap:anywhere}
+.confirm-row.total{background:linear-gradient(90deg,rgba(212,20,47,.07),rgba(109,67,240,.09))}
+.confirm-row.total b{font-size:15px;color:#22d3c5}
+.confirm-notice{margin-top:12px;padding:11px;border-radius:10px;border:1px dashed var(--line2);color:var(--muted);font-size:10px;line-height:1.5}
+.confirm-actions .primary{flex:1}
+.wizard-feedback{margin-top:13px;padding:12px;border-radius:11px;border:1px solid var(--line2);font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.wizard-feedback.error{color:#ff9aa5;border-color:rgba(212,20,47,.35)}
+.wizard-feedback.success{color:#64e5c9;border-color:rgba(100,229,201,.25)}
+.country-item.selected{border-color:rgba(164,139,255,.45);background:rgba(109,67,240,.09)}
+@media(max-width:600px){.wizard-top{align-items:flex-start}.wizard-step-count{font-size:9px}.wizard-progress{gap:3px}.wizard-progress-item{min-width:35px}.wizard-progress-item small{font-size:8px}.wizard-progress-line{min-width:3px}.product-option{padding:11px}.wizard-actions .btn{min-width:100px}}
+
 @media(max-width:600px){
   .nokos-card{
     padding:16px;
@@ -561,84 +607,49 @@
 </div>
 </section>
 
-<section id="orderSection" class="order-section" hidden>
+<section class="wizard-section">
 <div class="card nokos-card">
-
-<div class="selected-service" id="selectedServiceInfo"></div>
-
-<div class="quantity-row">
+<div class="wizard-top">
 <div>
-<strong>Jumlah yang ingin dibeli</strong>
-<small>Atur jumlah nomor</small>
+<h2>Pesan Nomor NOKOS</h2>
+<p class="wizard-subtitle">Ikuti langkah berikut untuk memilih nomor</p>
 </div>
-
-<div class="qty">
-<button type="button" id="minusQty">−</button>
-<b id="qtyValue">1</b>
-<button type="button" id="plusQty">+</button>
+<span class="wizard-step-count" id="wizardStepCount">Langkah 1 dari 4</span>
 </div>
+<div class="wizard-progress" aria-label="Progres pemesanan">
+<div class="wizard-progress-item active" data-progress="1"><span>1</span><small>Layanan</small></div>
+<div class="wizard-progress-line"></div>
+<div class="wizard-progress-item" data-progress="2"><span>2</span><small>Negara</small></div>
+<div class="wizard-progress-line"></div>
+<div class="wizard-progress-item" data-progress="3"><span>3</span><small>Produk</small></div>
+<div class="wizard-progress-line"></div>
+<div class="wizard-progress-item" data-progress="4"><span>4</span><small>Konfirmasi</small></div>
 </div>
-
-<button type="button" class="btn primary order-create" id="createOrder">
-CREATE ORDER
-</button>
-
+<div class="wizard-panel" id="stepService">
+<div class="wizard-panel-heading"><span class="step-kicker">LANGKAH 1</span><h3>Pilih layanan</h3><p>Cari layanan yang ingin kamu gunakan</p></div>
+<div class="search-box"><span>⌕</span><input id="serviceSearch" type="search" placeholder="Cari layanan, misalnya WhatsApp" autocomplete="off"></div>
+<div class="service-list" id="serviceList"><div class="empty">Memuat layanan...</div></div>
 </div>
-</section>
-
-<section>
-
-<div class="card nokos-card">
-
-<div class="head">
-<h2>New Order</h2>
+<div class="wizard-panel" id="stepCountry" hidden>
+<div class="wizard-panel-heading"><span class="step-kicker">LANGKAH 2</span><h3>Pilih negara</h3><p id="selectedServiceLabel">Pilih negara untuk layanan pilihanmu</p></div>
+<div class="search-box"><span>⌕</span><input id="countrySearch" type="search" placeholder="Cari negara" autocomplete="off"></div>
+<div class="country-list" id="countryList"><div class="empty">Pilih layanan terlebih dahulu</div></div>
+<div class="wizard-actions"><button type="button" class="btn secondary" id="backToServices">Kembali</button></div>
 </div>
-
-<div class="search-box">
-<span>⌕</span>
-<input
-id="serviceSearch"
-type="search"
-placeholder="Search Service"
-autocomplete="off"
->
+<div class="wizard-panel" id="stepProduct" hidden>
+<div class="wizard-panel-heading"><span class="step-kicker">LANGKAH 3</span><h3>Pilih nomor dan harga</h3><p id="selectedCountryLabel">Pilih salah satu produk yang tersedia</p></div>
+<div class="product-list" id="productList"><div class="empty">Pilih negara terlebih dahulu</div></div>
+<p class="product-limit-note" id="productLimitNote">Menampilkan maksimal 10 pilihan termurah</p>
+<div class="wizard-actions"><button type="button" class="btn secondary" id="backToCountries">Kembali</button></div>
 </div>
-
-<div class="service-list" id="serviceList"></div>
-
+<div class="wizard-panel" id="stepConfirm" hidden>
+<div class="wizard-panel-heading"><span class="step-kicker">LANGKAH 4</span><h3>Konfirmasi pesanan</h3><p>Periksa kembali pilihanmu sebelum membuat pesanan</p></div>
+<div class="confirm-summary" id="confirmSummary"></div>
+<div class="confirm-notice">Harga dan ketersediaan akan diperiksa kembali oleh server saat pesanan dibuat</div>
+<div class="wizard-actions confirm-actions"><button type="button" class="btn secondary" id="backToProducts">Kembali</button><button type="button" class="btn primary" id="createOrder">BUAT PESANAN</button></div>
 </div>
-
-</section>
-
-<section>
-
-<div class="card nokos-card">
-
-<div class="head">
-<h2>Country</h2>
-<small id="countryHint">Pilih service terlebih dahulu</small>
+<div class="wizard-feedback" id="wizardFeedback" role="status" hidden></div>
 </div>
-
-<div class="search-box">
-<span>⌕</span>
-<input
-id="countrySearch"
-type="search"
-placeholder="Search Country"
-autocomplete="off"
->
-</div>
-
-<div class="country-list" id="countryList">
-
-<div class="empty">
-Pilih service untuk menampilkan country yang tersedia
-</div>
-
-</div>
-
-</div>
-
 </section>
 
 <section>
@@ -740,121 +751,127 @@ function initNokos(){
 
 function initNokosPage(){
 const services=[];
-const countries=[];
-const activeOrders=[];
+let rawCountries=[];
 let products=[];
+let countryOptions=[];
 let selectedService=null;
 let selectedCountry=null;
-let quantity=1;
-let pendingOrder=null;
-const serviceList=document.getElementById("serviceList");
-const countryList=document.getElementById("countryList");
-const serviceSearch=document.getElementById("serviceSearch");
-const countrySearch=document.getElementById("countrySearch");
-const orderSection=document.getElementById("orderSection");
-const activeSection=document.getElementById("activeSection");
-const selectedServiceInfo=document.getElementById("selectedServiceInfo");
-const qtyValue=document.getElementById("qtyValue");
-
-function money(value){
-  const amount=Number(value);
-  return Number.isFinite(amount)&&amount>0?"Rp "+amount.toLocaleString("id-ID"):"Harga belum tersedia";
-}
+let selectedProduct=null;
+let submitting=false;
+const el=id=>document.getElementById(id);
+const serviceList=el("serviceList");
+const countryList=el("countryList");
+const productList=el("productList");
+const serviceSearch=el("serviceSearch");
+const countrySearch=el("countrySearch");
+const panels={1:el("stepService"),2:el("stepCountry"),3:el("stepProduct"),4:el("stepConfirm")};
 
 function text(value,fallback=""){
   if(value===null||value===undefined)return fallback;
   const result=String(value).trim();
   return result&&result!=="null"&&result!=="undefined"?result:fallback;
 }
-
-function productServiceName(product){
-  return text(product.service_name)||text(product.platform_name)||text(product.name)||text(product.product_name)||"Layanan NOKOS";
-}
-
-function productCountryName(product){
-  const direct=text(product.country_name)||text(product.country)||text(product.countryName);
-  if(direct)return direct;
-  const id=String(product.country_id??product.countryId??"");
-  const match=countries.find(country=>String(country.id??country.country_id??country.countryId??"")===id);
-  return match?text(match.name||match.country_name||match.country):"Negara "+(id||"tidak diketahui");
-}
-
+function esc(value){return String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));}
+function money(value){const amount=Number(value);return Number.isFinite(amount)&&amount>0?"Rp "+Math.round(amount).toLocaleString("id-ID"):"Harga belum tersedia";}
 function productPrice(product){
-  for(const value of [product.selling_price,product.price,product.provider_price,product.amount,product.cost,product.retail_price]){
-    const number=Number(value);
-    if(Number.isFinite(number)&&number>0)return number;
-  }
+  const price=product?.price;
+  const candidates=[price&&typeof price==="object"?price.canonical_amount:null,product?.selling_price,typeof price==="object"?price.amount:price,product?.provider_price,product?.providerPrice,product?.amount,product?.cost,product?.retail_price,product?.unit_price];
+  for(const value of candidates){const number=Number(value);if(Number.isFinite(number)&&number>0)return number;}
   return 0;
 }
-
+function serviceName(product){
+  const direct=text(product.service_name)||text(product.platform_name)||text(product.service)||text(product.platform)||text(product.name)||text(product.product_name)||text(product.title)||"Layanan NOKOS";
+  return direct.split(/\s[-–—]\s/)[0].trim()||direct;
+}
+function countryName(product){
+  const id=String(product.country_id??product.countryId??"");
+  const fromCatalog=rawCountries.find(country=>String(country.id??country.country_id??country.countryId??"")===id);
+  return text(product.country_name)||text(product.countryName)||text(fromCatalog?.name)||text(fromCatalog?.country_name)||text(product.country)||"Negara tidak diketahui";
+}
+function countryFlag(product){
+  const id=String(product.country_id??product.countryId??"");
+  const fromCatalog=rawCountries.find(country=>String(country.id??country.country_id??country.countryId??"")===id);
+  return text(product.country_flag)||text(product.flag)||text(fromCatalog?.emoji)||text(fromCatalog?.flag)||"🌐";
+}
+function available(product){return product.active!==false&&product.active!==0&&product.available!==false&&product.available!==0&&Number(product.available??1)>0&&productPrice(product)>0;}
+function setStep(step){
+  Object.entries(panels).forEach(([number,panel])=>panel.hidden=Number(number)!==step);
+  el("wizardStepCount").textContent=`Langkah ${step} dari 4`;
+  document.querySelectorAll("[data-progress]").forEach(item=>{const n=Number(item.dataset.progress);item.classList.toggle("active",n===step);item.classList.toggle("done",n<step);});
+  el("wizardFeedback").hidden=true;
+}
+function feedback(message,type="error"){
+  const box=el("wizardFeedback");box.textContent=message;box.className=`wizard-feedback ${type}`;box.hidden=false;
+}
 function renderServices(message){
-  if(message){serviceList.innerHTML=`<div class="empty">${message}</div>`;return;}
+  if(message){serviceList.innerHTML=`<div class="empty">${esc(message)}</div>`;return;}
   const query=serviceSearch.value.trim().toLowerCase();
   const list=services.filter(service=>service.name.toLowerCase().includes(query));
-  if(!list.length){
-    serviceList.innerHTML='<div class="empty">Tidak ada layanan yang cocok dengan pencarian</div>';
-    return;
-  }
-  serviceList.innerHTML=list.map(service=>`<button type="button" class="service-item ${selectedService?.id===service.id?"active":""}" data-service="${encodeURIComponent(service.id)}"><span class="service-logo"><span>${service.name.slice(0,1).toUpperCase()}</span></span><span>${service.name}</span></button>`).join("");
-  serviceList.querySelectorAll("[data-service]").forEach(button=>button.addEventListener("click",()=>selectService(decodeURIComponent(button.dataset.service))));
+  if(!list.length){serviceList.innerHTML='<div class="empty">Tidak ada layanan yang cocok dengan pencarian</div>';return;}
+  serviceList.innerHTML=list.map(service=>`<button type="button" class="service-item ${selectedService?.id===service.id?"active":""}" data-service="${encodeURIComponent(service.id)}"><span class="service-logo"><span>${esc(service.name.slice(0,1).toUpperCase())}</span></span><span>${esc(service.name)}</span></button>`).join("");
+  serviceList.querySelectorAll("[data-service]").forEach(button=>button.addEventListener("click",()=>chooseService(decodeURIComponent(button.dataset.service))));
 }
-
 function renderCountries(message){
-  if(message){countryList.innerHTML=`<div class="empty">${message}</div>`;return;}
-  if(!selectedService){countryList.innerHTML='<div class="empty">Pilih service untuk menampilkan country yang tersedia</div>';return;}
+  if(message){countryList.innerHTML=`<div class="empty">${esc(message)}</div>`;return;}
+  if(!selectedService){countryList.innerHTML='<div class="empty">Pilih layanan terlebih dahulu</div>';return;}
   const query=countrySearch.value.trim().toLowerCase();
-  const list=countries.filter(country=>country.serviceKey===selectedService.id&&country.name.toLowerCase().includes(query));
-  if(!list.length){countryList.innerHTML='<div class="empty">Negara untuk layanan ini belum tersedia</div>';return;}
-  countryList.innerHTML=list.map((country,index)=>`<button type="button" class="country-item" data-country="${index}"><span class="country-name"><span class="country-flag">${country.flag}</span><b>${country.name}</b></span><span class="avail">${country.avail.toLocaleString("id-ID")} produk</span><span class="price">${money(country.price)}</span></button>`).join("");
-  countryList.querySelectorAll("[data-country]").forEach(button=>button.addEventListener("click",()=>selectCountry(list[Number(button.dataset.country)])));
+  const list=countryOptions.filter(country=>country.serviceKey===selectedService.id&&country.name.toLowerCase().includes(query));
+  if(!list.length){countryList.innerHTML='<div class="empty">Belum ada negara tersedia untuk layanan ini</div>';return;}
+  countryList.innerHTML=list.map((country,index)=>`<button type="button" class="country-item ${selectedCountry?.id===country.id?"selected":""}" data-country="${index}"><span class="country-name"><span class="country-flag">${esc(country.flag)}</span><b>${esc(country.name)}</b></span><span class="avail">${country.productCount} pilihan</span><span class="price">Mulai ${money(country.lowestPrice)}</span></button>`).join("");
+  countryList.querySelectorAll("[data-country]").forEach(button=>button.addEventListener("click",()=>chooseCountry(list[Number(button.dataset.country)])));
+}
+function renderProducts(){
+  if(!selectedService||!selectedCountry){productList.innerHTML='<div class="empty">Pilih layanan dan negara terlebih dahulu</div>';return;}
+  const list=products.filter(product=>product._serviceKey===selectedService.id&&product._countryKey===selectedCountry.id&&available(product)).sort((a,b)=>productPrice(a)-productPrice(b)).slice(0,10);
+  if(!list.length){productList.innerHTML='<div class="empty">Tidak ada produk dengan harga valid untuk pilihan ini</div>';return;}
+  productList.innerHTML=list.map((product,index)=>`<button type="button" class="product-option ${selectedProduct?._key===product._key?"selected":""}" data-product="${index}"><span class="product-main"><span class="product-icon">${esc(selectedService.name.slice(0,1).toUpperCase())}</span><span class="product-label"><b>${esc(text(product.name,selectedService.name))}</b><small>Stok tersedia: ${Math.max(0,Number(product.available)||0).toLocaleString("id-ID")}</small></span></span><span class="product-price">${money(productPrice(product))}</span></button>`).join("");
+  productList.querySelectorAll("[data-product]").forEach(button=>button.addEventListener("click",()=>chooseProduct(list[Number(button.dataset.product)])));
+  el("productLimitNote").textContent=`Menampilkan ${list.length} pilihan termurah yang tersedia`;
+}
+function chooseService(id){
+  selectedService=services.find(service=>service.id===id)||null;selectedCountry=null;selectedProduct=null;countrySearch.value="";
+  if(!selectedService)return;
+  el("selectedServiceLabel").textContent=`Layanan dipilih: ${selectedService.name}`;
+  renderCountries();setStep(2);
+}
+function chooseCountry(country){selectedCountry=country;selectedProduct=null;el("selectedCountryLabel").textContent=`${selectedService.name} · ${country.flag} ${country.name}`;renderProducts();setStep(3);}
+function chooseProduct(product){selectedProduct=product;renderProducts();renderConfirmation();setStep(4);}
+function renderConfirmation(){
+  const rows=[
+    ["Layanan",selectedService?.name||"-"],
+    ["Negara",`${selectedCountry?.flag||"🌐"} ${selectedCountry?.name||"-"}`],
+    ["Produk",text(selectedProduct?.name,selectedService?.name||"-")],
+    ["Stok tersedia",`${Math.max(0,Number(selectedProduct?.available)||0).toLocaleString("id-ID")} nomor`]
+  ];
+  el("confirmSummary").innerHTML=rows.map(([label,value])=>`<div class="confirm-row"><span>${esc(label)}</span><b>${esc(value)}</b></div>`).join("")+`<div class="confirm-row total"><span>Total harga</span><b>${money(productPrice(selectedProduct))}</b></div>`;
+}
+function makeIdempotencyKey(){return `nokos-${Date.now()}-${Math.random().toString(36).slice(2,10)}`;}
+async function createOrder(){
+  if(submitting||!selectedProduct)return;
+  const productId=selectedProduct.id??selectedProduct.product_id;
+  if(productId===undefined||productId===null||productId===""){feedback("ID produk tidak tersedia. Silakan pilih produk lain.");return;}
+  const button=el("createOrder");submitting=true;button.disabled=true;button.textContent="MEMPROSES...";
+  try{
+    const response=await fetch("/api/nokos/orders",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({product_id:productId,quantity:1,country_id:selectedProduct.country_id??selectedProduct.countryId??undefined,platform_id:selectedProduct.platform_id??selectedProduct.platformId??undefined,service_id:selectedProduct.service_id??selectedProduct.serviceId??undefined,operator_id:selectedProduct.operator_id??selectedProduct.operatorId??undefined,idempotency_key:makeIdempotencyKey()})});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok||data.success===false){throw new Error(text(data.error||data.message,`Pesanan gagal dibuat (${response.status})`));}
+    const order=data.order||data.data?.order||data.data||{};
+    const number=text(order.order_number||order.id,"diterima");
+    feedback(`Pesanan berhasil dikirim. Nomor pesanan: ${number}. Periksa menu Transaksi untuk melihat status terbaru.`,"success");
+    button.textContent="PESANAN TERKIRIM";
+  }catch(error){feedback(text(error?.message,"Terjadi kesalahan saat membuat pesanan"),"error");button.disabled=false;button.textContent="COBA LAGI";submitting=false;return;}
+  submitting=false;button.disabled=false;button.textContent="BUAT PESANAN";
 }
 
-function selectService(id){
-  selectedService=services.find(service=>service.id===id)||null;
-  selectedCountry=null;
-  pendingOrder=null;
-  countrySearch.value="";
-  orderSection.hidden=true;
-  document.getElementById("countryHint").textContent=selectedService?"Pilih negara yang tersedia":"Pilih service terlebih dahulu";
-  renderServices();
-  renderCountries();
-}
-
-function selectCountry(country){
-  selectedCountry=country;
-  if(!selectedService||!selectedCountry)return;
-  pendingOrder={service:selectedService,country:selectedCountry};
-  quantity=1;
-  qtyValue.textContent=quantity;
-  selectedServiceInfo.innerHTML=`<strong>${selectedService.name} / ${selectedCountry.name}</strong><small>${selectedCountry.flag} ${selectedCountry.name} · ${money(selectedCountry.price)} per nomor</small>`;
-  orderSection.hidden=false;
-  orderSection.scrollIntoView({behavior:"smooth",block:"start"});
-}
-
-document.getElementById("minusQty").addEventListener("click",()=>{quantity=Math.max(1,quantity-1);qtyValue.textContent=quantity;});
-document.getElementById("plusQty").addEventListener("click",()=>{quantity=Math.min(99,quantity+1);qtyValue.textContent=quantity;});
-document.getElementById("createOrder").addEventListener("click",()=>{
-  if(!pendingOrder)return;
-  if(!pendingOrder.country.product){showToast("Produk ini belum memiliki data order yang lengkap");return;}
-  showToast("Katalog berhasil dimuat. Pembuatan order perlu diuji melalui backend");
-});
-
-function renderActive(){
-  if(!activeOrders.length){activeSection.hidden=true;return;}
-  activeSection.hidden=false;
-  document.getElementById("activeCount").textContent=activeOrders.length;
-  document.getElementById("activeOrders").innerHTML=activeOrders.map(order=>`<article class="active-order"><div class="active-meta"><div><div class="active-id">${order.id}</div><small>${order.service} · ${order.country}</small></div><span class="active-status">${order.status}</span></div><div class="active-line"><span>NOMOR</span><b>${order.phone}</b></div><div class="active-line"><span>Last detected OTP</span><b>${order.otp}</b></div></article>`).join("");
-}
-
-function showToast(message){
-  let toast=document.getElementById("toast");
-  if(!toast){toast=document.createElement("div");toast.id="toast";toast.className="toast";document.body.appendChild(toast);}
-  toast.textContent=message;toast.classList.add("show");clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>toast.classList.remove("show"),2600);
-}
+el("backToServices").addEventListener("click",()=>setStep(1));
+el("backToCountries").addEventListener("click",()=>setStep(2));
+el("backToProducts").addEventListener("click",()=>setStep(3));
+el("createOrder").addEventListener("click",createOrder);
+serviceSearch.addEventListener("input",()=>renderServices());
+countrySearch.addEventListener("input",()=>renderCountries());
 
 async function loadCatalog(){
   serviceList.innerHTML='<div class="empty">Memuat katalog NOKOS...</div>';
-  countryList.innerHTML='<div class="empty">Pilih service untuk menampilkan country yang tersedia</div>';
   try{
     const [productsResponse,countriesResponse]=await Promise.all([
       fetch("/api/nokos/products",{credentials:"same-origin",cache:"no-store"}),
@@ -862,42 +879,27 @@ async function loadCatalog(){
     ]);
     const [productsData,countriesData]=await Promise.all([productsResponse.json(),countriesResponse.json()]);
     if(!productsResponse.ok||productsData.success===false)throw new Error(productsData.error||`Gagal mengambil katalog (${productsResponse.status})`);
-    if(!countriesResponse.ok||countriesData.success===false)throw new Error(countriesData.error||`Gagal mengambil daftar negara (${countriesResponse.status})`);
+    if(!countriesResponse.ok||countriesData.success===false)throw new Error(countriesData.error||`Gagal mengambil negara (${countriesResponse.status})`);
     products=Array.isArray(productsData.products)?productsData.products:[];
-    const rawCountries=Array.isArray(countriesData.countries)?countriesData.countries:Array.isArray(countriesData.data)?countriesData.data:[];
-    countries.splice(0,countries.length,...rawCountries);
-    const serviceMap=new Map();
-    const countryMap=new Map();
-    for(const product of products){
-      if(product.active===false||product.available===false)continue;
-      const name=productServiceName(product);
-      const serviceId=name.toLowerCase();
-      if(!serviceMap.has(serviceId))serviceMap.set(serviceId,{id:serviceId,name});
-      const countryId=String(product.country_id??product.countryId??product.country_name??product.country??"");
-      const countryName=productCountryName(product);
-      const key=serviceId+"::"+countryId+"::"+countryName;
-      const price=productPrice(product);
-      if(!countryMap.has(key))countryMap.set(key,{id:key,serviceKey:serviceId,name:countryName,flag:text(product.country_flag||product.flag,"🌐"),avail:0,price,product});
-      const entry=countryMap.get(key);
-      entry.avail+=1;
-      if(!entry.price&&price)entry.price=price;
-      if(!entry.product||(!productPrice(entry.product)&&price))entry.product=product;
-    }
+    rawCountries=Array.isArray(countriesData.countries)?countriesData.countries:Array.isArray(countriesData.data)?countriesData.data:[];
+    const serviceMap=new Map();const countryMap=new Map();
+    products=products.filter(available).map((product,index)=>{
+      const name=serviceName(product);const serviceKey=name.toLowerCase();
+      const countryId=String(product.country_id??product.countryId??"");
+      const countryLabel=countryName(product);const countryKey=`${serviceKey}::${countryId||countryLabel}`;
+      product._serviceKey=serviceKey;product._countryKey=countryKey;product._key=String(product.id??product.product_id??product.catalog_product_id??index);
+      if(!serviceMap.has(serviceKey))serviceMap.set(serviceKey,{id:serviceKey,name,products:[]});
+      serviceMap.get(serviceKey).products.push(product);
+      if(!countryMap.has(countryKey))countryMap.set(countryKey,{id:countryKey,serviceKey,name:countryLabel,flag:countryFlag(product),productCount:0,lowestPrice:productPrice(product)});
+      const country=countryMap.get(countryKey);country.productCount+=1;if(productPrice(product)<country.lowestPrice)country.lowestPrice=productPrice(product);
+      return product;
+    });
     services.splice(0,services.length,...Array.from(serviceMap.values()).sort((a,b)=>a.name.localeCompare(b.name)));
-    countries.splice(0,countries.length,...Array.from(countryMap.values()).sort((a,b)=>a.name.localeCompare(b.name)));
-    if(!services.length){renderServices("API berhasil dihubungi, tetapi belum ada layanan aktif yang dapat ditampilkan");return;}
-    renderServices();
-    renderCountries();
-  }catch(error){
-    const message=text(error?.message,"Gagal memuat katalog NOKOS");
-    renderServices(`${message}. Muat ulang halaman untuk mencoba lagi`);
-    renderCountries("Daftar negara belum dapat dimuat");
-  }
+    countryOptions=Array.from(countryMap.values()).sort((a,b)=>a.name.localeCompare(b.name));
+    if(!services.length){renderServices("API berhasil dihubungi, tetapi tidak ada produk dengan harga dan stok valid");return;}
+    renderServices();renderCountries();
+  }catch(error){renderServices(`${text(error?.message,"Gagal memuat katalog NOKOS")}. Muat ulang halaman untuk mencoba lagi`);renderCountries("Daftar negara belum dapat dimuat");}
 }
-
-serviceSearch.addEventListener("input",renderServices);
-countrySearch.addEventListener("input",()=>renderCountries());
-renderActive();
 loadCatalog();
 }
 
