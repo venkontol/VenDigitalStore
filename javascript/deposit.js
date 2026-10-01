@@ -9,7 +9,7 @@ import {
   successResponse
 } from "./utils.js";
 
-import { requireAuth } from "./auth.js";
+import { requireAuth, requireAdmin } from "./auth.js";
 import { creditBalance } from "./wallet.js";
 import { getSettingInteger, getSettingValue } from "./setting.js";
 
@@ -56,12 +56,12 @@ function generateDepositCode() {
   return `DEP-${Date.now().toString(36).toUpperCase()}-${randomId(8).toUpperCase()}`;
 }
 
-function serializeDeposit(row, qrisImage) {
+function serializeDeposit(row, qrisImage, includeUser = false) {
   if (!row) {
     return null;
   }
 
-  return {
+  const result = {
     id: row.id ?? null,
     code: row.code,
     amount: Number(row.amount || 0),
@@ -76,6 +76,13 @@ function serializeDeposit(row, qrisImage) {
     check_count: Number(row.check_count || 0),
     wallet_transaction_id: row.wallet_transaction_id == null ? null : Number(row.wallet_transaction_id)
   };
+
+  if (includeUser) {
+    result.user_id = row.user_id ?? null;
+    result.username = row.username ?? null;
+  }
+
+  return result;
 }
 
 async function expireDepositIfNeeded(env, deposit) {
@@ -477,6 +484,11 @@ export async function confirmDepositByCode(env, code) {
 }
 
 export async function confirmDeposit(request, env) {
+  const auth = await requireAdmin(request, env);
+  if (auth.response) {
+    return auth.response;
+  }
+
   const body = await readJson(request);
   const code = normalizeDepositCode(body?.code);
 
@@ -500,12 +512,12 @@ export async function confirmDeposit(request, env) {
   }
 }
 
-export async function cancelDepositByCode(env, code) {
+export async function cancelDepositByCode(env, code, userId = null) {
   if (!env?.DB) {
     throw new Error("Database tidak tersedia.");
   }
 
-  const deposit = await findDepositByCode(env, code);
+  const deposit = await findDepositByCode(env, code, userId);
 
   if (!deposit) {
     throw new Error("Deposit tidak ditemukan.");
@@ -541,6 +553,11 @@ export async function cancelDepositByCode(env, code) {
 }
 
 export async function cancelDeposit(request, env) {
+  const auth = await requireAuth(request, env);
+  if (auth.response) {
+    return auth.response;
+  }
+
   const body = await readJson(request);
   const code = normalizeDepositCode(body?.code);
 
@@ -549,7 +566,11 @@ export async function cancelDeposit(request, env) {
   }
 
   try {
-    const result = await cancelDepositByCode(env, code);
+    const result = await cancelDepositByCode(
+      env,
+      code,
+      auth.user.is_admin ? null : auth.user.id
+    );
 
     return successResponse({
       message: "Deposit berhasil dibatalkan.",
@@ -562,6 +583,11 @@ export async function cancelDeposit(request, env) {
 }
 
 export async function expireDeposits(request, env) {
+  const auth = await requireAdmin(request, env);
+  if (auth.response) {
+    return auth.response;
+  }
+
   if (!env?.DB) {
     return errorResponse("Database tidak tersedia.", 500);
   }
@@ -612,26 +638,28 @@ export async function listDeposits(request, env) {
     const result = await env.DB
       .prepare(
         `SELECT
-           id,
-           user_id,
-           code,
-           amount,
-           status,
-           payment_method,
-           created_at,
-           expires_at,
-           checked_at,
-           paid_at,
-           cancelled_at,
-           check_count,
-           wallet_transaction_id
-         FROM deposits
-         WHERE user_id = ?
-         ORDER BY id DESC
+           d.id,
+           d.user_id,
+           d.code,
+           d.amount,
+           d.status,
+           d.payment_method,
+           d.created_at,
+           d.expires_at,
+           d.checked_at,
+           d.paid_at,
+           d.cancelled_at,
+           d.check_count,
+           d.wallet_transaction_id,
+           u.username
+         FROM deposits d
+         LEFT JOIN users u ON u.id = d.user_id
+         WHERE (? = 1 OR d.user_id = ?)
+         ORDER BY d.id DESC
          LIMIT ?
          OFFSET ?`
       )
-      .bind(auth.user.id, limit, offset)
+      .bind(auth.user.is_admin ? 1 : 0, auth.user.id, limit, offset)
       .all();
 
     const deposits = Array.isArray(result?.results)
@@ -643,7 +671,7 @@ export async function listDeposits(request, env) {
     }
 
     return successResponse({
-      deposits: deposits.map((deposit) => serializeDeposit(deposit, settings.qrisImage)),
+      deposits: deposits.map((deposit) => serializeDeposit(deposit, settings.qrisImage, Boolean(auth.user.is_admin))),
       limit,
       offset
     });
