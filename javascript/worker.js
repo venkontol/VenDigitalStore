@@ -123,6 +123,9 @@ const GLOBAL_HEADER_BALANCE_SCRIPT = `
   const formatRupiah = value => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(Number(value || 0));
   let loading = false;
   let lastUserId = null;
+  let activeHeader = null;
+  let observer = null;
+  let retryTimer = null;
 
   const getHeader = () => ({
     balance: document.querySelector("[data-nexus-balance]"),
@@ -132,12 +135,12 @@ const GLOBAL_HEADER_BALANCE_SCRIPT = `
 
   const updateHeader = user => {
     const { balance, value, avatar } = getHeader();
-    const username = String(user?.username || "").trim();
-    const amount = Number(user?.balance || 0);
     if (!balance || !value) return false;
+    const username = String(user?.username || "").trim();
+    const amount = Number(user?.balance ?? 0);
     balance.classList.remove("loading", "error");
-    value.textContent = formatRupiah(amount);
-    if (avatar && username) avatar.textContent = username.charAt(0).toUpperCase();
+    value.textContent = formatRupiah(Number.isFinite(amount) ? amount : 0);
+    if (avatar) avatar.textContent = username ? username.charAt(0).toUpperCase() : "N";
     lastUserId = user?.id ?? null;
     return true;
   };
@@ -156,9 +159,18 @@ const GLOBAL_HEADER_BALANCE_SCRIPT = `
     }
   };
 
-  const loadBalance = async () => {
+  const scheduleRetry = () => {
+    if (retryTimer) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      loadBalance(true);
+    }, 1500);
+  };
+
+  const loadBalance = async force => {
     const { balance, value } = getHeader();
     if (!balance || !value || loading) return false;
+    if (!force && activeHeader !== balance) return false;
     loading = true;
     setLoading();
     try {
@@ -169,54 +181,52 @@ const GLOBAL_HEADER_BALANCE_SCRIPT = `
         headers: { "Accept": "application/json" }
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || result.success === false || !result.user) {
-        if (response.status === 401 || response.status === 403) {
-          setError();
-          return false;
-        }
+      if (!response.ok || result.success !== true || !result.user) {
         throw new Error(result.error || result.message || "Saldo gagal dimuat");
       }
       return updateHeader(result.user);
-    } catch {
+    } catch (error) {
+      console.error("[NEXUS BALANCE]", error);
       setError();
+      scheduleRetry();
       return false;
     } finally {
       loading = false;
     }
   };
 
-  const ensureBalance = () => {
+  const detectHeader = () => {
     const { balance, value } = getHeader();
-    if (balance && value) loadBalance();
+    if (!balance || !value) return false;
+    if (activeHeader !== balance) {
+      activeHeader = balance;
+      loadBalance(true);
+      return true;
+    }
+    return true;
   };
 
   window.NexusBalance = {
-    refresh: loadBalance,
+    refresh: () => loadBalance(true),
     get userId() { return lastUserId; }
   };
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", ensureBalance, { once: true });
-  } else {
-    ensureBalance();
-  }
+  detectHeader();
 
-  const observer = new MutationObserver(() => {
-    const { balance, value } = getHeader();
-    if (balance && value && value.textContent === "Memuat...") {
-      loadBalance();
-      observer.disconnect();
-    }
+  observer = new MutationObserver(() => {
+    detectHeader();
   });
-
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
-  window.addEventListener("nexusbase:header-ready", ensureBalance);
-  window.addEventListener("nexusbase:balance-updated", loadBalance);
-  window.addEventListener("nexusbase:deposit-confirmed", loadBalance);
-  window.addEventListener("nexusbase:order-created", loadBalance);
-  window.addEventListener("nexusbase:order-completed", loadBalance);
-  window.addEventListener("pageshow", ensureBalance);
+  window.addEventListener("nexusbase:header-ready", () => detectHeader());
+  window.addEventListener("nexusbase:balance-updated", () => loadBalance(true));
+  window.addEventListener("nexusbase:deposit-confirmed", () => loadBalance(true));
+  window.addEventListener("nexusbase:order-created", () => loadBalance(true));
+  window.addEventListener("nexusbase:order-completed", () => loadBalance(true));
+  window.addEventListener("pageshow", () => detectHeader());
+  window.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") detectHeader();
+  });
 })();
 </script>`;
 
