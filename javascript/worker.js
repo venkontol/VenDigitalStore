@@ -1,4 +1,5 @@
 import router from "./router.js";
+import { requireAuth } from "./auth.js";
 
 const HTML_MAP = Object.freeze({
   "/": "/html/index.html",
@@ -115,6 +116,165 @@ async function tryAsset(env, path, request) {
   }
 }
 
+const GLOBAL_HEADER_BALANCE_SCRIPT = `
+<script data-nexus-global-balance>
+(() => {
+  const endpoint = "/api/auth/me";
+  const formatRupiah = value => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(Number(value || 0));
+  let loading = false;
+  let lastUserId = null;
+
+  const getHeader = () => ({
+    balance: document.querySelector("[data-nexus-balance]"),
+    value: document.getElementById("saldoValue"),
+    avatar: document.querySelector("[data-nexus-avatar]")
+  });
+
+  const updateHeader = user => {
+    const { balance, value, avatar } = getHeader();
+    const username = String(user?.username || "").trim();
+    const amount = Number(user?.balance || 0);
+    if (!balance || !value) return false;
+    balance.classList.remove("loading", "error");
+    value.textContent = formatRupiah(amount);
+    if (avatar && username) avatar.textContent = username.charAt(0).toUpperCase();
+    lastUserId = user?.id ?? null;
+    return true;
+  };
+
+  const setLoading = () => {
+    const { balance } = getHeader();
+    if (balance) balance.classList.add("loading");
+  };
+
+  const setError = () => {
+    const { balance, value } = getHeader();
+    if (value) value.textContent = "—";
+    if (balance) {
+      balance.classList.remove("loading");
+      balance.classList.add("error");
+    }
+  };
+
+  const loadBalance = async () => {
+    const { balance, value } = getHeader();
+    if (!balance || !value || loading) return false;
+    loading = true;
+    setLoading();
+    try {
+      const response = await fetch(endpoint, {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "Accept": "application/json" }
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.success === false || !result.user) {
+        if (response.status === 401 || response.status === 403) {
+          setError();
+          return false;
+        }
+        throw new Error(result.error || result.message || "Saldo gagal dimuat");
+      }
+      return updateHeader(result.user);
+    } catch {
+      setError();
+      return false;
+    } finally {
+      loading = false;
+    }
+  };
+
+  const ensureBalance = () => {
+    const { balance, value } = getHeader();
+    if (balance && value) loadBalance();
+  };
+
+  window.NexusBalance = {
+    refresh: loadBalance,
+    get userId() { return lastUserId; }
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", ensureBalance, { once: true });
+  } else {
+    ensureBalance();
+  }
+
+  const observer = new MutationObserver(() => {
+    const { balance, value } = getHeader();
+    if (balance && value && value.textContent === "Memuat...") {
+      loadBalance();
+      observer.disconnect();
+    }
+  });
+
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  window.addEventListener("nexusbase:header-ready", ensureBalance);
+  window.addEventListener("nexusbase:balance-updated", loadBalance);
+  window.addEventListener("nexusbase:deposit-confirmed", loadBalance);
+  window.addEventListener("nexusbase:order-created", loadBalance);
+  window.addEventListener("nexusbase:order-completed", loadBalance);
+  window.addEventListener("pageshow", ensureBalance);
+})();
+</script>`;
+
+function injectGlobalHeaderBalance(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("text/html")) return response;
+  return new HTMLRewriter()
+    .on("body", {
+      element(element) {
+        element.append(GLOBAL_HEADER_BALANCE_SCRIPT, { html: true });
+      }
+    })
+    .transform(response);
+}
+
+async function getCurrentUserBalance(request, env) {
+  const auth = await requireAuth(request, env);
+  if (auth.response) return auth.response;
+  if (!env?.DB) {
+    return new Response(JSON.stringify({ success: false, error: "Database tidak tersedia." }), {
+      status: 500,
+      headers: { "Content-Type": "application/json; charset=UTF-8", "Cache-Control": "no-store" }
+    });
+  }
+  try {
+    const user = await env.DB.prepare(`
+      SELECT id, username, balance, is_admin
+      FROM users
+      WHERE id = ?
+      LIMIT 1
+    `).bind(auth.user.id).first();
+    if (!user) {
+      return new Response(JSON.stringify({ success: false, error: "Akun tidak ditemukan." }), {
+        status: 404,
+        headers: { "Content-Type": "application/json; charset=UTF-8", "Cache-Control": "no-store" }
+      });
+    }
+    return new Response(JSON.stringify({
+      success: true,
+      user: {
+        id: Number(user.id),
+        username: user.username || "",
+        balance: Number(user.balance || 0),
+        is_admin: Boolean(user.is_admin)
+      }
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json; charset=UTF-8", "Cache-Control": "no-store" }
+    });
+  } catch (error) {
+    console.error("[AUTH ME ERROR]", error);
+    return new Response(JSON.stringify({ success: false, error: "Gagal mengambil data akun." }), {
+      status: 500,
+      headers: { "Content-Type": "application/json; charset=UTF-8", "Cache-Control": "no-store" }
+    });
+  }
+}
+
 async function serveFrontend(request, env) {
   const url = new URL(request.url);
   const pathname = normalizePath(url.pathname);
@@ -160,7 +320,11 @@ export default {
       let response;
 
       if (isApiPath(pathname)) {
-        response = await router(request, env, ctx);
+        if (request.method === "GET" && pathname === "/api/auth/me") {
+          response = await getCurrentUserBalance(request, env);
+        } else {
+          response = await router(request, env, ctx);
+        }
       } else if (request.method === "GET" || request.method === "HEAD") {
         response = await serveFrontend(request, env);
         if (request.method === "HEAD") {
@@ -174,7 +338,10 @@ export default {
         response = notFoundResponse();
       }
 
-      const secured = applySecurityHeaders(response);
+      const frontendResponse = isApiPath(pathname) || request.method === "HEAD"
+        ? response
+        : injectGlobalHeaderBalance(response);
+      const secured = applySecurityHeaders(frontendResponse);
 
       console.log(
         `[WORKER] ${request.method} ${pathname} → ${secured.status} (${Date.now() - start}ms)`
