@@ -169,6 +169,17 @@ a{
 .bal b{
   font-weight:700;
 }
+.bal[data-nexus-balance] b{
+  min-width:68px;
+  display:inline-block;
+  text-align:right;
+}
+.bal[data-nexus-balance].loading b{
+  color:var(--muted);
+}
+.bal[data-nexus-balance].error b{
+  color:#ff98a3;
+}
 .acct{
   display:flex;
   align-items:center;
@@ -1111,7 +1122,7 @@ aside::after{box-shadow:0 0 14px 1px rgba(212,20,47,.45),0 0 18px 1px rgba(109,6
 <template id="nexus-header"><header class="top" data-nexus-header>
 <label for="navToggle" class="menu-btn" aria-label="Buka menu"><span></span></label>
 <div class="logo"><i>N</i><span>NexusBase</span></div>
-<div class="right"><div class="bal" id="saldo"><small>Saldo</small><b id="saldoValue"></b></div><div class="acct" aria-hidden="true"><span class="avatar">N</span></div></div>
+<div class="right"><div class="bal" id="saldo" data-nexus-balance><small>Saldo</small><b id="saldoValue">Memuat...</b></div><div class="acct" aria-hidden="true"><span class="avatar" data-nexus-avatar>N</span></div></div>
 </header></template>
 <template id="nexus-sidebar"><aside id="side" data-nexus-sidebar>
 <div class="brand"><div class="logo"><i>N</i><span><b>Nexus</b><em>Base</em></span></div></div>
@@ -1131,7 +1142,7 @@ aside::after{box-shadow:0 0 14px 1px rgba(212,20,47,.45),0 0 18px 1px rgba(109,6
 <template id="nexus-scrim"><label for="navToggle" class="scrim"></label></template>
 <template id="nexus-controls"><input type="checkbox" class="toggle" id="navToggle" aria-hidden="true"><input type="checkbox" class="toggle" id="annToggle" aria-hidden="true"></template>
 <script>
-window.NexusDesign={version:"1.0",font:"Mochiy Pop One",templates:["nexus-icons","nexus-header","nexus-sidebar","nexus-scrim","nexus-controls"]};
+window.NexusDesign={version:"1.1",font:"Mochiy Pop One",templates:["nexus-icons","nexus-header","nexus-sidebar","nexus-scrim","nexus-controls"],balanceElement:"saldoValue",avatarElement:"nexus-avatar",balanceEndpoint:"/api/auth/me"};
 </script>
 </body>
 </html>
