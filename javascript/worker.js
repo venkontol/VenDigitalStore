@@ -127,11 +127,12 @@ const GLOBAL_HEADER_BALANCE_SCRIPT = `
   let observer = null;
   let retryTimer = null;
 
-  const getHeader = () => ({
-    balance: document.querySelector("[data-nexus-balance]"),
-    value: document.getElementById("saldoValue"),
-    avatar: document.querySelector("[data-nexus-avatar]")
-  });
+  const getHeader = () => {
+    const value = document.getElementById("saldoValue");
+    const balance = document.querySelector("[data-nexus-balance]") || value?.closest(".bal") || value?.parentElement || null;
+    const avatar = document.querySelector("[data-nexus-avatar]") || document.querySelector(".avatar");
+    return { balance, value, avatar };
+  };
 
   const updateHeader = user => {
     const { balance, value, avatar } = getHeader();
@@ -197,9 +198,9 @@ const GLOBAL_HEADER_BALANCE_SCRIPT = `
 
   const detectHeader = () => {
     const { balance, value } = getHeader();
-    if (!balance || !value) return false;
-    if (activeHeader !== balance) {
-      activeHeader = balance;
+    if (!value) return false;
+    if (activeHeader !== value) {
+      activeHeader = value;
       loadBalance(true);
       return true;
     }
