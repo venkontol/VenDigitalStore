@@ -286,12 +286,66 @@ async function getCurrentUserBalance(request, env) {
   }
 }
 
+async function personalizeDesignHeader(response, request, env) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("text/html")) return response;
+
+  try {
+    const auth = await requireAuth(request, env);
+    if (auth.response) return response;
+
+    if (!env?.DB) return response;
+
+    const user = await env.DB.prepare(`
+      SELECT id, username, balance
+      FROM users
+      WHERE id = ?
+      LIMIT 1
+    `).bind(auth.user.id).first();
+
+    if (!user) return response;
+
+    const amount = Number(user.balance || 0);
+    const balanceText = new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      maximumFractionDigits: 0
+    }).format(Number.isFinite(amount) ? amount : 0);
+    const avatarText = String(user.username || "N").trim().charAt(0).toUpperCase() || "N";
+
+    return new HTMLRewriter()
+      .on("#saldoValue", {
+        element(element) {
+          element.setInnerContent(balanceText);
+        }
+      })
+      .on("[data-nexus-avatar]", {
+        element(element) {
+          element.setInnerContent(avatarText);
+        }
+      })
+      .transform(response);
+  } catch (error) {
+    console.error("[DESIGN BALANCE ERROR]", error);
+    return response;
+  }
+}
+
 async function serveFrontend(request, env) {
   const url = new URL(request.url);
   const pathname = normalizePath(url.pathname);
 
+  const prepareAsset = async (path) => {
+    const asset = await tryAsset(env, path, request);
+    if (!asset) return null;
+    if (path === "/html/desain.html") {
+      return personalizeDesignHeader(asset, request, env);
+    }
+    return asset;
+  };
+
   if (HTML_MAP[pathname]) {
-    const asset = await tryAsset(env, HTML_MAP[pathname], request);
+    const asset = await prepareAsset(HTML_MAP[pathname]);
     if (asset) return applySecurityHeaders(asset);
   }
 
@@ -303,7 +357,7 @@ async function serveFrontend(request, env) {
     for (const candidate of candidates) {
       if (!candidate.startsWith("/html/")) continue;
 
-      const asset = await tryAsset(env, candidate, request);
+      const asset = await prepareAsset(candidate);
       if (asset) return applySecurityHeaders(asset);
     }
   }
