@@ -523,7 +523,7 @@ function initAccountPage(){
       const response=await fetch("/api/auth/me",{cache:"no-store"});
       const result=await response.json();
 
-      if(!result || result.authenticated!==true || !result.user){
+      if(!result || result.success!==true || !result.user){
         window.location.href="index.html";
         return;
       }
@@ -535,7 +535,7 @@ function initAccountPage(){
       document.getElementById("usernameValue").textContent=user.username||"—";
       document.getElementById("emailValue").textContent=user.email||"Belum diatur";
       document.getElementById("accountIdValue").textContent=user.id!=null?("#"+user.id):"—";
-      document.getElementById("accountStatus").textContent=user.is_active?"Aktif":"Nonaktif";
+      document.getElementById("accountStatus").textContent=user.is_active===false?"Nonaktif":"Aktif";
       document.getElementById("accountJoined").textContent=formatDate(user.created_at);
       document.getElementById("accountLastLogin").textContent=formatDate(user.last_login_at);
       document.getElementById("securityStatus").textContent=
