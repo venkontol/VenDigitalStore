@@ -10,6 +10,11 @@ import {
   cancelDepositByCode
 } from "./deposit.js";
 
+import {
+  getMarkupSettings,
+  setMarkupPercent
+} from "./price-settings.js";
+
 async function getTelegramConfig(env) {
   const token = env.TELEGRAM_BOT_TOKEN || "";
   const chatId = env.TELEGRAM_ADMIN_CHAT_ID || "";
@@ -372,21 +377,80 @@ async function handleCancelDeposit(env, chatId, token, code) {
   }
 }
 
-async function handleHelp(chatId, token) {
+async function handleHelp(chatId, token, env) {
+  const markup = await getMarkupSettings(env);
+
   const message = `🤖 <b>NexusBase Admin Bot</b>\n\n` +
-    `<b>Perintah Tersedia:</b>\n` +
+    `<b>Deposit:</b>\n` +
     `/pending - Lihat deposit menunggu\n` +
     `/confirm DEP-CODE - Konfirmasi deposit\n` +
-    `/cancel DEP-CODE - Batalkan deposit\n` +
-    `/help - Tampilkan bantuan\n\n` +
+    `/cancel DEP-CODE - Batalkan deposit\n\n` +
+    `<b>Harga:</b>\n` +
+    `/setharga - Buka pengaturan markup\n` +
+    `/nokos 20 - Set markup NOKOS 20%\n` +
+    `/sosmed 30 - Set markup SOSMED 30%\n\n` +
+    `Markup NOKOS: <b>${markup.nokos}%</b>\n` +
+    `Markup SOSMED: <b>${markup.sosmed}%</b>\n\n` +
     `<b>Catatan:</b>\n` +
-    `Gunakan kode deposit (contoh: DEP-1234567) untuk perintah confirm/cancel`;
+    `Jika markup belum disetting, harga customer mengikuti harga normal provider`;
 
   await sendTelegramMessage(
     token,
     chatId,
     message
   );
+}
+
+async function handleSetHarga(chatId, token, env) {
+  const markup = await getMarkupSettings(env);
+
+  const message = `⚙️ <b>Pengaturan Harga NexusBase</b>\n\n` +
+    `Pilih jenis produk dengan perintah berikut,\n\n` +
+    `<code>/nokos PERSEN</code>\n` +
+    `<code>/sosmed PERSEN</code>\n\n` +
+    `Saat ini,\n` +
+    `NOKOS: <b>${markup.nokos}%</b>\n` +
+    `SOSMED: <b>${markup.sosmed}%</b>\n\n` +
+    `Gunakan <code>0</code> jika ingin kembali ke harga normal provider`;
+
+  await sendTelegramMessage(
+    token,
+    chatId,
+    message
+  );
+}
+
+async function handleMarkupCommand(env, chatId, token, type, argument) {
+  const valueText = String(argument || "").trim();
+
+  if (!valueText) {
+    const current = await getMarkupSettings(env);
+    const value = type === "NOKOS" ? current.nokos : current.sosmed;
+    await sendTelegramMessage(
+      token,
+      chatId,
+      `⚙️ Markup <b>${type}</b> saat ini <b>${value}%</b>\n\nFormat: <code>/${type.toLowerCase()} 20</code>`
+    );
+    return;
+  }
+
+  try {
+    const value = await setMarkupPercent(env, type, valueText);
+
+    await sendTelegramMessage(
+      token,
+      chatId,
+      `✅ <b>Markup ${type} diperbarui</b>\n\n` +
+      `Markup: <b>${value}%</b>\n` +
+      `Katalog berikutnya akan memakai harga provider + markup ini`
+    );
+  } catch (error) {
+    await sendTelegramMessage(
+      token,
+      chatId,
+      `❌ ${error?.message || "Gagal menyimpan markup."}`
+    );
+  }
 }
 
 export async function handleTelegramWebhook(
@@ -423,7 +487,7 @@ export async function handleTelegramWebhook(
 
     if (command === "start" || command === "help") {
       if (update.isAdmin) {
-        await handleHelp(update.chatId, config.token);
+        await handleHelp(update.chatId, config.token, env);
       } else {
         await sendTelegramMessage(
           config.token,
@@ -463,6 +527,18 @@ export async function handleTelegramWebhook(
 
       case "cancel":
         await handleCancelDeposit(env, update.chatId, config.token, argument);
+        break;
+
+      case "setharga":
+        await handleSetHarga(update.chatId, config.token, env);
+        break;
+
+      case "nokos":
+        await handleMarkupCommand(env, update.chatId, config.token, "NOKOS", argument);
+        break;
+
+      case "sosmed":
+        await handleMarkupCommand(env, update.chatId, config.token, "SOSMED", argument);
         break;
 
       default:
