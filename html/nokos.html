@@ -1,910 +1,655 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="id" class="dark">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NexusBase • NOKOS</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NexusBase - Layanan Nokos</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+darkMode: 'class',
+theme: {
+extend: {
+colors: {
+dark: {
+900: '#0B0F17',
+800: '#131B2E',
+700: '#1E293B',
+600: '#334155'
+},
+nexus: {
+red: '#E11D48',
+violet: '#8B5CF6',
+accent: '#F43F5E'
+}
+}
+}
+}
+}
+</script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
-.nokos-card{
-  padding:18px 20px;
+body {
+background-color: #0B0F17;
+color: #F8FAFC;
+font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 }
-
-.head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
+::-webkit-scrollbar {
+width: 6px;
+height: 6px;
 }
-
-.head small{
-  color:var(--muted);
-  font-size:10.5px;
+::-webkit-scrollbar-track {
+background: #0B0F17;
 }
-
-.nokos-card-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:14px;
-  margin-bottom:15px;
+::-webkit-scrollbar-thumb {
+background: #1E293B;
+border-radius: 3px;
 }
-
-.nokos-card-head h2{
-  margin:0;
+::-webkit-scrollbar-thumb:hover {
+background: #334155;
 }
-
-.nokos-card-head small{
-  display:block;
-  color:var(--muted);
-  font-size:10.5px;
-  margin-top:4px;
-}
-
-.nokos-card-head > span{
-  min-width:28px;
-  height:28px;
-  padding:0 9px;
-  display:grid;
-  place-items:center;
-  border-radius:999px;
-  background:rgba(109,67,240,.12);
-  border:1px solid rgba(164,139,255,.2);
-  color:var(--violet-hi);
-  font-size:11px;
-}
-
-.active-section,
-.order-section{
-  margin-top:18px;
-}
-
-.active-order{
-  padding:15px;
-  border:1px solid var(--line);
-  border-radius:14px;
-  background:
-    linear-gradient(
-      145deg,
-      rgba(212,20,47,.055),
-      rgba(109,67,240,.055)
-    );
-  margin-top:10px;
-}
-
-.active-order:first-child{
-  margin-top:0;
-}
-
-.active-meta{
-  display:flex;
-  justify-content:space-between;
-  gap:10px;
-  align-items:flex-start;
-}
-
-.active-id{
-  font-weight:700;
-  font-size:13px;
-}
-
-.active-meta small{
-  display:block;
-  color:var(--muted);
-  font-size:10px;
-  margin-top:3px;
-}
-
-.active-status{
-  color:#64e5c9;
-  font-size:10px;
-  font-weight:700;
-  padding:5px 8px;
-  border:1px solid rgba(100,229,201,.2);
-  border-radius:999px;
-}
-
-.active-line{
-  margin-top:10px;
-  padding:10px 12px;
-  border-radius:10px;
-  background:rgba(0,0,0,.2);
-  border:1px solid var(--line);
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-}
-
-.active-line span{
-  color:var(--muted);
-  font-size:11px;
-}
-
-.active-line b{
-  font-size:12px;
-  text-align:right;
-}
-
-.copy{
-  border:0;
-  background:none;
-  color:var(--violet-hi);
-  font-size:10px;
-  font-weight:700;
-  flex:none;
-}
-
-.active-actions{
-  display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:7px;
-  margin-top:10px;
-}
-
-.active-actions button{
-  border:1px solid var(--line2);
-  background:rgba(255,255,255,.025);
-  border-radius:10px;
-  padding:9px 5px;
-  color:var(--text);
-  font-size:10px;
-  font-weight:700;
-}
-
-.active-actions button:hover{
-  border-color:rgba(164,139,255,.4);
-  background:rgba(109,67,240,.08);
-}
-
-.active-actions .cancel{
-  color:#ff7080;
-  border-color:rgba(212,20,47,.3);
-}
-
-.active-actions .replace{
-  color:var(--violet-hi);
-  border-color:rgba(109,67,240,.3);
-}
-
-.selected-service{
-  padding:14px;
-  border-radius:13px;
-  border:1px solid rgba(109,67,240,.25);
-  background:
-    linear-gradient(
-      135deg,
-      rgba(212,20,47,.08),
-      rgba(109,67,240,.08)
-    );
-}
-
-.selected-service strong{
-  font-size:14px;
-}
-
-.selected-service small{
-  display:block;
-  color:var(--muted);
-  font-size:10.5px;
-  margin-top:4px;
-}
-
-.quantity-row{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:14px;
-  margin-top:14px;
-  padding:13px 0;
-}
-
-.quantity-row strong{
-  font-size:12px;
-}
-
-.quantity-row small{
-  display:block;
-  color:var(--muted);
-  font-size:10px;
-  margin-top:4px;
-}
-
-.qty{
-  display:flex;
-  align-items:center;
-  border:1px solid var(--line2);
-  border-radius:11px;
-  overflow:hidden;
-  background:rgba(0,0,0,.2);
-}
-
-.qty button{
-  width:36px;
-  height:34px;
-  border:0;
-  background:transparent;
-  font-size:18px;
-}
-
-.qty button:hover{
-  background:rgba(109,67,240,.1);
-}
-
-.qty b{
-  width:34px;
-  text-align:center;
-  font-size:12px;
-}
-
-.order-create{
-  width:100%;
-  margin-top:3px;
-}
-
-.btn{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  min-height:42px;
-  padding:0 17px;
-  border-radius:12px;
-  border:1px solid var(--line2);
-  font-size:11px;
-  font-weight:700;
-  letter-spacing:.04em;
-}
-
-.btn.primary{
-  color:#fff;
-  background:linear-gradient(
-    135deg,
-    var(--crimson),
-    var(--violet)
-  );
-  border-color:rgba(255,255,255,.12);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.2),
-    0 12px 28px -18px var(--crimson);
-}
-
-.search-box{
-  position:relative;
-  margin-top:12px;
-}
-
-.search-box span{
-  position:absolute;
-  left:14px;
-  top:50%;
-  transform:translateY(-50%);
-  font-size:20px;
-  color:var(--muted);
-}
-
-.search-box input{
-  width:100%;
-  height:46px;
-  border:1px solid var(--line2);
-  border-radius:13px;
-  background:rgba(0,0,0,.18);
-  color:var(--text);
-  padding:0 14px 0 40px;
-  outline:none;
-}
-
-.search-box input::placeholder{
-  color:#6f6a8c;
-}
-
-.search-box input:focus{
-  border-color:rgba(109,67,240,.6);
-  box-shadow:0 0 22px -15px var(--violet-hi);
-}
-
-.service-list{
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-  margin-top:12px;
-  max-height:300px;
-  overflow-y:auto;
-  padding-right:3px;
-}
-
-.service-list::-webkit-scrollbar,
-.country-list::-webkit-scrollbar{
-  width:4px;
-}
-
-.service-list::-webkit-scrollbar-thumb,
-.country-list::-webkit-scrollbar-thumb{
-  background:linear-gradient(
-    var(--crimson),
-    var(--violet)
-  );
-  border-radius:99px;
-}
-
-.service-item{
-  width:100%;
-  display:flex;
-  align-items:center;
-  gap:11px;
-  text-align:left;
-  padding:12px 13px;
-  border-radius:12px;
-  border:1px solid var(--line);
-  background:rgba(255,255,255,.018);
-  color:var(--muted);
-  transition:.15s;
-}
-
-.service-item:hover,
-.service-item.active{
-  color:#fff;
-  border-color:rgba(164,139,255,.35);
-  background:
-    linear-gradient(
-      90deg,
-      rgba(212,20,47,.09),
-      rgba(109,67,240,.08)
-    );
-}
-
-.service-item.active{
-  box-shadow:inset 2px 0 var(--crimson-hi);
-}
-
-.service-logo{
-  width:30px;
-  height:30px;
-  border-radius:9px;
-  display:grid;
-  place-items:center;
-  background:rgba(255,255,255,.06);
-  flex:none;
-}
-
-.service-logo svg{
-  width:19px;
-  height:19px;
-}
-
-.country-list{
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-  margin-top:12px;
-  max-height:470px;
-  overflow-y:auto;
-  padding-right:3px;
-}
-
-.country-item{
-  width:100%;
-  display:grid;
-  grid-template-columns:minmax(0,1fr) auto auto;
-  align-items:center;
-  gap:12px;
-  padding:13px;
-  border-radius:12px;
-  border:1px solid var(--line);
-  background:rgba(255,255,255,.018);
-  text-align:left;
-  transition:.15s;
-}
-
-.country-item:hover{
-  border-color:rgba(109,67,240,.45);
-  background:rgba(109,67,240,.055);
-}
-
-.country-name{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  min-width:0;
-}
-
-.country-name b{
-  font-size:12px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-
-.country-flag{
-  font-size:20px;
-}
-
-.avail{
-  color:var(--muted);
-  font-size:10.5px;
-  white-space:nowrap;
-}
-
-.price{
-  color:#22d3c5;
-  font-size:12px;
-  font-weight:800;
-  white-space:nowrap;
-}
-
-.empty{
-  padding:22px 12px;
-  text-align:center;
-  color:var(--muted);
-  border:1px dashed var(--line2);
-  border-radius:12px;
-  font-size:11px;
-}
-
-.terms-list{
-  display:grid;
-  gap:9px;
-  margin-top:12px;
-}
-
-.terms-list p{
-  margin:0;
-  color:var(--muted);
-  font-size:11px;
-  padding-left:13px;
-  position:relative;
-}
-
-.terms-list p::before{
-  content:"";
-  position:absolute;
-  left:0;
-  top:7px;
-  width:5px;
-  height:5px;
-  border-radius:50%;
-  background:linear-gradient(
-    135deg,
-    var(--crimson-hi),
-    var(--violet-hi)
-  );
-  box-shadow:0 0 8px rgba(164,139,255,.4);
-}
-
-.nokos-footer{
-  text-align:center;
-  color:rgba(151,147,182,.6);
-  font-size:10px;
-  padding:24px 0 10px;
-}
-
-.toast{
-  position:fixed;
-  left:50%;
-  bottom:22px;
-  transform:translate(-50%,20px);
-  opacity:0;
-  pointer-events:none;
-  z-index:80;
-  padding:11px 15px;
-  border-radius:12px;
-  border:1px solid var(--line2);
-  background:rgba(10,10,21,.94);
-  box-shadow:
-    0 18px 40px -22px #000,
-    0 0 25px -18px var(--violet);
-  color:var(--text);
-  font-size:12px;
-  transition:.2s;
-}
-
-.toast.show{
-  opacity:1;
-  transform:translate(-50%,0);
-}
-
-
-
-[hidden]{display:none!important}
-.wizard-section{margin-top:18px}
-.wizard-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.wizard-top h2{margin:0;font-size:18px}
-.wizard-subtitle{margin:6px 0 0;color:var(--muted);font-size:11px}
-.wizard-step-count{flex:none;padding:7px 9px;border-radius:999px;border:1px solid rgba(164,139,255,.25);background:rgba(109,67,240,.1);color:var(--violet-hi);font-size:10px}
-.wizard-progress{display:flex;align-items:center;gap:6px;margin:22px 0 25px}
-.wizard-progress-item{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:42px;color:var(--muted)}
-.wizard-progress-item span{width:29px;height:29px;border:1px solid var(--line2);border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:800;background:rgba(255,255,255,.025)}
-.wizard-progress-item small{font-size:9px}
-.wizard-progress-item.active span,.wizard-progress-item.done span{background:linear-gradient(135deg,var(--crimson),var(--violet));border-color:rgba(255,255,255,.18);color:#fff;box-shadow:0 0 18px -10px var(--violet-hi)}
-.wizard-progress-item.active,.wizard-progress-item.done{color:var(--text)}
-.wizard-progress-line{height:1px;flex:1;background:var(--line2);margin-top:-16px;min-width:5px}
-.wizard-panel-heading{margin-bottom:13px}
-.wizard-panel-heading h3{margin:5px 0 0;font-size:16px}
-.wizard-panel-heading p{margin:5px 0 0;color:var(--muted);font-size:11px;line-height:1.5}
-.step-kicker{color:var(--violet-hi);font-size:9px;font-weight:800;letter-spacing:.13em}
-.wizard-actions{display:flex;justify-content:space-between;gap:10px;margin-top:16px}
-.btn.secondary{color:var(--text);background:rgba(255,255,255,.025);border-color:var(--line2)}
-.product-list{display:grid;gap:9px;margin-top:12px}
-.product-option{display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;text-align:left;padding:13px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.018);color:var(--text)}
-.product-option:hover,.product-option.selected{border-color:rgba(164,139,255,.45);background:linear-gradient(100deg,rgba(212,20,47,.075),rgba(109,67,240,.09))}
-.product-option.selected{box-shadow:inset 2px 0 var(--crimson-hi)}
-.product-main{display:flex;align-items:center;gap:10px;min-width:0}
-.product-icon{width:36px;height:36px;display:grid;place-items:center;flex:none;border-radius:11px;background:rgba(109,67,240,.13);color:var(--violet-hi);font-weight:800}
-.product-label{min-width:0}
-.product-label b{display:block;font-size:12px;line-height:1.45;overflow-wrap:anywhere}
-.product-label small{display:block;margin-top:4px;color:var(--muted);font-size:10px}
-.product-price{flex:none;text-align:right;color:#22d3c5;font-size:12px;font-weight:800;white-space:nowrap}
-.product-limit-note{color:var(--muted);font-size:10px;margin:10px 0 0}
-.confirm-summary{display:grid;gap:0;border:1px solid var(--line);border-radius:13px;overflow:hidden;background:rgba(0,0,0,.12)}
-.confirm-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:13px;border-bottom:1px solid var(--line)}
-.confirm-row:last-child{border-bottom:0}
-.confirm-row span{color:var(--muted);font-size:11px}
-.confirm-row b{font-size:11px;text-align:right;overflow-wrap:anywhere}
-.confirm-row.total{background:linear-gradient(90deg,rgba(212,20,47,.07),rgba(109,67,240,.09))}
-.confirm-row.total b{font-size:15px;color:#22d3c5}
-.confirm-notice{margin-top:12px;padding:11px;border-radius:10px;border:1px dashed var(--line2);color:var(--muted);font-size:10px;line-height:1.5}
-.confirm-actions .primary{flex:1}
-.wizard-feedback{margin-top:13px;padding:12px;border-radius:11px;border:1px solid var(--line2);font-size:11px;line-height:1.5;overflow-wrap:anywhere}
-.wizard-feedback.error{color:#ff9aa5;border-color:rgba(212,20,47,.35)}
-.wizard-feedback.success{color:#64e5c9;border-color:rgba(100,229,201,.25)}
-.country-item.selected{border-color:rgba(164,139,255,.45);background:rgba(109,67,240,.09)}
-@media(max-width:600px){.wizard-top{align-items:flex-start}.wizard-step-count{font-size:9px}.wizard-progress{gap:3px}.wizard-progress-item{min-width:35px}.wizard-progress-item small{font-size:8px}.wizard-progress-line{min-width:3px}.product-option{padding:11px}.wizard-actions .btn{min-width:100px}}
-
-@media(max-width:600px){
-  .nokos-card{
-    padding:16px;
-  }
-
-  .active-actions{
-    grid-template-columns:repeat(2,1fr);
-  }
-
-  .country-item{
-    grid-template-columns:minmax(0,1fr) auto;
-  }
-
-  .price{
-    grid-column:2;
-    grid-row:1/3;
-  }
-
-  .avail{
-    grid-column:1;
-  }
-
-  .quantity-row{
-    align-items:flex-start;
-  }
-}
-
 </style>
 </head>
-<body>
-<div id="nexusControls"></div>
-<div id="nexusIcons"></div>
-<div id="nexusHeader"></div>
-<div id="nexusSidebar"></div>
-<div id="nexusScrim"></div>
-<main>
-
-
-<div class="head">
-<h1>NOKOS</h1>
+<body class="min-h-screen flex flex-col bg-[#0B0F17] text-slate-100 antialiased selection:bg-rose-500 selection:text-white">
+​<!-- Top Navbar / Header -->
+<header class="sticky top-0 z-40 bg-[#131B2E]/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+<div class="flex items-center space-x-3">
+<button id="sidebarToggle" class="text-slate-400 hover:text-white focus:outline-none p-1">
+<i class="fa-solid fa-bars text-xl"></i>
+</button>
+<div class="flex items-center space-x-2">
+<div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-rose-600 to-violet-600 flex items-center justify-center font-bold text-white shadow-lg shadow-rose-600/20">
+N
 </div>
-
-<section id="activeSection" class="active-section" hidden>
-<div class="card nokos-card">
-
-<div class="nokos-card-head">
+<span class="font-bold text-lg tracking-wide text-white">NexusBase</span>
+</div>
+</div>
+​<div class="flex items-center space-x-4">
+<!-- Balance Component -->
+<div class="hidden sm:flex items-center bg-slate-800/60 border border-slate-700/50 rounded-full px-3 py-1.5 space-x-2 text-xs">
+<i class="fa-solid fa-wallet text-rose-500"></i>
+<span class="text-slate-400">Saldo:</span>
+<span id="userBalance" class="font-semibold text-white">Rp 0</span>
+</div>
+​<!-- Notifications / Quick actions -->
+<div class="relative">
+<button class="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 hover:text-white relative">
+<i class="fa-solid fa-bell text-sm"></i>
+<span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500"></span>
+</button>
+</div>
+​<!-- User Avatar -->
+<div class="w-9 h-9 rounded-full bg-gradient-to-tr from-rose-500 to-purple-600 flex items-center justify-center font-bold text-sm text-white overflow-hidden border border-slate-700">
+<span id="userInitial">U</span>
+</div>
+</div>
+</header>
+​<div class="flex-1 flex relative">
+<!-- Sidebar Overlay -->
+<div id="sidebarOverlay" class="fixed inset-0 bg-black/60 z-40 hidden transition-opacity"></div>
+​<!-- Sidebar / Navigation -->
+<aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-64 bg-[#131B2E] border-r border-slate-800 transform -translate-x-full transition-transform duration-200 ease-in-out flex flex-col">
+<div class="p-4 border-b border-slate-800 flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-rose-600 to-violet-600 flex items-center justify-center font-bold text-white">
+N
+</div>
+<span class="font-bold text-lg text-white">NexusBase</span>
+</div>
+<button id="sidebarClose" class="text-slate-400 hover:text-white">
+<i class="fa-solid fa-xmark text-lg"></i>
+</button>
+</div>
+​<div class="p-4 border-b border-slate-800 sm:hidden">
+<div class="flex items-center justify-between bg-slate-800/60 p-3 rounded-lg border border-slate-700">
+<div class="text-xs text-slate-400">Saldo Anda</div>
+<div id="mobileUserBalance" class="text-sm font-bold text-white">Rp 0</div>
+</div>
+</div>
+​<nav class="flex-1 overflow-y-auto p-4 space-y-1 text-sm">
+<a href="dashboard.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
+<i class="fa-solid fa-chart-pie w-5 text-center"></i>
+<span>Dashboard</span>
+</a>
+<a href="nokos.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg bg-rose-500/10 text-rose-500 font-medium transition">
+<i class="fa-solid fa-mobile-screen w-5 text-center"></i>
+<span>Nokos / SMS Code</span>
+</a>
+<a href="suntik-sosmed.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
+<i class="fa-solid fa-bullhorn w-5 text-center"></i>
+<span>Suntik Sosmed</span>
+</a>
+<a href="transaksi.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
+<i class="fa-solid fa-receipt w-5 text-center"></i>
+<span>Riwayat Transaksi</span>
+</a>
+<a href="deposit.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
+<i class="fa-solid fa-wallet w-5 text-center"></i>
+<span>Deposit Saldo</span>
+</a>
+<a href="bantuan.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
+<i class="fa-solid fa-circle-question w-5 text-center"></i>
+<span>Bantuan</span>
+</a>
+</nav>
+​<div class="p-4 border-t border-slate-800 text-xs text-slate-500 text-center">
+© 2026 NexusBase. All rights reserved.
+</div>
+</aside>
+​<!-- Main Content Area -->
+<main class="flex-1 max-w-4xl mx-auto px-4 py-6 pb-24 w-full">
+​<!-- Page Title Header matching video reference -->
+<div class="flex items-center space-x-2 mb-6">
+<h1 class="text-xl font-bold tracking-tight text-white flex items-center space-x-2">
+<span class="text-rose-500">›</span> <span>New Order</span>
+</h1>
+</div>
+​<!-- Active Orders Container (if any) -->
+<div id="activeOrdersSection" class="mb-6 hidden">
+<div class="flex items-center justify-between mb-3">
+<h2 class="text-xs uppercase tracking-wider text-slate-400 font-bold flex items-center space-x-2">
+<span>Active Orders</span>
+<span id="activeOrderCount" class="bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full text-[10px]">0</span>
+</h2>
+</div>
+<div id="activeOrdersList" class="space-y-3">
+<!-- Dynamic active orders populated by js -->
+</div>
+</div>
+​<!-- Error State Banner (Hidden by default) -->
+<div id="errorBanner" class="hidden mb-6 bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 text-center">
+<i class="fa-solid fa-triangle-exclamation text-rose-500 text-xl mb-2"></i>
+<p id="errorMessage" class="text-sm text-rose-300 mb-3">Gagal memuat data katalog layanan.</p>
+<button onclick="loadNokosData()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg transition shadow-lg shadow-rose-600/20">
+Coba Lagi
+</button>
+</div>
+​<!-- SERVICE FILTER SECTION -->
+<div class="mb-6">
+<div class="text-xs uppercase tracking-wider text-slate-400 font-bold mb-3 flex items-center justify-between">
+<span>Service (<span id="serviceCount">0</span> of <span id="serviceTotalCount">0</span>)</span>
+</div>
+​<!-- Service Search Input -->
+<div class="relative mb-3">
+<span class="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-500">
+<i class="fa-solid fa-magnifying-glass text-xs"></i>
+</span>
+<input type="text" id="serviceSearch" placeholder="Search services..." class="w-full bg-[#131B2E] border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-rose-500/50 transition">
+</div>
+​<!-- Quick Service Pills / Badges -->
+<div id="serviceQuickList" class="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-1">
+<!-- Dynamic Service Badges -->
+</div>
+</div>
+​<!-- COUNTRY FILTER SECTION -->
+<div class="mb-6">
+<div class="text-xs uppercase tracking-wider text-slate-400 font-bold mb-3 flex items-center justify-between">
+<span>Country (<span id="countryCount">0</span> of <span id="countryTotalCount">0</span>)</span>
+</div>
+​<!-- Country Search Input -->
+<div class="relative mb-3">
+<span class="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-500">
+<i class="fa-solid fa-magnifying-glass text-xs"></i>
+</span>
+<input type="text" id="countrySearch" placeholder="Search countries..." class="w-full bg-[#131B2E] border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-rose-500/50 transition">
+</div>
+​<!-- Quick Country Pills -->
+<div id="countryQuickList" class="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-1">
+<!-- Dynamic Country Badges -->
+</div>
+</div>
+​<!-- PRODUCTS / CATALOG SECTION -->
+<div class="mb-6">
+<div class="flex items-center justify-between mb-3">
+<div class="text-xs uppercase tracking-wider text-slate-400 font-bold">
+Products (<span id="productCount">0</span>)
+</div>
+<!-- Sorting Dropdown -->
+<div class="flex items-center space-x-2 text-xs">
+<span class="text-slate-500">Urutkan:</span>
+<select id="priceSortSelect" class="bg-[#131B2E] border border-slate-800 text-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:border-rose-500">
+<option value="default">Default</option>
+<option value="asc">Harga Termurah → Termahal</option>
+<option value="desc">Harga Termahal → Termurah</option>
+</select>
+</div>
+</div>
+​<!-- Products Container -->
+<div id="productsList" class="space-y-2.5">
+<!-- Dynamic Product Cards -->
+</div>
+​<!-- Empty State -->
+<div id="emptyState" class="hidden text-center py-12 bg-[#131B2E]/40 border border-slate-800/80 rounded-2xl p-6">
+<div class="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-3 text-slate-500">
+<i class="fa-solid fa-box-open text-xl"></i>
+</div>
+<h3 class="text-sm font-semibold text-white mb-1">Katalog Kosong</h3>
+<p class="text-xs text-slate-400">Tidak ada produk yang tersedia untuk filter yang dipilih.</p>
+</div>
+​<!-- Loading State -->
+<div id="loadingState" class="text-center py-12">
+<div class="inline-block w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+<p class="text-xs text-slate-400">Memuat katalog layanan...</p>
+</div>
+</div>
+​<!-- Order Creation Bottom Bar / Sticky Bar when product selected -->
+<div id="orderActionBar" class="hidden fixed bottom-0 inset-x-0 z-30 bg-[#131B2E]/95 backdrop-blur-md border-t border-slate-800 p-4 shadow-2xl">
+<div class="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+<div class="flex items-center space-x-3 w-full sm:w-auto">
+<div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 font-bold shrink-0">
+<i class="fa-solid fa-mobile-screen"></i>
+</div>
 <div>
-<h2>Order Active</h2>
-<small>Nomor yang sedang diproses</small>
-</div>
-
-<span id="activeCount">0</span>
-</div>
-
-<div id="activeOrders"></div>
-
-</div>
-</section>
-
-<section class="wizard-section">
-<div class="card nokos-card">
-<div class="wizard-top">
-<div>
-<h2>Pesan Nomor NOKOS</h2>
-<p class="wizard-subtitle">Ikuti langkah berikut untuk memilih nomor</p>
-</div>
-<span class="wizard-step-count" id="wizardStepCount">Langkah 1 dari 4</span>
-</div>
-<div class="wizard-progress" aria-label="Progres pemesanan">
-<div class="wizard-progress-item active" data-progress="1"><span>1</span><small>Layanan</small></div>
-<div class="wizard-progress-line"></div>
-<div class="wizard-progress-item" data-progress="2"><span>2</span><small>Negara</small></div>
-<div class="wizard-progress-line"></div>
-<div class="wizard-progress-item" data-progress="3"><span>3</span><small>Produk</small></div>
-<div class="wizard-progress-line"></div>
-<div class="wizard-progress-item" data-progress="4"><span>4</span><small>Konfirmasi</small></div>
-</div>
-<div class="wizard-panel" id="stepService">
-<div class="wizard-panel-heading"><span class="step-kicker">LANGKAH 1</span><h3>Pilih layanan</h3><p>Cari layanan yang ingin kamu gunakan</p></div>
-<div class="search-box"><span>⌕</span><input id="serviceSearch" type="search" placeholder="Cari layanan, misalnya WhatsApp" autocomplete="off"></div>
-<div class="service-list" id="serviceList"><div class="empty">Memuat layanan...</div></div>
-</div>
-<div class="wizard-panel" id="stepCountry" hidden>
-<div class="wizard-panel-heading"><span class="step-kicker">LANGKAH 2</span><h3>Pilih negara</h3><p id="selectedServiceLabel">Pilih negara untuk layanan pilihanmu</p></div>
-<div class="search-box"><span>⌕</span><input id="countrySearch" type="search" placeholder="Cari negara" autocomplete="off"></div>
-<div class="country-list" id="countryList"><div class="empty">Pilih layanan terlebih dahulu</div></div>
-<div class="wizard-actions"><button type="button" class="btn secondary" id="backToServices">Kembali</button></div>
-</div>
-<div class="wizard-panel" id="stepProduct" hidden>
-<div class="wizard-panel-heading"><span class="step-kicker">LANGKAH 3</span><h3>Pilih nomor dan harga</h3><p id="selectedCountryLabel">Pilih salah satu produk yang tersedia</p></div>
-<div class="product-list" id="productList"><div class="empty">Pilih negara terlebih dahulu</div></div>
-<p class="product-limit-note" id="productLimitNote">Menampilkan maksimal 10 pilihan termurah</p>
-<div class="wizard-actions"><button type="button" class="btn secondary" id="backToCountries">Kembali</button></div>
-</div>
-<div class="wizard-panel" id="stepConfirm" hidden>
-<div class="wizard-panel-heading"><span class="step-kicker">LANGKAH 4</span><h3>Konfirmasi pesanan</h3><p>Periksa kembali pilihanmu sebelum membuat pesanan</p></div>
-<div class="confirm-summary" id="confirmSummary"></div>
-<div class="confirm-notice">Harga dan ketersediaan akan diperiksa kembali oleh server saat pesanan dibuat</div>
-<div class="wizard-actions confirm-actions"><button type="button" class="btn secondary" id="backToProducts">Kembali</button><button type="button" class="btn primary" id="createOrder">BUAT PESANAN</button></div>
-</div>
-<div class="wizard-feedback" id="wizardFeedback" role="status" hidden></div>
-</div>
-</section>
-
-<section>
-
-<div class="card nokos-card">
-
-<div class="head">
-<h2>S&amp;K NOKOS</h2>
-</div>
-
-<div class="terms-list">
-
-<p>Service wajib dipilih sebelum memilih atau membeli nomor</p>
-
-<p>Country bersifat opsional, jika tidak dipilih semua nomor dari service yang dipilih akan ditampilkan</p>
-
-<p>Pastikan service dan country sudah benar sebelum membuat order</p>
-
-<p>Jika nomor tidak tersedia atau sistem provider tidak mendukung fitur tertentu, pilihan tindakan akan mengikuti status order</p>
-
-<p>Done menyelesaikan transaksi dan saldo tidak dapat dikembalikan</p>
-
-<p>Resend hanya tersedia jika sistem provider mendukung permintaan kode ulang</p>
-
-<p>Cancel membatalkan order dan refund mengikuti hasil proses sistem</p>
-
-<p>Replace digunakan untuk membeli ulang nomor sesuai ketersediaan</p>
-
+<div id="selectedProductSummary" class="text-sm font-bold text-white truncate max-w-xs sm:max-w-sm">-</div>
+<div id="selectedProductPriceSummary" class="text-xs text-rose-400 font-semibold">-</div>
 </div>
 </div>
-
-</section>
-
-
-
-</main>
-<script>
-const DESIGN_SOURCE="desain.html";
-
-function insertTemplate(id,html){
-  const mount=document.getElementById(id);
-  if(!mount)return;
-  mount.outerHTML=html||"";
+<div class="flex items-center space-x-3 w-full sm:w-auto justify-end">
+<div class="flex items-center bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
+<button id="qtyMinus" class="px-3 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition"><i class="fa-solid fa-minus text-xs"></i></button>
+<input type="number" id="orderQty" value="1" min="1" max="10" class="w-10 text-center bg-transparent text-sm text-white focus:outline-none">
+<button id="qtyPlus" class="px-3 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition"><i class="fa-solid fa-plus text-xs"></i></button>
+</div>
+<button id="btnCreateOrder" class="flex-1 sm:flex-none px-6 py-2.5 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white font-semibold text-sm rounded-xl shadow-lg shadow-rose-600/30 transition">
+Create Order
+</button>
+</div>
+</div>
+</div>
+​</main>
+</div>
+​<!-- Order Confirmation Modal -->
+<div id="orderModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+<div class="bg-[#131B2E] border border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl transform transition-all">
+<div class="p-4 border-b border-slate-800 flex items-center justify-between">
+<h3 class="font-bold text-white text-base">Konfirmasi Pembelian</h3>
+<button id="closeOrderModal" class="text-slate-400 hover:text-white">
+<i class="fa-solid fa-xmark"></i>
+</button>
+</div>
+<div class="p-5 space-y-4">
+<div class="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 space-y-3">
+<div class="flex justify-between text-xs">
+<span class="text-slate-400">Layanan:</span>
+<span id="modalServiceName" class="font-semibold text-white">-</span>
+</div>
+<div class="flex justify-between text-xs">
+<span class="text-slate-400">Negara:</span>
+<span id="modalCountryName" class="font-semibold text-white">-</span>
+</div>
+<div class="flex justify-between text-xs">
+<span class="text-slate-400">Jumlah:</span>
+<span id="modalQty" class="font-semibold text-white">1</span>
+</div>
+<div class="border-t border-slate-800 pt-2 flex justify-between text-sm font-bold">
+<span class="text-slate-300">Total Harga:</span>
+<span id="modalTotalPrice" class="text-rose-400">-</span>
+</div>
+</div>
+<p class="text-xs text-slate-400 text-center">Pastikan saldo Anda mencukupi sebelum melanjutkan pesanan nomor virtual.</p>
+</div>
+<div class="p-4 border-t border-slate-800 bg-slate-900/40 flex space-x-3">
+<button id="cancelOrderBtn" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-semibold transition">
+Batalkan
+</button>
+<button id="confirmOrderBtn" class="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-rose-600/30 transition flex items-center justify-center space-x-2">
+<span>Konfirmasi Beli</span>
+</button>
+</div>
+</div>
+</div>
+​<!-- Backend / API Integration Script -->
+<script src="../Javascript/nokos.js"></script>
+<script src="../Javascript/wallet.js" onerror="console.warn('wallet.js optional load')"></script>
+<script src="../Javascript/auth.js" onerror="console.warn('auth.js optional load')"></script>
+​<script>
+// State Management
+let allProducts = [];
+let allServices = [];
+let allCountries = [];
+let selectedService = '';
+let selectedCountry = '';
+let selectedProduct = null;
+let searchServiceQuery = '';
+let searchCountryQuery = '';
+let activeOrders = [];
+​// DOM Elements
+const sidebar = document.getElementById('sidebar');
+const sidebarToggle = document.getElementById('sidebarToggle');
+const sidebarClose = document.getElementById('sidebarClose');
+const sidebarOverlay = document.getElementById('sidebarOverlay');
+const errorBanner = document.getElementById('errorBanner');
+const errorMessage = document.getElementById('errorMessage');
+const loadingState = document.getElementById('loadingState');
+const emptyState = document.getElementById('emptyState');
+const productsList = document.getElementById('productsList');
+const serviceQuickList = document.getElementById('serviceQuickList');
+const countryQuickList = document.getElementById('countryQuickList');
+const serviceSearch = document.getElementById('serviceSearch');
+const countrySearch = document.getElementById('countrySearch');
+const priceSortSelect = document.getElementById('priceSortSelect');
+const orderActionBar = document.getElementById('orderActionBar');
+const selectedProductSummary = document.getElementById('selectedProductSummary');
+const selectedProductPriceSummary = document.getElementById('selectedProductPriceSummary');
+const orderQty = document.getElementById('orderQty');
+const qtyMinus = document.getElementById('qtyMinus');
+const qtyPlus = document.getElementById('qtyPlus');
+const btnCreateOrder = document.getElementById('btnCreateOrder');
+​// Modal elements
+const orderModal = document.getElementById('orderModal');
+const closeOrderModal = document.getElementById('closeOrderModal');
+const cancelOrderBtn = document.getElementById('cancelOrderBtn');
+const confirmOrderBtn = document.getElementById('confirmOrderBtn');
+const modalServiceName = document.getElementById('modalServiceName');
+const modalCountryName = document.getElementById('modalCountryName');
+const modalQty = document.getElementById('modalQty');
+const modalTotalPrice = document.getElementById('modalTotalPrice');
+​// Toggle Sidebar
+function toggleSidebar() {
+sidebar.classList.toggle('-translate-x-full');
+sidebarOverlay.classList.toggle('hidden');
 }
-
-async function loadNexusDesign(){
-  const response=await fetch(DESIGN_SOURCE,{cache:"no-store"});
-  if(!response.ok)throw new Error("Gagal memuat desain.html");
-  const source=await response.text();
-  const doc=new DOMParser().parseFromString(source,"text/html");
-
-  doc.querySelectorAll("link[rel='stylesheet'],link[href*='fonts.googleapis.com']").forEach(link=>{
-    const clone=document.createElement("link");
-    clone.rel=link.rel;
-    clone.href=link.href;
-    document.head.appendChild(clone);
-  });
-
-  doc.querySelectorAll("style").forEach(style=>{
-    const clone=document.createElement("style");
-    clone.textContent=style.textContent;
-    document.head.appendChild(clone);
-  });
-
-  const templates={};
-  doc.querySelectorAll("template").forEach(template=>templates[template.id]=template.innerHTML);
-
-  insertTemplate("nexusControls",templates["nexus-controls"]);
-  insertTemplate("nexusIcons",templates["nexus-icons"]);
-  insertTemplate("nexusHeader",templates["nexus-header"]);
-  insertTemplate("nexusSidebar",templates["nexus-sidebar"]);
-  insertTemplate("nexusScrim",templates["nexus-scrim"]);
-
-  const active=document.querySelector('.nav[data-n="NOKOS"]');
-  if(active)active.classList.add("active");
-
-  initNokos();
+sidebarToggle.addEventListener('click', toggleSidebar);
+sidebarClose.addEventListener('click', toggleSidebar);
+sidebarOverlay.addEventListener('click', toggleSidebar);
+​// Format Rupiah helper
+function formatRupiah(amount) {
+if (isNaN(amount) || amount === null) return 'Rp 0';
+return 'Rp ' + Number(amount).toLocaleString('id-ID');
 }
-
-function initNokos(){
-  const navToggle=document.getElementById("navToggle");
-  const scrim=document.querySelector(".scrim");
-  if(scrim) scrim.addEventListener("click",()=>{navToggle.checked=false});
-
-  const backButton=document.getElementById("backButton");
-  if(backButton) backButton.addEventListener("click",()=>{
-    navToggle.checked=false;
-    if(window.history.length>1){window.history.back();return}
-    window.location.href="index.html";
-  });
-
-  document.querySelectorAll("aside a").forEach(link=>link.addEventListener("click",()=>{
-    if(window.innerWidth<=900)navToggle.checked=false;
-  }));
-
-  initNokosPage();
+​// Initialize Page & Fetch Data
+async function loadNokosData() {
+errorBanner.classList.add('hidden');
+loadingState.classList.remove('hidden');
+emptyState.classList.add('hidden');
+productsList.innerHTML = '';
+​try {
+// Fetch products, services, countries from window.NokosAPI (from nokos.js) or standard fetch endpoints
+let productsData = [], servicesData = [], countriesData = [];
+​if (window.NokosAPI && typeof window.NokosAPI.getProducts === 'function') {
+productsData = await window.NokosAPI.getProducts();
+servicesData = window.NokosAPI.getServices ? await window.NokosAPI.getServices() : [];
+countriesData = window.NokosAPI.getCountries ? await window.NokosAPI.getCountries() : [];
+} else {
+// Fallback to standard REST fetch endpoints as specified
+const [prodRes, servRes, countRes] = await Promise.all([
+fetch('/api/nokos/products').then(res => res.json()).catch(() => []),
+fetch('/api/nokos/services').then(res => res.json()).catch(() => []),
+fetch('/api/nokos/countries').then(res => res.json()).catch(() => [])
+]);
+productsData = prodRes.data || prodRes;
+servicesData = servRes.data || servRes;
+countriesData = countRes.data || countRes;
 }
-
-
-function initNokosPage(){
-const services=[];
-let rawCountries=[];
-let products=[];
-let countryOptions=[];
-let selectedService=null;
-let selectedCountry=null;
-let selectedProduct=null;
-let submitting=false;
-const el=id=>document.getElementById(id);
-const serviceList=el("serviceList");
-const countryList=el("countryList");
-const productList=el("productList");
-const serviceSearch=el("serviceSearch");
-const countrySearch=el("countrySearch");
-const panels={1:el("stepService"),2:el("stepCountry"),3:el("stepProduct"),4:el("stepConfirm")};
-
-function text(value,fallback=""){
-  if(value===null||value===undefined)return fallback;
-  const result=String(value).trim();
-  return result&&result!=="null"&&result!=="undefined"?result:fallback;
+​allProducts = Array.isArray(productsData) ? productsData : (productsData.products || []);
+allServices = Array.isArray(servicesData) ? servicesData : (servicesData.services || []);
+allCountries = Array.isArray(countriesData) ? countriesData : (countriesData.countries || []);
+​loadingState.classList.add('hidden');
+renderServices();
+renderCountries();
+filterAndRenderProducts();
+loadActiveOrders();
+updateBalance();
+​} catch (err) {
+console.error('Failed to load Nokos data:', err);
+loadingState.classList.add('hidden');
+errorMessage.textContent = 'Gagal memuat data dari server. Pastikan koneksi dan backend siap.';
+errorBanner.classList.remove('hidden');
 }
-function esc(value){return String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));}
-function money(value){const amount=Number(value);return Number.isFinite(amount)&&amount>0?"Rp "+Math.round(amount).toLocaleString("id-ID"):"Harga belum tersedia";}
-function productPrice(product){
-  const price=product?.price;
-  const candidates=[price&&typeof price==="object"?price.canonical_amount:null,product?.selling_price,typeof price==="object"?price.amount:price,product?.provider_price,product?.providerPrice,product?.amount,product?.cost,product?.retail_price,product?.unit_price];
-  for(const value of candidates){const number=Number(value);if(Number.isFinite(number)&&number>0)return number;}
-  return 0;
 }
-function serviceName(product){
-  const direct=text(product.service_name)||text(product.platform_name)||text(product.service)||text(product.platform)||text(product.name)||text(product.product_name)||text(product.title)||"Layanan NOKOS";
-  return direct.split(/\s[-–—]\s/)[0].trim()||direct;
+​// Update Balance
+async function updateBalance() {
+try {
+if (window.WalletAPI && typeof window.WalletAPI.getBalance === 'function') {
+const bal = await window.WalletAPI.getBalance();
+document.getElementById('userBalance').textContent = formatRupiah(bal);
+if(document.getElementById('mobileUserBalance')) {
+document.getElementById('mobileUserBalance').textContent = formatRupiah(bal);
 }
-function countryName(product){
-  const id=String(product.country_id??product.countryId??"");
-  const fromCatalog=rawCountries.find(country=>String(country.id??country.country_id??country.countryId??"")===id);
-  return text(product.country_name)||text(product.countryName)||text(fromCatalog?.name)||text(fromCatalog?.country_name)||text(product.country)||"Negara tidak diketahui";
 }
-function countryFlag(product){
-  const id=String(product.country_id??product.countryId??"");
-  const fromCatalog=rawCountries.find(country=>String(country.id??country.country_id??country.countryId??"")===id);
-  return text(product.country_flag)||text(product.flag)||text(fromCatalog?.emoji)||text(fromCatalog?.flag)||"🌐";
+} catch (e) {
+console.log('Balance refresh skipped');
 }
-function available(product){return product.active!==false&&product.active!==0&&product.available!==false&&product.available!==0&&Number(product.available??1)>0&&productPrice(product)>0;}
-function setStep(step){
-  Object.entries(panels).forEach(([number,panel])=>panel.hidden=Number(number)!==step);
-  el("wizardStepCount").textContent=`Langkah ${step} dari 4`;
-  document.querySelectorAll("[data-progress]").forEach(item=>{const n=Number(item.dataset.progress);item.classList.toggle("active",n===step);item.classList.toggle("done",n<step);});
-  el("wizardFeedback").hidden=true;
 }
-function feedback(message,type="error"){
-  const box=el("wizardFeedback");box.textContent=message;box.className=`wizard-feedback ${type}`;box.hidden=false;
+​// Render Services Quick List
+function renderServices() {
+document.getElementById('serviceTotalCount').textContent = allServices.length;
+const filtered = allServices.filter(s => {
+const name = (s.name || s.title || s).toString().toLowerCase();
+return name.includes(searchServiceQuery.toLowerCase());
+});
+document.getElementById('serviceCount').textContent = filtered.length;
+​serviceQuickList.innerHTML = '';
+​// "All Services" badge
+const allBadge = document.createElement('button');
+allBadge.className = px-3 py-1.5 rounded-xl text-xs font-medium transition border ${selectedService === '' ? 'bg-rose-500 border-rose-600 text-white shadow-md shadow-rose-500/20' : 'bg-[#131B2E] border-slate-800 text-slate-300 hover:border-slate-700'};
+allBadge.innerHTML = <i class="fa-solid fa-globe mr-1.5"></i> All Services;
+allBadge.onclick = () => { selectedService = ''; renderServices(); filterAndRenderProducts(); };
+serviceQuickList.appendChild(allBadge);
+​filtered.forEach(service => {
+const sName = service.name || service.title || service;
+const sId = service.id || service;
+const isSelected = selectedService === sId || selectedService === sName;
+​const btn = document.createElement('button');
+btn.className = px-3 py-1.5 rounded-xl text-xs font-medium transition border flex items-center space-x-2 ${isSelected ? 'bg-rose-500 border-rose-600 text-white shadow-md shadow-rose-500/20' : 'bg-[#131B2E] border-slate-800 text-slate-300 hover:border-slate-700'};
+btn.innerHTML = <span>${sName}</span>;
+btn.onclick = () => {
+selectedService = isSelected ? '' : sId;
+renderServices();
+filterAndRenderProducts();
+};
+serviceQuickList.appendChild(btn);
+});
 }
-function renderServices(message){
-  if(message){serviceList.innerHTML=`<div class="empty">${esc(message)}</div>`;return;}
-  const query=serviceSearch.value.trim().toLowerCase();
-  const list=services.filter(service=>service.name.toLowerCase().includes(query));
-  if(!list.length){serviceList.innerHTML='<div class="empty">Tidak ada layanan yang cocok dengan pencarian</div>';return;}
-  serviceList.innerHTML=list.map(service=>`<button type="button" class="service-item ${selectedService?.id===service.id?"active":""}" data-service="${encodeURIComponent(service.id)}"><span class="service-logo"><span>${esc(service.name.slice(0,1).toUpperCase())}</span></span><span>${esc(service.name)}</span></button>`).join("");
-  serviceList.querySelectorAll("[data-service]").forEach(button=>button.addEventListener("click",()=>chooseService(decodeURIComponent(button.dataset.service))));
+​// Render Countries Quick List
+function renderCountries() {
+document.getElementById('countryTotalCount').textContent = allCountries.length;
+const filtered = allCountries.filter(c => {
+const name = (c.name || c.country || c).toString().toLowerCase();
+return name.includes(searchCountryQuery.toLowerCase());
+});
+document.getElementById('countryCount').textContent = filtered.length;
+​countryQuickList.innerHTML = '';
+​const allBadge = document.createElement('button');
+allBadge.className = px-3 py-1.5 rounded-xl text-xs font-medium transition border ${selectedCountry === '' ? 'bg-rose-500 border-rose-600 text-white shadow-md shadow-rose-500/20' : 'bg-[#131B2E] border-slate-800 text-slate-300 hover:border-slate-700'};
+allBadge.innerHTML = <i class="fa-solid fa-flag mr-1.5"></i> All Countries;
+allBadge.onclick = () => { selectedCountry = ''; renderCountries(); filterAndRenderProducts(); };
+countryQuickList.appendChild(allBadge);
+​filtered.forEach(country => {
+const cName = country.name || country.country || country;
+const cId = country.id || country;
+const isSelected = selectedCountry === cId || selectedCountry === cName;
+​const btn = document.createElement('button');
+btn.className = px-3 py-1.5 rounded-xl text-xs font-medium transition border flex items-center space-x-2 ${isSelected ? 'bg-rose-500 border-rose-600 text-white shadow-md shadow-rose-500/20' : 'bg-[#131B2E] border-slate-800 text-slate-300 hover:border-slate-700'};
+btn.innerHTML = <span>${cName}</span>;
+btn.onclick = () => {
+selectedCountry = isSelected ? '' : cId;
+renderCountries();
+filterAndRenderProducts();
+};
+countryQuickList.appendChild(btn);
+});
 }
-function renderCountries(message){
-  if(message){countryList.innerHTML=`<div class="empty">${esc(message)}</div>`;return;}
-  if(!selectedService){countryList.innerHTML='<div class="empty">Pilih layanan terlebih dahulu</div>';return;}
-  const query=countrySearch.value.trim().toLowerCase();
-  const list=countryOptions.filter(country=>country.serviceKey===selectedService.id&&country.name.toLowerCase().includes(query));
-  if(!list.length){countryList.innerHTML='<div class="empty">Belum ada negara tersedia untuk layanan ini</div>';return;}
-  countryList.innerHTML=list.map((country,index)=>`<button type="button" class="country-item ${selectedCountry?.id===country.id?"selected":""}" data-country="${index}"><span class="country-name"><span class="country-flag">${esc(country.flag)}</span><b>${esc(country.name)}</b></span><span class="avail">${country.productCount} pilihan</span><span class="price">Mulai ${money(country.lowestPrice)}</span></button>`).join("");
-  countryList.querySelectorAll("[data-country]").forEach(button=>button.addEventListener("click",()=>chooseCountry(list[Number(button.dataset.country)])));
+​// Filter and Render Products
+function filterAndRenderProducts() {
+let result = allProducts.filter(p => {
+// Availability filter: do not show unavailable products as buyable
+if (p.available === false || p.status === false || p.stock === 0) return false;
+​if (selectedService) {
+const sMatch = (p.service || p.service_name || p.name) === selectedService || p.service_id === selectedService;
+if (!sMatch) return false;
 }
-function renderProducts(){
-  if(!selectedService||!selectedCountry){productList.innerHTML='<div class="empty">Pilih layanan dan negara terlebih dahulu</div>';return;}
-  const list=products.filter(product=>product._serviceKey===selectedService.id&&product._countryKey===selectedCountry.id&&available(product)).sort((a,b)=>productPrice(a)-productPrice(b)).slice(0,10);
-  if(!list.length){productList.innerHTML='<div class="empty">Tidak ada produk dengan harga valid untuk pilihan ini</div>';return;}
-  productList.innerHTML=list.map((product,index)=>`<button type="button" class="product-option ${selectedProduct?._key===product._key?"selected":""}" data-product="${index}"><span class="product-main"><span class="product-icon">${esc(selectedService.name.slice(0,1).toUpperCase())}</span><span class="product-label"><b>${esc(text(product.name,selectedService.name))}</b><small>Stok tersedia: ${Math.max(0,Number(product.available)||0).toLocaleString("id-ID")}</small></span></span><span class="product-price">${money(productPrice(product))}</span></button>`).join("");
-  productList.querySelectorAll("[data-product]").forEach(button=>button.addEventListener("click",()=>chooseProduct(list[Number(button.dataset.product)])));
-  el("productLimitNote").textContent=`Menampilkan ${list.length} pilihan termurah yang tersedia`;
+​if (selectedCountry) {
+const cMatch = (p.country || p.country_name) === selectedCountry || p.country_id === selectedCountry;
+if (!cMatch) return false;
 }
-function chooseService(id){
-  selectedService=services.find(service=>service.id===id)||null;selectedCountry=null;selectedProduct=null;countrySearch.value="";
-  if(!selectedService)return;
-  el("selectedServiceLabel").textContent=`Layanan dipilih: ${selectedService.name}`;
-  renderCountries();setStep(2);
+​return true;
+});
+​// Sorting
+const sortVal = priceSortSelect.value;
+if (sortVal === 'asc') {
+result.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
+} else if (sortVal === 'desc') {
+result.sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
 }
-function chooseCountry(country){selectedCountry=country;selectedProduct=null;el("selectedCountryLabel").textContent=`${selectedService.name} · ${country.flag} ${country.name}`;renderProducts();setStep(3);}
-function chooseProduct(product){selectedProduct=product;renderProducts();renderConfirmation();setStep(4);}
-function renderConfirmation(){
-  const rows=[
-    ["Layanan",selectedService?.name||"-"],
-    ["Negara",`${selectedCountry?.flag||"🌐"} ${selectedCountry?.name||"-"}`],
-    ["Produk",text(selectedProduct?.name,selectedService?.name||"-")],
-    ["Stok tersedia",`${Math.max(0,Number(selectedProduct?.available)||0).toLocaleString("id-ID")} nomor`]
-  ];
-  el("confirmSummary").innerHTML=rows.map(([label,value])=>`<div class="confirm-row"><span>${esc(label)}</span><b>${esc(value)}</b></div>`).join("")+`<div class="confirm-row total"><span>Total harga</span><b>${money(productPrice(selectedProduct))}</b></div>`;
+​document.getElementById('productCount').textContent = result.length;
+productsList.innerHTML = '';
+​if (result.length === 0) {
+emptyState.classList.remove('hidden');
+return;
 }
-function makeIdempotencyKey(){return `nokos-${Date.now()}-${Math.random().toString(36).slice(2,10)}`;}
-async function createOrder(){
-  if(submitting||!selectedProduct)return;
-  const productId=selectedProduct.id??selectedProduct.product_id;
-  if(productId===undefined||productId===null||productId===""){feedback("ID produk tidak tersedia. Silakan pilih produk lain.");return;}
-  const button=el("createOrder");submitting=true;button.disabled=true;button.textContent="MEMPROSES...";
-  try{
-    const response=await fetch("/api/nokos/orders",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({product_id:productId,quantity:1,country_id:selectedProduct.country_id??selectedProduct.countryId??undefined,platform_id:selectedProduct.platform_id??selectedProduct.platformId??undefined,service_id:selectedProduct.service_id??selectedProduct.serviceId??undefined,operator_id:selectedProduct.operator_id??selectedProduct.operatorId??undefined,idempotency_key:makeIdempotencyKey()})});
-    const data=await response.json().catch(()=>({}));
-    if(!response.ok||data.success===false){throw new Error(text(data.error||data.message,`Pesanan gagal dibuat (${response.status})`));}
-    const order=data.order||data.data?.order||data.data||{};
-    const number=text(order.order_number||order.id,"diterima");
-    feedback(`Pesanan berhasil dikirim. Nomor pesanan: ${number}. Periksa menu Transaksi untuk melihat status terbaru.`,"success");
-    button.textContent="PESANAN TERKIRIM";
-  }catch(error){feedback(text(error?.message,"Terjadi kesalahan saat membuat pesanan"),"error");button.disabled=false;button.textContent="COBA LAGI";submitting=false;return;}
-  submitting=false;button.disabled=false;button.textContent="BUAT PESANAN";
+​emptyState.classList.add('hidden');
+​result.forEach(prod => {
+const card = document.createElement('div');
+card.className = 'bg-[#131B2E] border border-slate-800 hover:border-slate-700 rounded-xl p-4 flex items-center justify-between transition group';
+​const productName = prod.name || prod.service || 'Virtual Number';
+const countryName = prod.country || prod.country_name || 'Global';
+const stockCount = prod.stock || prod.availability || 'Available';
+const priceFormatted = formatRupiah(prod.price);
+​card.innerHTML = <div class="flex items-center space-x-3"> <div class="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-rose-500 font-bold group-hover:bg-rose-500/10 transition"> <i class="fa-solid fa-mobile-screen"></i> </div> <div> <div class="text-sm font-semibold text-white">${productName}</div> <div class="text-xs text-slate-400 flex items-center space-x-2 mt-0.5"> <span><i class="fa-solid fa-flag text-[10px] mr-1 text-slate-500"></i>${countryName}</span> <span class="text-slate-600">•</span> <span class="text-emerald-400 font-medium">${stockCount} avail</span> </div> </div> </div> <div class="flex items-center space-x-4"> <div class="text-right"> <div class="text-sm font-bold text-emerald-400">${priceFormatted}</div> </div> <button class="px-4 py-2 bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white text-xs font-semibold rounded-lg transition border border-rose-500/30"> Beli </button> </div>;
+​card.querySelector('button').onclick = () => selectProductForOrder(prod);
+productsList.appendChild(card);
+});
 }
-
-el("backToServices").addEventListener("click",()=>setStep(1));
-el("backToCountries").addEventListener("click",()=>setStep(2));
-el("backToProducts").addEventListener("click",()=>setStep(3));
-el("createOrder").addEventListener("click",createOrder);
-serviceSearch.addEventListener("input",()=>renderServices());
-countrySearch.addEventListener("input",()=>renderCountries());
-
-async function loadCatalog(){
-  serviceList.innerHTML='<div class="empty">Memuat katalog NOKOS...</div>';
-  try{
-    const [productsResponse,countriesResponse]=await Promise.all([
-      fetch("/api/nokos/products",{credentials:"same-origin",cache:"no-store"}),
-      fetch("/api/nokos/countries",{credentials:"same-origin",cache:"no-store"})
-    ]);
-    const [productsData,countriesData]=await Promise.all([productsResponse.json(),countriesResponse.json()]);
-    if(!productsResponse.ok||productsData.success===false)throw new Error(productsData.error||`Gagal mengambil katalog (${productsResponse.status})`);
-    if(!countriesResponse.ok||countriesData.success===false)throw new Error(countriesData.error||`Gagal mengambil negara (${countriesResponse.status})`);
-    products=Array.isArray(productsData.products)?productsData.products:[];
-    rawCountries=Array.isArray(countriesData.countries)?countriesData.countries:Array.isArray(countriesData.data)?countriesData.data:[];
-    const serviceMap=new Map();const countryMap=new Map();
-    products=products.filter(available).map((product,index)=>{
-      const name=serviceName(product);const serviceKey=name.toLowerCase();
-      const countryId=String(product.country_id??product.countryId??"");
-      const countryLabel=countryName(product);const countryKey=`${serviceKey}::${countryId||countryLabel}`;
-      product._serviceKey=serviceKey;product._countryKey=countryKey;product._key=String(product.id??product.product_id??product.catalog_product_id??index);
-      if(!serviceMap.has(serviceKey))serviceMap.set(serviceKey,{id:serviceKey,name,products:[]});
-      serviceMap.get(serviceKey).products.push(product);
-      if(!countryMap.has(countryKey))countryMap.set(countryKey,{id:countryKey,serviceKey,name:countryLabel,flag:countryFlag(product),productCount:0,lowestPrice:productPrice(product)});
-      const country=countryMap.get(countryKey);country.productCount+=1;if(productPrice(product)<country.lowestPrice)country.lowestPrice=productPrice(product);
-      return product;
-    });
-    services.splice(0,services.length,...Array.from(serviceMap.values()).sort((a,b)=>a.name.localeCompare(b.name)));
-    countryOptions=Array.from(countryMap.values()).sort((a,b)=>a.name.localeCompare(b.name));
-    if(!services.length){renderServices("API berhasil dihubungi, tetapi tidak ada produk dengan harga dan stok valid");return;}
-    renderServices();renderCountries();
-  }catch(error){renderServices(`${text(error?.message,"Gagal memuat katalog NOKOS")}. Muat ulang halaman untuk mencoba lagi`);renderCountries("Daftar negara belum dapat dimuat");}
+​// Select Product to Order
+function selectProductForOrder(prod) {
+selectedProduct = prod;
+selectedProductSummary.textContent = ${prod.name || prod.service} (${prod.country || 'Global'});
+selectedProductPriceSummary.textContent = formatRupiah(prod.price);
+orderQty.value = 1;
+orderActionBar.classList.remove('hidden');
 }
-loadCatalog();
+​// Quantity controls
+qtyMinus.onclick = () => {
+let val = parseInt(orderQty.value) || 1;
+if (val > 1) orderQty.value = val - 1;
+};
+qtyPlus.onclick = () => {
+let val = parseInt(orderQty.value) || 1;
+if (val < 10) orderQty.value = val + 1;
+};
+​// Open Confirmation Modal
+btnCreateOrder.onclick = () => {
+if (!selectedProduct) return;
+const qty = parseInt(orderQty.value) || 1;
+modalServiceName.textContent = selectedProduct.name || selectedProduct.service || 'Virtual Number';
+modalCountryName.textContent = selectedProduct.country || selectedProduct.country_name || 'Global';
+modalQty.textContent = qty;
+const total = (Number(selectedProduct.price) || 0) * qty;
+modalTotalPrice.textContent = formatRupiah(total);
+orderModal.classList.remove('hidden');
+};
+​closeOrderModal.onclick = () => orderModal.classList.add('hidden');
+cancelOrderBtn.onclick = () => orderModal.classList.add('hidden');
+​// Confirm and Post Order
+confirmOrderBtn.onclick = async () => {
+if (!selectedProduct) return;
+const qty = parseInt(orderQty.value) || 1;
+confirmOrderBtn.disabled = true;
+confirmOrderBtn.innerHTML = <i class="fa-solid fa-spinner animate-spin"></i><span>Memproses...</span>;
+​try {
+let response;
+const orderPayload = {
+product_id: selectedProduct.id || selectedProduct.product_id,
+quantity: qty
+};
+​if (window.NokosAPI && typeof window.NokosAPI.createOrder === 'function') {
+response = await window.NokosAPI.createOrder(orderPayload);
+} else {
+const res = await fetch('/api/nokos/orders', {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify(orderPayload)
+});
+response = await res.json();
 }
-
-loadNexusDesign().catch(()=>{
-  document.body.innerHTML='<main style="padding:40px"><div class="card"><h2>Desain gagal dimuat</h2><p class="muted">Pastikan desain.html berada di folder yang sama dengan nokos.html</p></div></main>';
+​orderModal.classList.add('hidden');
+orderActionBar.classList.add('hidden');
+​// Refresh balance and active orders
+updateBalance();
+loadActiveOrders();
+​// Redirect to transaksi.html as required by flow
+window.location.href = 'transaksi.html';
+​} catch (err) {
+console.error('Order creation failed:', err);
+alert('Gagal membuat pesanan. Silakan coba lagi.');
+} finally {
+confirmOrderBtn.disabled = false;
+confirmOrderBtn.textContent = 'Konfirmasi Beli';
+}
+};
+​// Load Active Orders
+async function loadActiveOrders() {
+try {
+let orders = [];
+if (window.NokosAPI && typeof window.NokosAPI.getOrders === 'function') {
+orders = await window.NokosAPI.getOrders();
+} else {
+const res = await fetch('/api/nokos/orders').then(res => res.json()).catch(() => []);
+orders = res.data || res;
+}
+​activeOrders = Array.isArray(orders) ? orders.filter(o => o.status === 'ACTIVE' || o.status === 'active' || o.otp_status === 'waiting') : [];
+​const section = document.getElementById('activeOrdersSection');
+const list = document.getElementById('activeOrdersList');
+const countBadge = document.getElementById('activeOrderCount');
+​if (activeOrders.length > 0) {
+section.classList.remove('hidden');
+countBadge.textContent = activeOrders.length;
+list.innerHTML = '';
+​activeOrders.forEach(ord => {
+const item = document.createElement('div');
+item.className = 'bg-[#131B2E] border border-rose-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3';
+item.innerHTML = <div> <div class="flex items-center space-x-2"> <span class="text-xs font-bold text-rose-400">#${ord.id || ord.order_id}</span> <span class="bg-emerald-500/20 text-emerald-400 text-[10px] px-2 py-0.5 rounded font-semibold">ACTIVE</span> </div> <div class="text-sm font-bold text-white mt-1">+${ord.phone || ord.number}</div> <div class="text-xs text-slate-400 mt-0.5">OTP: <span class="text-amber-400 font-medium">${ord.otp || ord.last_detected_otp || 'Waiting for SMS...'}</span></div> </div> <div class="flex items-center space-x-2"> <button onclick="cancelOrder('${ord.id || ord.order_id}')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition">Cancel</button> <button onclick="finishOrder('${ord.id || ord.order_id}')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded-lg transition">Done</button> </div>;
+list.appendChild(item);
+});
+} else {
+section.classList.add('hidden');
+}
+} catch (e) {
+console.warn('Active orders load skipped', e);
+}
+}
+​// Order Action Helpers
+async function cancelOrder(orderId) {
+try {
+if (window.NokosAPI && typeof window.NokosAPI.cancelOrder === 'function') {
+await window.NokosAPI.cancelOrder(orderId);
+} else {
+await fetch(/api/nokos/order/cancel, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: orderId}) });
+}
+loadActiveOrders();
+updateBalance();
+} catch (err) {
+alert('Gagal membatalkan pesanan.');
+}
+}
+​async function finishOrder(orderId) {
+try {
+if (window.NokosAPI && typeof window.NokosAPI.finishOrder === 'function') {
+await window.NokosAPI.finishOrder(orderId);
+} else {
+await fetch(/api/nokos/order/finish, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: orderId}) });
+}
+loadActiveOrders();
+} catch (err) {
+alert('Gagal menyelesaikan pesanan.');
+}
+}
+​// Search and Filter Listeners
+serviceSearch.oninput = (e) => {
+searchServiceQuery = e.target.value;
+renderServices();
+};
+​countrySearch.oninput = (e) => {
+searchCountryQuery = e.target.value;
+renderCountries();
+};
+​priceSortSelect.onchange = () => {
+filterAndRenderProducts();
+};
+​// Run initialization on load
+window.addEventListener('DOMContentLoaded', () => {
+loadNokosData();
 });
 </script>
 </body>
