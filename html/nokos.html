@@ -1,656 +1,821 @@
 <!DOCTYPE html>
-<html lang="id" class="dark">
+<html lang="id">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NexusBase - Layanan Nokos</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-darkMode: 'class',
-theme: {
-extend: {
-colors: {
-dark: {
-900: '#0B0F17',
-800: '#131B2E',
-700: '#1E293B',
-600: '#334155'
-},
-nexus: {
-red: '#E11D48',
-violet: '#8B5CF6',
-accent: '#F43F5E'
-}
-}
-}
-}
-}
-</script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<style>
-body {
-background-color: #0B0F17;
-color: #F8FAFC;
-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-}
-::-webkit-scrollbar {
-width: 6px;
-height: 6px;
-}
-::-webkit-scrollbar-track {
-background: #0B0F17;
-}
-::-webkit-scrollbar-thumb {
-background: #1E293B;
-border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-background: #334155;
-}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusBase - Nokos / SMS Code</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #121826;
+            --card-border: #1f293d;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --accent-red: #ef4444;
+            --accent-violet: #8b5cf6;
+            --accent-gradient: linear-gradient(135deg, #ef4444 0%, #8b5cf6 100%);
+            --input-bg: #0f172a;
+            --hover-bg: #1e293b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* Header / Navbar */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            background-color: var(--card-bg);
+            border-bottom: 1px solid var(--card-border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--text-main);
+            text-decoration: none;
+        }
+
+        .brand-logo svg, .brand-logo .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--accent-gradient);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .notification-bell, .menu-toggle {
+            background: none;
+            border: none;
+            color: var(--text-main);
+            cursor: pointer;
+            position: relative;
+        }
+
+        .notification-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: var(--accent-red);
+            color: white;
+            font-size: 0.65rem;
+            padding: 1px 4px;
+            border-radius: 10px;
+        }
+
+        /* Container Main */
+        .container {
+            max-width: 600px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 16px;
+            flex: 1;
+        }
+
+        /* Spending Chart / Stats Section */
+        .spending-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .spending-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .spending-chart {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            height: 80px;
+            gap: 4px;
+            padding-top: 10px;
+        }
+
+        .chart-bar {
+            flex: 1;
+            background: linear-gradient(to top, rgba(239, 68, 68, 0.2), #ef4444);
+            border-radius: 2px 2px 0 0;
+            min-height: 4px;
+            transition: height 0.3s;
+        }
+        .chart-bar.violet {
+            background: linear-gradient(to top, rgba(139, 92, 246, 0.2), #8b5cf6);
+        }
+
+        /* Active Orders Box */
+        .active-orders-section {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            color: var(--text-main);
+        }
+
+        .section-title span.badge-count {
+            background: rgba(139, 92, 246, 0.2);
+            color: var(--accent-violet);
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        .active-order-item {
+            background: var(--input-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 8px;
+        }
+
+        .order-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            margin-bottom: 6px;
+        }
+
+        .order-id {
+            color: #38bdf8;
+            font-weight: 600;
+        }
+
+        .order-status {
+            color: #10b981;
+            font-weight: 600;
+            font-size: 0.75rem;
+        }
+
+        .phone-display {
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            margin: 8px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .copy-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .otp-status {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+        }
+
+        .order-actions {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+        }
+
+        .btn-action {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text-main);
+            font-size: 0.75rem;
+            padding: 6px 0;
+            border-radius: 6px;
+            cursor: pointer;
+            text-align: center;
+            font-weight: 600;
+        }
+        .btn-action:hover {
+            background: var(--hover-bg);
+        }
+
+        /* New Order Section */
+        .new-order-container {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .filter-group {
+            margin-bottom: 14px;
+        }
+
+        .filter-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            display: block;
+        }
+
+        .search-box {
+            position: relative;
+            margin-bottom: 10px;
+        }
+
+        .search-input {
+            width: 100%;
+            background-color: var(--input-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 10px 12px 10px 36px;
+            color: var(--text-main);
+            font-size: 0.9rem;
+            outline: none;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-violet);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Horizontal Scroll Chips (Services / Countries) */
+        .chip-scroll {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            scrollbar-width: none;
+        }
+        .chip-scroll::-webkit-scrollbar {
+            display: none;
+        }
+
+        .chip {
+            background-color: var(--input-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            color: var(--text-main);
+            white-space: nowrap;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+
+        .chip.active {
+            border-color: var(--accent-red);
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .grid-chips {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            max-height: 180px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .grid-chip {
+            background-color: var(--input-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 0.85rem;
+            color: var(--text-main);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .grid-chip.active {
+            border-color: var(--accent-red);
+            background: rgba(239, 68, 68, 0.15);
+        }
+
+        /* Products List */
+        .products-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .product-card {
+            background-color: var(--input-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .product-card:hover {
+            border-color: var(--accent-violet);
+        }
+
+        .product-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .product-flag {
+            font-size: 1.2rem;
+        }
+
+        .product-details .p-name {
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .product-details .p-stock {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .product-price {
+            text-align: right;
+        }
+
+        .product-price .p-cost {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #34d399;
+        }
+
+        /* Modal Order Confirmation */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+
+        .modal-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            width: 90%;
+            max-width: 400px;
+            padding: 20px;
+        }
+
+        .modal-title {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .modal-body {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            font-size: 0.9rem;
+        }
+
+        .btn-secondary {
+            background: var(--input-bg);
+            color: var(--text-main);
+            border: 1px solid var(--card-border);
+        }
+
+        .btn-primary {
+            background: var(--accent-gradient);
+            color: white;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+        }
+    </style>
 </head>
-<body class="min-h-screen flex flex-col bg-[#0B0F17] text-slate-100 antialiased selection:bg-rose-500 selection:text-white">
-​<!-- Top Navbar / Header -->
-<header class="sticky top-0 z-40 bg-[#131B2E]/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
-<div class="flex items-center space-x-3">
-<button id="sidebarToggle" class="text-slate-400 hover:text-white focus:outline-none p-1">
-<i class="fa-solid fa-bars text-xl"></i>
-</button>
-<div class="flex items-center space-x-2">
-<div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-rose-600 to-violet-600 flex items-center justify-center font-bold text-white shadow-lg shadow-rose-600/20">
-N
-</div>
-<span class="font-bold text-lg tracking-wide text-white">NexusBase</span>
-</div>
-</div>
-​<div class="flex items-center space-x-4">
-<!-- Balance Component -->
-<div class="hidden sm:flex items-center bg-slate-800/60 border border-slate-700/50 rounded-full px-3 py-1.5 space-x-2 text-xs">
-<i class="fa-solid fa-wallet text-rose-500"></i>
-<span class="text-slate-400">Saldo:</span>
-<span id="userBalance" class="font-semibold text-white">Rp 0</span>
-</div>
-​<!-- Notifications / Quick actions -->
-<div class="relative">
-<button class="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 hover:text-white relative">
-<i class="fa-solid fa-bell text-sm"></i>
-<span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500"></span>
-</button>
-</div>
-​<!-- User Avatar -->
-<div class="w-9 h-9 rounded-full bg-gradient-to-tr from-rose-500 to-purple-600 flex items-center justify-center font-bold text-sm text-white overflow-hidden border border-slate-700">
-<span id="userInitial">U</span>
-</div>
-</div>
-</header>
-​<div class="flex-1 flex relative">
-<!-- Sidebar Overlay -->
-<div id="sidebarOverlay" class="fixed inset-0 bg-black/60 z-40 hidden transition-opacity"></div>
-​<!-- Sidebar / Navigation -->
-<aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-64 bg-[#131B2E] border-r border-slate-800 transform -translate-x-full transition-transform duration-200 ease-in-out flex flex-col">
-<div class="p-4 border-b border-slate-800 flex items-center justify-between">
-<div class="flex items-center space-x-2">
-<div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-rose-600 to-violet-600 flex items-center justify-center font-bold text-white">
-N
-</div>
-<span class="font-bold text-lg text-white">NexusBase</span>
-</div>
-<button id="sidebarClose" class="text-slate-400 hover:text-white">
-<i class="fa-solid fa-xmark text-lg"></i>
-</button>
-</div>
-​<div class="p-4 border-b border-slate-800 sm:hidden">
-<div class="flex items-center justify-between bg-slate-800/60 p-3 rounded-lg border border-slate-700">
-<div class="text-xs text-slate-400">Saldo Anda</div>
-<div id="mobileUserBalance" class="text-sm font-bold text-white">Rp 0</div>
-</div>
-</div>
-​<nav class="flex-1 overflow-y-auto p-4 space-y-1 text-sm">
-<a href="dashboard.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
-<i class="fa-solid fa-chart-pie w-5 text-center"></i>
-<span>Dashboard</span>
-</a>
-<a href="nokos.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg bg-rose-500/10 text-rose-500 font-medium transition">
-<i class="fa-solid fa-mobile-screen w-5 text-center"></i>
-<span>Nokos / SMS Code</span>
-</a>
-<a href="suntik-sosmed.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
-<i class="fa-solid fa-bullhorn w-5 text-center"></i>
-<span>Suntik Sosmed</span>
-</a>
-<a href="transaksi.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
-<i class="fa-solid fa-receipt w-5 text-center"></i>
-<span>Riwayat Transaksi</span>
-</a>
-<a href="deposit.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
-<i class="fa-solid fa-wallet w-5 text-center"></i>
-<span>Deposit Saldo</span>
-</a>
-<a href="bantuan.html" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
-<i class="fa-solid fa-circle-question w-5 text-center"></i>
-<span>Bantuan</span>
-</a>
-</nav>
-​<div class="p-4 border-t border-slate-800 text-xs text-slate-500 text-center">
-© 2026 NexusBase. All rights reserved.
-</div>
-</aside>
-​<!-- Main Content Area -->
-<main class="flex-1 max-w-4xl mx-auto px-4 py-6 pb-24 w-full">
-​<!-- Page Title Header matching video reference -->
-<div class="flex items-center space-x-2 mb-6">
-<h1 class="text-xl font-bold tracking-tight text-white flex items-center space-x-2">
-<span class="text-rose-500">›</span> <span>New Order</span>
-</h1>
-</div>
-​<!-- Active Orders Container (if any) -->
-<div id="activeOrdersSection" class="mb-6 hidden">
-<div class="flex items-center justify-between mb-3">
-<h2 class="text-xs uppercase tracking-wider text-slate-400 font-bold flex items-center space-x-2">
-<span>Active Orders</span>
-<span id="activeOrderCount" class="bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full text-[10px]">0</span>
-</h2>
-</div>
-<div id="activeOrdersList" class="space-y-3">
-<!-- Dynamic active orders populated by js -->
-</div>
-</div>
-​<!-- Error State Banner (Hidden by default) -->
-<div id="errorBanner" class="hidden mb-6 bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 text-center">
-<i class="fa-solid fa-triangle-exclamation text-rose-500 text-xl mb-2"></i>
-<p id="errorMessage" class="text-sm text-rose-300 mb-3">Gagal memuat data katalog layanan.</p>
-<button onclick="loadNokosData()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg transition shadow-lg shadow-rose-600/20">
-Coba Lagi
-</button>
-</div>
-​<!-- SERVICE FILTER SECTION -->
-<div class="mb-6">
-<div class="text-xs uppercase tracking-wider text-slate-400 font-bold mb-3 flex items-center justify-between">
-<span>Service (<span id="serviceCount">0</span> of <span id="serviceTotalCount">0</span>)</span>
-</div>
-​<!-- Service Search Input -->
-<div class="relative mb-3">
-<span class="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-500">
-<i class="fa-solid fa-magnifying-glass text-xs"></i>
-</span>
-<input type="text" id="serviceSearch" placeholder="Search services..." class="w-full bg-[#131B2E] border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-rose-500/50 transition">
-</div>
-​<!-- Quick Service Pills / Badges -->
-<div id="serviceQuickList" class="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-1">
-<!-- Dynamic Service Badges -->
-</div>
-</div>
-​<!-- COUNTRY FILTER SECTION -->
-<div class="mb-6">
-<div class="text-xs uppercase tracking-wider text-slate-400 font-bold mb-3 flex items-center justify-between">
-<span>Country (<span id="countryCount">0</span> of <span id="countryTotalCount">0</span>)</span>
-</div>
-​<!-- Country Search Input -->
-<div class="relative mb-3">
-<span class="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-500">
-<i class="fa-solid fa-magnifying-glass text-xs"></i>
-</span>
-<input type="text" id="countrySearch" placeholder="Search countries..." class="w-full bg-[#131B2E] border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-rose-500/50 transition">
-</div>
-​<!-- Quick Country Pills -->
-<div id="countryQuickList" class="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-1">
-<!-- Dynamic Country Badges -->
-</div>
-</div>
-​<!-- PRODUCTS / CATALOG SECTION -->
-<div class="mb-6">
-<div class="flex items-center justify-between mb-3">
-<div class="text-xs uppercase tracking-wider text-slate-400 font-bold">
-Products (<span id="productCount">0</span>)
-</div>
-<!-- Sorting Dropdown -->
-<div class="flex items-center space-x-2 text-xs">
-<span class="text-slate-500">Urutkan:</span>
-<select id="priceSortSelect" class="bg-[#131B2E] border border-slate-800 text-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:border-rose-500">
-<option value="default">Default</option>
-<option value="asc">Harga Termurah → Termahal</option>
-<option value="desc">Harga Termahal → Termurah</option>
-</select>
-</div>
-</div>
-​<!-- Products Container -->
-<div id="productsList" class="space-y-2.5">
-<!-- Dynamic Product Cards -->
-</div>
-​<!-- Empty State -->
-<div id="emptyState" class="hidden text-center py-12 bg-[#131B2E]/40 border border-slate-800/80 rounded-2xl p-6">
-<div class="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-3 text-slate-500">
-<i class="fa-solid fa-box-open text-xl"></i>
-</div>
-<h3 class="text-sm font-semibold text-white mb-1">Katalog Kosong</h3>
-<p class="text-xs text-slate-400">Tidak ada produk yang tersedia untuk filter yang dipilih.</p>
-</div>
-​<!-- Loading State -->
-<div id="loadingState" class="text-center py-12">
-<div class="inline-block w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-<p class="text-xs text-slate-400">Memuat katalog layanan...</p>
-</div>
-</div>
-​<!-- Order Creation Bottom Bar / Sticky Bar when product selected -->
-<div id="orderActionBar" class="hidden fixed bottom-0 inset-x-0 z-30 bg-[#131B2E]/95 backdrop-blur-md border-t border-slate-800 p-4 shadow-2xl">
-<div class="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-<div class="flex items-center space-x-3 w-full sm:w-auto">
-<div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 font-bold shrink-0">
-<i class="fa-solid fa-mobile-screen"></i>
-</div>
-<div>
-<div id="selectedProductSummary" class="text-sm font-bold text-white truncate max-w-xs sm:max-w-sm">-</div>
-<div id="selectedProductPriceSummary" class="text-xs text-rose-400 font-semibold">-</div>
-</div>
-</div>
-<div class="flex items-center space-x-3 w-full sm:w-auto justify-end">
-<div class="flex items-center bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
-<button id="qtyMinus" class="px-3 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition"><i class="fa-solid fa-minus text-xs"></i></button>
-<input type="number" id="orderQty" value="1" min="1" max="10" class="w-10 text-center bg-transparent text-sm text-white focus:outline-none">
-<button id="qtyPlus" class="px-3 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition"><i class="fa-solid fa-plus text-xs"></i></button>
-</div>
-<button id="btnCreateOrder" class="flex-1 sm:flex-none px-6 py-2.5 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white font-semibold text-sm rounded-xl shadow-lg shadow-rose-600/30 transition">
-Create Order
-</button>
-</div>
-</div>
-</div>
-​</main>
-</div>
-​<!-- Order Confirmation Modal -->
-<div id="orderModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 hidden">
-<div class="bg-[#131B2E] border border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl transform transition-all">
-<div class="p-4 border-b border-slate-800 flex items-center justify-between">
-<h3 class="font-bold text-white text-base">Konfirmasi Pembelian</h3>
-<button id="closeOrderModal" class="text-slate-400 hover:text-white">
-<i class="fa-solid fa-xmark"></i>
-</button>
-</div>
-<div class="p-5 space-y-4">
-<div class="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 space-y-3">
-<div class="flex justify-between text-xs">
-<span class="text-slate-400">Layanan:</span>
-<span id="modalServiceName" class="font-semibold text-white">-</span>
-</div>
-<div class="flex justify-between text-xs">
-<span class="text-slate-400">Negara:</span>
-<span id="modalCountryName" class="font-semibold text-white">-</span>
-</div>
-<div class="flex justify-between text-xs">
-<span class="text-slate-400">Jumlah:</span>
-<span id="modalQty" class="font-semibold text-white">1</span>
-</div>
-<div class="border-t border-slate-800 pt-2 flex justify-between text-sm font-bold">
-<span class="text-slate-300">Total Harga:</span>
-<span id="modalTotalPrice" class="text-rose-400">-</span>
-</div>
-</div>
-<p class="text-xs text-slate-400 text-center">Pastikan saldo Anda mencukupi sebelum melanjutkan pesanan nomor virtual.</p>
-</div>
-<div class="p-4 border-t border-slate-800 bg-slate-900/40 flex space-x-3">
-<button id="cancelOrderBtn" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-semibold transition">
-Batalkan
-</button>
-<button id="confirmOrderBtn" class="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-rose-600/30 transition flex items-center justify-center space-x-2">
-<span>Konfirmasi Beli</span>
-</button>
-</div>
-</div>
-</div>
-​<!-- Backend / API Integration Script -->
-<script src="../Javascript/nokos.js"></script>
-<script src="../Javascript/wallet.js" onerror="console.warn('wallet.js optional load')"></script>
-<script src="../Javascript/auth.js" onerror="console.warn('auth.js optional load')"></script>
-​<script>
-// State Management
-let allProducts = [];
-let allServices = [];
-let allCountries = [];
-let selectedService = '';
-let selectedCountry = '';
-let selectedProduct = null;
-let searchServiceQuery = '';
-let searchCountryQuery = '';
-let activeOrders = [];
-​// DOM Elements
-const sidebar = document.getElementById('sidebar');
-const sidebarToggle = document.getElementById('sidebarToggle');
-const sidebarClose = document.getElementById('sidebarClose');
-const sidebarOverlay = document.getElementById('sidebarOverlay');
-const errorBanner = document.getElementById('errorBanner');
-const errorMessage = document.getElementById('errorMessage');
-const loadingState = document.getElementById('loadingState');
-const emptyState = document.getElementById('emptyState');
-const productsList = document.getElementById('productsList');
-const serviceQuickList = document.getElementById('serviceQuickList');
-const countryQuickList = document.getElementById('countryQuickList');
-const serviceSearch = document.getElementById('serviceSearch');
-const countrySearch = document.getElementById('countrySearch');
-const priceSortSelect = document.getElementById('priceSortSelect');
-const orderActionBar = document.getElementById('orderActionBar');
-const selectedProductSummary = document.getElementById('selectedProductSummary');
-const selectedProductPriceSummary = document.getElementById('selectedProductPriceSummary');
-const orderQty = document.getElementById('orderQty');
-const qtyMinus = document.getElementById('qtyMinus');
-const qtyPlus = document.getElementById('qtyPlus');
-const btnCreateOrder = document.getElementById('btnCreateOrder');
-​// Modal elements
-const orderModal = document.getElementById('orderModal');
-const closeOrderModal = document.getElementById('closeOrderModal');
-const cancelOrderBtn = document.getElementById('cancelOrderBtn');
-const confirmOrderBtn = document.getElementById('confirmOrderBtn');
-const modalServiceName = document.getElementById('modalServiceName');
-const modalCountryName = document.getElementById('modalCountryName');
-const modalQty = document.getElementById('modalQty');
-const modalTotalPrice = document.getElementById('modalTotalPrice');
-​// Toggle Sidebar
-function toggleSidebar() {
-sidebar.classList.toggle('-translate-x-full');
-sidebarOverlay.classList.toggle('hidden');
-}
-sidebarToggle.addEventListener('click', toggleSidebar);
-sidebarClose.addEventListener('click', toggleSidebar);
-sidebarOverlay.addEventListener('click', toggleSidebar);
-​// Format Rupiah helper
-function formatRupiah(amount) {
-if (isNaN(amount) || amount === null) return 'Rp 0';
-return 'Rp ' + Number(amount).toLocaleString('id-ID');
-}
-​// Initialize Page & Fetch Data
-async function loadNokosData() {
-errorBanner.classList.add('hidden');
-loadingState.classList.remove('hidden');
-emptyState.classList.add('hidden');
-productsList.innerHTML = '';
-​try {
-// Fetch products, services, countries from window.NokosAPI (from nokos.js) or standard fetch endpoints
-let productsData = [], servicesData = [], countriesData = [];
-​if (window.NokosAPI && typeof window.NokosAPI.getProducts === 'function') {
-productsData = await window.NokosAPI.getProducts();
-servicesData = window.NokosAPI.getServices ? await window.NokosAPI.getServices() : [];
-countriesData = window.NokosAPI.getCountries ? await window.NokosAPI.getCountries() : [];
-} else {
-// Fallback to standard REST fetch endpoints as specified
-const [prodRes, servRes, countRes] = await Promise.all([
-fetch('/api/nokos/products').then(res => res.json()).catch(() => []),
-fetch('/api/nokos/services').then(res => res.json()).catch(() => []),
-fetch('/api/nokos/countries').then(res => res.json()).catch(() => [])
-]);
-productsData = prodRes.data || prodRes;
-servicesData = servRes.data || servRes;
-countriesData = countRes.data || countRes;
-}
-​allProducts = Array.isArray(productsData) ? productsData : (productsData.products || []);
-allServices = Array.isArray(servicesData) ? servicesData : (servicesData.services || []);
-allCountries = Array.isArray(countriesData) ? countriesData : (countriesData.countries || []);
-​loadingState.classList.add('hidden');
-renderServices();
-renderCountries();
-filterAndRenderProducts();
-loadActiveOrders();
-updateBalance();
-​} catch (err) {
-console.error('Failed to load Nokos data:', err);
-loadingState.classList.add('hidden');
-errorMessage.textContent = 'Gagal memuat data dari server. Pastikan koneksi dan backend siap.';
-errorBanner.classList.remove('hidden');
-}
-}
-​// Update Balance
-async function updateBalance() {
-try {
-if (window.WalletAPI && typeof window.WalletAPI.getBalance === 'function') {
-const bal = await window.WalletAPI.getBalance();
-document.getElementById('userBalance').textContent = formatRupiah(bal);
-if(document.getElementById('mobileUserBalance')) {
-document.getElementById('mobileUserBalance').textContent = formatRupiah(bal);
-}
-}
-} catch (e) {
-console.log('Balance refresh skipped');
-}
-}
-​// Render Services Quick List
-function renderServices() {
-document.getElementById('serviceTotalCount').textContent = allServices.length;
-const filtered = allServices.filter(s => {
-const name = (s.name || s.title || s).toString().toLowerCase();
-return name.includes(searchServiceQuery.toLowerCase());
-});
-document.getElementById('serviceCount').textContent = filtered.length;
-​serviceQuickList.innerHTML = '';
-​// "All Services" badge
-const allBadge = document.createElement('button');
-allBadge.className = px-3 py-1.5 rounded-xl text-xs font-medium transition border ${selectedService === '' ? 'bg-rose-500 border-rose-600 text-white shadow-md shadow-rose-500/20' : 'bg-[#131B2E] border-slate-800 text-slate-300 hover:border-slate-700'};
-allBadge.innerHTML = <i class="fa-solid fa-globe mr-1.5"></i> All Services;
-allBadge.onclick = () => { selectedService = ''; renderServices(); filterAndRenderProducts(); };
-serviceQuickList.appendChild(allBadge);
-​filtered.forEach(service => {
-const sName = service.name || service.title || service;
-const sId = service.id || service;
-const isSelected = selectedService === sId || selectedService === sName;
-​const btn = document.createElement('button');
-btn.className = px-3 py-1.5 rounded-xl text-xs font-medium transition border flex items-center space-x-2 ${isSelected ? 'bg-rose-500 border-rose-600 text-white shadow-md shadow-rose-500/20' : 'bg-[#131B2E] border-slate-800 text-slate-300 hover:border-slate-700'};
-btn.innerHTML = <span>${sName}</span>;
-btn.onclick = () => {
-selectedService = isSelected ? '' : sId;
-renderServices();
-filterAndRenderProducts();
-};
-serviceQuickList.appendChild(btn);
-});
-}
-​// Render Countries Quick List
-function renderCountries() {
-document.getElementById('countryTotalCount').textContent = allCountries.length;
-const filtered = allCountries.filter(c => {
-const name = (c.name || c.country || c).toString().toLowerCase();
-return name.includes(searchCountryQuery.toLowerCase());
-});
-document.getElementById('countryCount').textContent = filtered.length;
-​countryQuickList.innerHTML = '';
-​const allBadge = document.createElement('button');
-allBadge.className = px-3 py-1.5 rounded-xl text-xs font-medium transition border ${selectedCountry === '' ? 'bg-rose-500 border-rose-600 text-white shadow-md shadow-rose-500/20' : 'bg-[#131B2E] border-slate-800 text-slate-300 hover:border-slate-700'};
-allBadge.innerHTML = <i class="fa-solid fa-flag mr-1.5"></i> All Countries;
-allBadge.onclick = () => { selectedCountry = ''; renderCountries(); filterAndRenderProducts(); };
-countryQuickList.appendChild(allBadge);
-​filtered.forEach(country => {
-const cName = country.name || country.country || country;
-const cId = country.id || country;
-const isSelected = selectedCountry === cId || selectedCountry === cName;
-​const btn = document.createElement('button');
-btn.className = px-3 py-1.5 rounded-xl text-xs font-medium transition border flex items-center space-x-2 ${isSelected ? 'bg-rose-500 border-rose-600 text-white shadow-md shadow-rose-500/20' : 'bg-[#131B2E] border-slate-800 text-slate-300 hover:border-slate-700'};
-btn.innerHTML = <span>${cName}</span>;
-btn.onclick = () => {
-selectedCountry = isSelected ? '' : cId;
-renderCountries();
-filterAndRenderProducts();
-};
-countryQuickList.appendChild(btn);
-});
-}
-​// Filter and Render Products
-function filterAndRenderProducts() {
-let result = allProducts.filter(p => {
-// Availability filter: do not show unavailable products as buyable
-if (p.available === false || p.status === false || p.stock === 0) return false;
-​if (selectedService) {
-const sMatch = (p.service || p.service_name || p.name) === selectedService || p.service_id === selectedService;
-if (!sMatch) return false;
-}
-​if (selectedCountry) {
-const cMatch = (p.country || p.country_name) === selectedCountry || p.country_id === selectedCountry;
-if (!cMatch) return false;
-}
-​return true;
-});
-​// Sorting
-const sortVal = priceSortSelect.value;
-if (sortVal === 'asc') {
-result.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
-} else if (sortVal === 'desc') {
-result.sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
-}
-​document.getElementById('productCount').textContent = result.length;
-productsList.innerHTML = '';
-​if (result.length === 0) {
-emptyState.classList.remove('hidden');
-return;
-}
-​emptyState.classList.add('hidden');
-​result.forEach(prod => {
-const card = document.createElement('div');
-card.className = 'bg-[#131B2E] border border-slate-800 hover:border-slate-700 rounded-xl p-4 flex items-center justify-between transition group';
-​const productName = prod.name || prod.service || 'Virtual Number';
-const countryName = prod.country || prod.country_name || 'Global';
-const stockCount = prod.stock || prod.availability || 'Available';
-const priceFormatted = formatRupiah(prod.price);
-​card.innerHTML = <div class="flex items-center space-x-3"> <div class="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-rose-500 font-bold group-hover:bg-rose-500/10 transition"> <i class="fa-solid fa-mobile-screen"></i> </div> <div> <div class="text-sm font-semibold text-white">${productName}</div> <div class="text-xs text-slate-400 flex items-center space-x-2 mt-0.5"> <span><i class="fa-solid fa-flag text-[10px] mr-1 text-slate-500"></i>${countryName}</span> <span class="text-slate-600">•</span> <span class="text-emerald-400 font-medium">${stockCount} avail</span> </div> </div> </div> <div class="flex items-center space-x-4"> <div class="text-right"> <div class="text-sm font-bold text-emerald-400">${priceFormatted}</div> </div> <button class="px-4 py-2 bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white text-xs font-semibold rounded-lg transition border border-rose-500/30"> Beli </button> </div>;
-​card.querySelector('button').onclick = () => selectProductForOrder(prod);
-productsList.appendChild(card);
-});
-}
-​// Select Product to Order
-function selectProductForOrder(prod) {
-selectedProduct = prod;
-selectedProductSummary.textContent = ${prod.name || prod.service} (${prod.country || 'Global'});
-selectedProductPriceSummary.textContent = formatRupiah(prod.price);
-orderQty.value = 1;
-orderActionBar.classList.remove('hidden');
-}
-​// Quantity controls
-qtyMinus.onclick = () => {
-let val = parseInt(orderQty.value) || 1;
-if (val > 1) orderQty.value = val - 1;
-};
-qtyPlus.onclick = () => {
-let val = parseInt(orderQty.value) || 1;
-if (val < 10) orderQty.value = val + 1;
-};
-​// Open Confirmation Modal
-btnCreateOrder.onclick = () => {
-if (!selectedProduct) return;
-const qty = parseInt(orderQty.value) || 1;
-modalServiceName.textContent = selectedProduct.name || selectedProduct.service || 'Virtual Number';
-modalCountryName.textContent = selectedProduct.country || selectedProduct.country_name || 'Global';
-modalQty.textContent = qty;
-const total = (Number(selectedProduct.price) || 0) * qty;
-modalTotalPrice.textContent = formatRupiah(total);
-orderModal.classList.remove('hidden');
-};
-​closeOrderModal.onclick = () => orderModal.classList.add('hidden');
-cancelOrderBtn.onclick = () => orderModal.classList.add('hidden');
-​// Confirm and Post Order
-confirmOrderBtn.onclick = async () => {
-if (!selectedProduct) return;
-const qty = parseInt(orderQty.value) || 1;
-confirmOrderBtn.disabled = true;
-confirmOrderBtn.innerHTML = <i class="fa-solid fa-spinner animate-spin"></i><span>Memproses...</span>;
-​try {
-let response;
-const orderPayload = {
-product_id: selectedProduct.id || selectedProduct.product_id,
-quantity: qty
-};
-​if (window.NokosAPI && typeof window.NokosAPI.createOrder === 'function') {
-response = await window.NokosAPI.createOrder(orderPayload);
-} else {
-const res = await fetch('/api/nokos/orders', {
-method: 'POST',
-headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify(orderPayload)
-});
-response = await res.json();
-}
-​orderModal.classList.add('hidden');
-orderActionBar.classList.add('hidden');
-​// Refresh balance and active orders
-updateBalance();
-loadActiveOrders();
-​// Redirect to transaksi.html as required by flow
-window.location.href = 'transaksi.html';
-​} catch (err) {
-console.error('Order creation failed:', err);
-alert('Gagal membuat pesanan. Silakan coba lagi.');
-} finally {
-confirmOrderBtn.disabled = false;
-confirmOrderBtn.textContent = 'Konfirmasi Beli';
-}
-};
-​// Load Active Orders
-async function loadActiveOrders() {
-try {
-let orders = [];
-if (window.NokosAPI && typeof window.NokosAPI.getOrders === 'function') {
-orders = await window.NokosAPI.getOrders();
-} else {
-const res = await fetch('/api/nokos/orders').then(res => res.json()).catch(() => []);
-orders = res.data || res;
-}
-​activeOrders = Array.isArray(orders) ? orders.filter(o => o.status === 'ACTIVE' || o.status === 'active' || o.otp_status === 'waiting') : [];
-​const section = document.getElementById('activeOrdersSection');
-const list = document.getElementById('activeOrdersList');
-const countBadge = document.getElementById('activeOrderCount');
-​if (activeOrders.length > 0) {
-section.classList.remove('hidden');
-countBadge.textContent = activeOrders.length;
-list.innerHTML = '';
-​activeOrders.forEach(ord => {
-const item = document.createElement('div');
-item.className = 'bg-[#131B2E] border border-rose-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3';
-item.innerHTML = <div> <div class="flex items-center space-x-2"> <span class="text-xs font-bold text-rose-400">#${ord.id || ord.order_id}</span> <span class="bg-emerald-500/20 text-emerald-400 text-[10px] px-2 py-0.5 rounded font-semibold">ACTIVE</span> </div> <div class="text-sm font-bold text-white mt-1">+${ord.phone || ord.number}</div> <div class="text-xs text-slate-400 mt-0.5">OTP: <span class="text-amber-400 font-medium">${ord.otp || ord.last_detected_otp || 'Waiting for SMS...'}</span></div> </div> <div class="flex items-center space-x-2"> <button onclick="cancelOrder('${ord.id || ord.order_id}')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition">Cancel</button> <button onclick="finishOrder('${ord.id || ord.order_id}')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded-lg transition">Done</button> </div>;
-list.appendChild(item);
-});
-} else {
-section.classList.add('hidden');
-}
-} catch (e) {
-console.warn('Active orders load skipped', e);
-}
-}
-​// Order Action Helpers
-async function cancelOrder(orderId) {
-try {
-if (window.NokosAPI && typeof window.NokosAPI.cancelOrder === 'function') {
-await window.NokosAPI.cancelOrder(orderId);
-} else {
-await fetch(/api/nokos/order/cancel, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: orderId}) });
-}
-loadActiveOrders();
-updateBalance();
-} catch (err) {
-alert('Gagal membatalkan pesanan.');
-}
-}
-​async function finishOrder(orderId) {
-try {
-if (window.NokosAPI && typeof window.NokosAPI.finishOrder === 'function') {
-await window.NokosAPI.finishOrder(orderId);
-} else {
-await fetch(/api/nokos/order/finish, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: orderId}) });
-}
-loadActiveOrders();
-} catch (err) {
-alert('Gagal menyelesaikan pesanan.');
-}
-}
-​// Search and Filter Listeners
-serviceSearch.oninput = (e) => {
-searchServiceQuery = e.target.value;
-renderServices();
-};
-​countrySearch.oninput = (e) => {
-searchCountryQuery = e.target.value;
-renderCountries();
-};
-​priceSortSelect.onchange = () => {
-filterAndRenderProducts();
-};
-​// Run initialization on load
-window.addEventListener('DOMContentLoaded', () => {
-loadNokosData();
-});
-</script>
+<body>
+
+    <header>
+        <a href="dashboard.html" class="brand-logo">
+            <div class="logo-icon">N</div>
+            NexusBase
+        </a>
+        <div class="header-right">
+            <button class="notification-bell">
+                🔔
+                <span class="notification-badge" id="notifCount">0</span>
+            </button>
+            <button class="menu-toggle" id="menuToggle">☰</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Spending Chart / Saldo info -->
+        <div class="spending-card">
+            <div class="spending-header">
+                <span>Saldo Anda: <strong id="userBalance" style="color: #34d399;">Rp 0</strong></span>
+                <span style="color: var(--text-muted); font-size: 0.75rem;" id="lastDaysLabel">Last 30 days</span>
+            </div>
+            <div class="spending-chart" id="spendingChartContainer">
+                <div class="chart-bar" style="height: 40%;"></div>
+                <div class="chart-bar violet" style="height: 70%;"></div>
+                <div class="chart-bar" style="height: 30%;"></div>
+                <div class="chart-bar violet" style="height: 90%;"></div>
+                <div class="chart-bar" style="height: 60%;"></div>
+                <div class="chart-bar violet" style="height: 80%;"></div>
+            </div>
+        </div>
+
+        <!-- Active Orders Section -->
+        <div class="active-orders-section" id="activeOrdersSection" style="display: none;">
+            <div class="section-title">
+                Active Orders <span class="badge-count" id="activeOrderCount">0</span>
+            </div>
+            <div id="activeOrdersList"></div>
+        </div>
+
+        <!-- New Order Main Panel -->
+        <div class="new-order-container">
+            <div class="section-title" style="color: var(--accent-red);">
+                🔥 New Order
+            </div>
+
+            <!-- Service Filter -->
+            <div class="filter-group">
+                <label class="filter-label" id="serviceLabel">SERVICE (0 of 0)</label>
+                <div class="search-box">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="serviceSearch" class="search-input" placeholder="Search services...">
+                </div>
+                <div class="chip-scroll" id="serviceChipsContainer">
+                    <!-- Loaded dynamically from /api/nokos/services -->
+                </div>
+            </div>
+
+            <!-- Country Filter -->
+            <div class="filter-group">
+                <label class="filter-label" id="countryLabel">COUNTRY (0)</label>
+                <div class="search-box">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="countrySearch" class="search-input" placeholder="Search countries...">
+                </div>
+                <div class="grid-chips" id="countryGridContainer">
+                    <!-- Loaded dynamically from /api/nokos/countries -->
+                </div>
+            </div>
+
+            <!-- Products Catalogue -->
+            <div class="filter-group" style="margin-bottom: 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label class="filter-label" id="productsLabel" style="margin-bottom: 0;">PRODUCTS (0)</label>
+                    <select id="sortSelect" style="background: var(--input-bg); color: var(--text-main); border: 1px solid var(--card-border); border-radius: 6px; padding: 4px 8px; font-size: 0.75rem; outline: none;">
+                        <option value="cheapest">Termurah → Termahal</option>
+                        <option value="expensive">Termahal → Termurah</option>
+                    </select>
+                </div>
+                <div class="products-list" id="productsListContainer">
+                    <div style="text-align: center; color: var(--text-muted); padding: 20px; font-size: 0.85rem;">Memuat produk...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Order Confirmation Modal -->
+    <div class="modal-overlay" id="orderModal">
+        <div class="modal-content">
+            <div class="modal-title">Konfirmasi Pesanan</div>
+            <div class="modal-body" id="modalBodyText">
+                Apakah Anda yakin ingin membeli nomor untuk layanan ini?
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="modalCancelBtn">Batal</button>
+                <button class="btn btn-primary" id="modalConfirmBtn">Create Order</button>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        © 2026 NexusBase. All rights reserved.
+    </footer>
+
+    <!-- Integrasi sistem utama nokos.js -->
+    <script src="../Javascript/nokos.js"></script>
+    <script>
+        // Frontend Controller Menghubungkan nokos.js ke UI Layout
+        document.addEventListener("DOMContentLoaded", async () => {
+            let allProducts = [];
+            let allServices = [];
+            let allCountries = [];
+            let selectedService = '';
+            let selectedCountry = '';
+            let pendingOrderProduct = null;
+
+            const productsContainer = document.getElementById('productsListContainer');
+            const servicesContainer = document.getElementById('serviceChipsContainer');
+            const countriesContainer = document.getElementById('countryGridContainer');
+            const serviceSearch = document.getElementById('serviceSearch');
+            const countrySearch = document.getElementById('countrySearch');
+            const sortSelect = document.getElementById('sortSelect');
+
+            async function loadInitialData() {
+                try {
+                    if (typeof NokosAPI !== 'undefined') {
+                        const [prodRes, servRes, countryRes, ordersRes] = await Promise.all([
+                            NokosAPI.getProducts().catch(() => []),
+                            NokosAPI.getServices().catch(() => []),
+                            NokosAPI.getCountries().catch(() => []),
+                            NokosAPI.getOrders().catch(() => [])
+                        ]);
+
+                        allProducts = Array.isArray(prodRes) ? prodRes : (prodRes.data || []);
+                        allServices = Array.isArray(servRes) ? servRes : (servRes.data || []);
+                        allCountries = Array.isArray(countryRes) ? countryRes : (countryRes.data || []);
+
+                        renderServices(allServices);
+                        renderCountries(allCountries);
+                        renderProducts(allProducts);
+                        renderActiveOrders(Array.isArray(ordersRes) ? ordersRes : (ordersRes.data || []));
+                    }
+                } catch (err) {
+                    console.error("Gagal memuat data NOKOS:", err);
+                    productsContainer.innerHTML = `<div style="text-align: center; color: var(--accent-red); padding: 20px; font-size: 0.85rem;">Gagal memuat katalog produk. <button id="retryBtn" style="background:none; border:none; color:#38bdf8; cursor:pointer; text-decoration:underline; margin-left:5px;">Coba lagi</button></div>`;
+                    document.getElementById('retryBtn')?.addEventListener('click', loadInitialData);
+                }
+            }
+
+            function renderServices(services) {
+                document.getElementById('serviceLabel').innerText = `SERVICE (${services.length})`;
+                servicesContainer.innerHTML = services.map(s => `
+                    <div class="chip ${selectedService === s.id ? 'active' : ''}" data-id="${s.id}">
+                        ${s.icon ? `<img src="${s.icon}" width="16" height="16" style="border-radius:50%;">` : ''}
+                        ${s.name || s.title}
+                    </div>
+                `).join('');
+
+                servicesContainer.querySelectorAll('.chip').forEach(el => {
+                    el.addEventListener('click', () => {
+                        selectedService = selectedService === el.dataset.id ? '' : el.dataset.id;
+                        renderServices(allServices);
+                        filterAndRenderProducts();
+                    });
+                });
+            }
+
+            function renderCountries(countries) {
+                document.getElementById('countryLabel').innerText = `COUNTRY (${countries.length})`;
+                countriesContainer.innerHTML = countries.map(c => `
+                    <div class="grid-chip ${selectedCountry === c.id ? 'active' : ''}" data-id="${c.id}">
+                        <span>${c.flag || '🏳️'}</span>
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${c.name}</span>
+                    </div>
+                `).join('');
+
+                countriesContainer.querySelectorAll('.grid-chip').forEach(el => {
+                    el.addEventListener('click', () => {
+                        selectedCountry = selectedCountry === el.dataset.id ? '' : el.dataset.id;
+                        renderCountries(allCountries);
+                        filterAndRenderProducts();
+                    });
+                });
+            }
+
+            function renderProducts(products) {
+                let filtered = products.filter(p => {
+                    if (selectedService && p.service_id !== selectedService && p.service !== selectedService) return false;
+                    if (selectedCountry && p.country_id !== selectedCountry && p.country !== selectedCountry) return false;
+                    return true;
+                });
+
+                // Sorting
+                const sortVal = sortSelect.value;
+                filtered.sort((a, b) => {
+                    const priceA = Number(a.price || a.cost || 0);
+                    const priceB = Number(b.price || b.cost || 0);
+                    return sortVal === 'cheapest' ? priceA - priceB : priceB - priceA;
+                });
+
+                document.getElementById('productsLabel').innerText = `PRODUCTS (${filtered.length})`;
+
+                if (filtered.length === 0) {
+                    productsContainer.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 20px; font-size: 0.85rem;">Tidak ada produk tersedia</div>`;
+                    return;
+                }
+
+                productsContainer.innerHTML = filtered.map(p => `
+                    <div class="product-card" data-id="${p.id || p.product_id}">
+                        <div class="product-info">
+                            <span class="product-flag">${p.flag || '🌐'}</span>
+                            <div class="product-details">
+                                <div class="p-name">${p.name || p.service_name || 'Service'}</div>
+                                <div class="p-stock">${p.stock || p.count || 0} avail</div>
+                            </div>
+                        </div>
+                        <div class="product-price">
+                            <div class="p-cost">Rp ${Number(p.price || p.cost || 0).toLocaleString('id-ID')}</div>
+                        </div>
+                    </div>
+                `).join('');
+
+                productsContainer.querySelectorAll('.product-card').forEach((card, idx) => {
+                    card.addEventListener('click', () => {
+                        pendingOrderProduct = filtered[idx];
+                        openModal(pendingOrderProduct);
+                    });
+                });
+            }
+
+            function filterAndRenderProducts() {
+                renderProducts(allProducts);
+            }
+
+            function renderActiveOrders(orders) {
+                const activeSec = document.getElementById('activeOrdersSection');
+                const activeList = document.getElementById('activeOrdersList');
+                const countBadge = document.getElementById('activeOrderCount');
+
+                const active = orders.filter(o => o.status === 'ACTIVE' || o.status === 'active');
+                if (active.length > 0) {
+                    activeSec.style.display = 'block';
+                    countBadge.innerText = active.length;
+                    activeList.innerHTML = active.map(o => `
+                        <div class="active-order-item">
+                            <div class="order-meta">
+                                <span class="order-id">#${o.id || o.order_id}</span>
+                                <span class="order-status">${o.status}</span>
+                            </div>
+                            <div class="phone-display">
+                                <span>${o.phone || o.number}</span>
+                                <button class="copy-btn" onclick="navigator.clipboard.writeText('${o.phone || o.number}')">📋</button>
+                            </div>
+                            <div class="otp-status">Last detected OTP: ${o.otp || o.last_otp || 'Waiting for SMS...'}</div>
+                            <div class="order-actions">
+                                <button class="btn-action" onclick="finishOrder('${o.id || o.order_id}')">DONE</button>
+                                <button class="btn-action" onclick="resendOrder('${o.id || o.order_id}')">RESEND</button>
+                                <button class="btn-action" onclick="cancelOrder('${o.id || o.order_id}')">CANCEL</button>
+                                <button class="btn-action" onclick="syncOrder('${o.id || o.order_id}')">SYNC</button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    activeSec.style.display = 'none';
+                }
+            }
+
+            // Modal Handling
+            const modal = document.getElementById('orderModal');
+            const modalBody = document.getElementById('modalBodyText');
+
+            function openModal(prod) {
+                modalBody.innerHTML = `Layanan: <b>${prod.name || prod.service_name}</b><br>Harga: <b style="color:#34d399;">Rp ${Number(prod.price || prod.cost || 0).toLocaleString('id-ID')}</b>`;
+                modal.classList.add('open');
+            }
+
+            document.getElementById('modalCancelBtn').addEventListener('click', () => {
+                modal.classList.remove('open');
+                pendingOrderProduct = null;
+            });
+
+            document.getElementById('modalConfirmBtn').addEventListener('click', async () => {
+                if (!pendingOrderProduct) return;
+                modal.classList.remove('open');
+                try {
+                    const res = await NokosAPI.createOrder({ product_id: pendingOrderProduct.id || pendingOrderProduct.product_id });
+                    if (res && (res.success || res.status === 'success' || res.id)) {
+                        alert('Order berhasil dibuat!');
+                        loadInitialData();
+                    } else {
+                        alert(res.message || 'Gagal membuat order.');
+                    }
+                } catch (e) {
+                    alert('Terjadi kesalahan koneksi saat membuat order.');
+                }
+            });
+
+            // Search listeners
+            serviceSearch.addEventListener('input', (e) => {
+                const val = e.target.value.toLowerCase();
+                const filtered = allServices.filter(s => (s.name || s.title || '').toLowerCase().includes(val));
+                renderServices(filtered);
+            });
+
+            countrySearch.addEventListener('input', (e) => {
+                const val = e.target.value.toLowerCase();
+                const filtered = allCountries.filter(c => (c.name || '').toLowerCase().includes(val));
+                renderCountries(filtered);
+            });
+
+            sortSelect.addEventListener('change', filterAndRenderProducts);
+
+            // Global order helper actions
+            window.finishOrder = async (id) => {
+                await NokosAPI.finishOrder(id);
+                loadInitialData();
+            };
+            window.resendOrder = async (id) => {
+                await NokosAPI.resendOrder(id);
+                alert('Permintaan SMS ulang dikirim.');
+            };
+            window.cancelOrder = async (id) => {
+                await NokosAPI.cancelOrder(id);
+                loadInitialData();
+            };
+            window.syncOrder = async (id) => {
+                await NokosAPI.syncOrder(id);
+                loadInitialData();
+            };
+
+            loadInitialData();
+        });
+    </script>
 </body>
 </html>
