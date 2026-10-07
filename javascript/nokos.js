@@ -17,6 +17,10 @@ import {
   debitBalance,
   refundBalance
 } from "./wallet.js";
+
+import {
+  getMarkupPercent
+} from "./price-settings.js";
 import {
   errorResponse,
   successResponse,
@@ -188,31 +192,6 @@ function getProductName(product) {
   ]) || "NOKOS";
 }
 
-function parsePriceValue(candidate) {
-  if (candidate === null || candidate === undefined || candidate === "") return 0;
-
-  if (typeof candidate === "object") {
-    const canonicalCurrency = String(candidate.canonical_currency ?? "").trim().toUpperCase();
-    const currency = String(candidate.currency ?? "").trim().toUpperCase();
-    const canonicalAmount = candidate.canonical_amount;
-
-    if (canonicalAmount !== null && canonicalAmount !== undefined && canonicalAmount !== "") {
-      const price = Number(canonicalAmount);
-      return Number.isSafeInteger(price) && price > 0 ? price : 0;
-    }
-
-    if (currency === "IDR" || canonicalCurrency === "IDR") {
-      const amount = Number(candidate.amount);
-      return Number.isSafeInteger(amount) && amount > 0 ? amount : 0;
-    }
-
-    return 0;
-  }
-
-  const price = Number(candidate);
-  return Number.isSafeInteger(price) && price > 0 ? price : 0;
-}
-
 function getProductPrice(product) {
   const candidates = [
     product?.price,
@@ -227,11 +206,22 @@ function getProductPrice(product) {
   ];
 
   for (const candidate of candidates) {
-    const price = parsePriceValue(candidate);
-    if (price > 0) return price;
+    if (candidate === null || candidate === undefined || candidate === "") continue;
+    const price = Number(candidate);
+    if (Number.isSafeInteger(price) && price > 0) return price;
   }
 
   return 0;
+}
+
+function calculateCustomerPrice(providerPrice, markupPercent) {
+  const price = Number(providerPrice);
+  const markup = Number(markupPercent);
+
+  if (!Number.isFinite(price) || price <= 0) return 0;
+  if (!Number.isFinite(markup) || markup < 0) return Math.round(price);
+
+  return Math.max(1, Math.round(price * (1 + markup / 100)));
 }
 
 function isExplicitlyFalse(value) {
@@ -322,12 +312,13 @@ function parseTimestamp(value) {
   return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null;
 }
 
-function serializeProduct(product) {
+function serializeProduct(product, markupPercent) {
   if (!product) {
     return null;
   }
 
-  const price = getProductPrice(product);
+  const providerPrice = getProductPrice(product);
+  const customerPrice = calculateCustomerPrice(providerPrice, markupPercent);
 
   return {
     id: getProductId(product),
@@ -342,8 +333,10 @@ function serializeProduct(product) {
     operator_id: getOperatorId(product),
     operator_name: getOperatorName(product),
     name: getProductName(product),
-    price,
-    provider_price: price,
+    price: customerPrice,
+    selling_price: customerPrice,
+    provider_price: providerPrice,
+    markup_percent: markupPercent,
     available: isProductAvailable(product),
     active: !isExplicitlyFalse(product?.active) && !isExplicitlyFalse(product?.is_active),
     metadata: product?.metadata ?? product?.raw ?? null
@@ -860,6 +853,8 @@ export async function listNokosProducts(request, env) {
     const maxPrice = normalizePrice(url.searchParams.get("max_price"));
     const catalogProductId = normalizeCatalogProductId(url.searchParams.get("catalog_product_id"));
 
+    const markupPercent = await getMarkupPercent(env, "NOKOS");
+
     const filtered = products.filter(product => {
       if (!isValidCatalogProduct(product)) return false;
       if (countryId && getCountryId(product) !== countryId) return false;
@@ -868,17 +863,21 @@ export async function listNokosProducts(request, env) {
       if (operatorId && getOperatorId(product) !== operatorId) return false;
       if (catalogProductId && getCatalogProductId(product) !== catalogProductId) return false;
 
-      const price = getProductPrice(product);
+      const price = calculateCustomerPrice(getProductPrice(product), markupPercent);
       if (minPrice !== null && price < minPrice) return false;
       if (maxPrice !== null && price > maxPrice) return false;
       return true;
     });
 
-    filtered.sort((a, b) => getProductPrice(a) - getProductPrice(b));
+    filtered.sort((a, b) => {
+      return calculateCustomerPrice(getProductPrice(a), markupPercent) -
+        calculateCustomerPrice(getProductPrice(b), markupPercent);
+    });
 
     return successResponse({
-      products: filtered.map(serializeProduct),
+      products: filtered.map(product => serializeProduct(product, markupPercent)),
       count: filtered.length,
+      markup_percent: markupPercent,
       cached_for_seconds: CATALOG_CACHE_TTL
     });
   } catch (error) {
@@ -966,7 +965,8 @@ export async function createNokosOrder(request, env) {
       return errorResponse("Harga produk NOKOS tidak valid.", 409);
     }
 
-    const customerAmount = providerPrice;
+    const markupPercent = await getMarkupPercent(env, "NOKOS");
+    const customerAmount = calculateCustomerPrice(providerPrice, markupPercent);
     const localOrder = await insertOrder(env, {
       userId: user.id,
       productId: getProductId(product) || getCatalogProductId(product),
@@ -977,6 +977,7 @@ export async function createNokosOrder(request, env) {
       providerAmount: providerPrice,
       customerAmount,
       requestData: {
+        markup_percent: markupPercent,
         product_id: input.productId,
         catalog_product_id: input.catalogProductId,
         country_id: input.countryId,
