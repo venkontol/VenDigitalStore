@@ -1,6 +1,6 @@
 {
   // Konfigurasi non-secret saja. Secret diatur di Cloudflare (wrangler secret put / dashboard).
-  "name": "nexusbase",
+  "name": "requirevenweb-api",
   "main": "src/index.js",
   "compatibility_date": "2025-09-01",
   "observability": { "enabled": true },
