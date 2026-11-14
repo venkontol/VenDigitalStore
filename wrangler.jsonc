@@ -1,0 +1,15 @@
+{
+  // Konfigurasi non-secret saja. Secret diatur di Cloudflare (wrangler secret put / dashboard).
+  "name": "nexusbase",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nexusbase-db",
+      // Placeholder: ganti dengan database_id asli dari dashboard/wrangler d1 create.
+      "database_id": "297501d6d61ab65cbaa2851530bfa033"
+    }
+  ]
+}
